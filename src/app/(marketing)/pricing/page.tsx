@@ -23,7 +23,7 @@ function buildFaq(): FaqItem[] {
     },
     {
       q: "What counts as a seat?",
-      a: `A seat is a person who can sign in. ${starter.name} and ${pro.name} include ${pro.limits.seats}; ${desk.name} includes up to ${desk.limits.seats} with owner, trader and viewer roles. Broker accounts are not seats: one person can connect any number of accounts on a paid plan.`,
+      a: `A seat is a person who can sign in. ${starter.name} and ${pro.name} include ${pro.limits.seats}; ${desk.name} includes up to ${desk.limits.seats}, all trading the same book. Broker accounts are not seats: one person can connect any number of accounts on a paid plan.`,
     },
     {
       q: "Do you charge per broker connection?",
@@ -55,11 +55,11 @@ export default function PricingPage() {
           <SectionHead eyebrow="Compare" title="Every feature, every plan." lede="Limits come straight from the plan definitions the billing system uses." className="mb-0 sm:mb-0" />
           <ComparisonTable />
           <p className="text-xs text-muted-foreground">
-            Enterprise limits are set per contract. Talk to{" "}
-            <Link href="/partners" className="text-primary hover:underline">
-              partnerships
-            </Link>{" "}
-            for white-label pricing.
+            Enterprise limits are set per contract. White-label pricing is in the{" "}
+            <Link href="/tenants#white-label" className="text-primary hover:underline">
+              tenant program
+            </Link>
+            .
           </p>
         </Container>
       </Section>

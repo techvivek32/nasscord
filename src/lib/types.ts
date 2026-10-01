@@ -51,18 +51,20 @@ export interface Plan {
   limits: { brokers: number | "unlimited"; seats: number | "unlimited"; alertDelayMin: number };
 }
 
-export type PartnerModel = "white_label" | "referral" | "embedded";
+/** What a tenant gets. Every tenant earns commission; white-label is an add-on the super admin grants. */
+export type TenantOfferId = "commission" | "white_label";
 
-export interface PartnerModelInfo {
-  id: PartnerModel;
+export interface TenantOffer {
+  id: TenantOfferId;
   name: string;
   summary: string;
   pricing: string;
   bullets: string[];
 }
 
-export type TenantStatus = "active" | "trial" | "past_due" | "suspended";
+export type WorkspaceStatus = "active" | "trial" | "past_due" | "suspended";
 
+/** A white-label tenant's brand on the terminal its traders use. */
 export interface TenantBranding {
   name: string;
   /** Light and dark accent hex. Flows into --primary / --ring / --sidebar-primary. */
@@ -72,42 +74,49 @@ export interface TenantBranding {
   supportEmail?: string;
 }
 
-export interface TenantFeatures {
+export interface WorkspaceFeatures {
   tradescope: boolean;
   options: boolean;
   extendedHours: boolean;
   paperDefault: boolean;
 }
 
-export interface Tenant {
+/**
+ * A trading workspace: one trader's desk, or a small team on one book. The unit the platform bills.
+ * On screen the console calls these "Traders".
+ */
+export interface Workspace {
   id: string;
   slug: string;
   name: string;
   plan: PlanId;
-  status: TenantStatus;
+  status: WorkspaceStatus;
   createdAt: string;
   seats: number;
   seatLimit: number;
   mrr: number;
   brokers: BrokerId[];
-  whiteLabel: boolean;
-  branding?: TenantBranding;
-  partnerId?: string;
+  /** The tenant this workspace came through; its users are tenant users. Absent = organic traders. */
+  tenantId?: string;
   owner: { name: string; email: string };
-  features: TenantFeatures;
+  features: WorkspaceFeatures;
   timezone: string;
 }
 
-/** owner / trader / viewer = seats in a tenant workspace · operator = platform staff (console) ·
- *  superadmin = the platform owner: console, partner portal and their own terminal · partner = partner portal */
-export type Role = "owner" | "trader" | "viewer" | "operator" | "superadmin" | "partner";
+/** superadmin = the platform owner: console, tenant portal and their own terminal ·
+ *  tenant = a distributor who earns commission on the traders they bring (white-label when the super admin grants it) ·
+ *  trader = an organic user who signed up directly · tenant_user = a trader who belongs to a tenant */
+export type Role = "superadmin" | "tenant" | "trader" | "tenant_user";
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: Role;
-  tenantId: string;
+  /** The workspace the user trades in. Absent for a tenant's own login. */
+  workspaceId?: string;
+  /** The tenant a tenant user belongs to, or the one a tenant login runs. */
+  tenantId?: string;
   twoFactor: boolean;
   lastActiveAt: string;
   createdAt: string;
@@ -118,7 +127,10 @@ export interface Session {
   name: string;
   email: string;
   role: Role;
-  tenant: string; // slug
+  /** Workspace slug the terminal opens. Absent for a tenant's own login. */
+  workspace?: string;
+  /** The tenant a tenant user belongs to, or the one a tenant login runs. */
+  tenantId?: string;
 }
 
 export type AccountType = "individual" | "ira" | "roth" | "margin" | "paper";
@@ -251,33 +263,49 @@ export type InvoiceStatus = "paid" | "open" | "past_due" | "void";
 
 export interface Invoice {
   id: string;
-  tenantId: string;
-  tenantName: string;
+  workspaceId: string;
+  workspaceName: string;
   amount: number;
   status: InvoiceStatus;
   issuedAt: string;
   dueAt: string;
 }
 
-export type PartnerStatus = "active" | "pending" | "paused";
+export type TenantStatus = "active" | "pending" | "paused";
 
-export interface Partner {
+/** A distributor. Brings traders to the platform and earns commission on their subscriptions. */
+export interface Tenant {
   id: string;
   name: string;
-  model: PartnerModel;
   contact: string;
-  tenants: number;
-  revShare: number; // percent
+  /** Workspaces that signed up through this tenant. */
+  workspaces: number;
+  /** Commission on the subscription revenue of this tenant's traders, percent. */
+  commissionPct: number;
   mtdRevenue: number;
   mtdPayout: number;
-  status: PartnerStatus;
+  status: TenantStatus;
   referralCode: string;
   createdAt: string;
+  /** Granted by the super admin from the console's White-label page. */
+  whiteLabel: boolean;
+  branding?: TenantBranding;
+}
+
+/** Someone asking to become a tenant. */
+export interface TenantApplication {
+  id: string;
+  name: string;
+  contact: string;
+  audience: string;
+  /** Asked for white-label on top of commission. The super admin decides. */
+  wantsWhiteLabel: boolean;
+  submittedAt: string;
 }
 
 export interface Payout {
   id: string;
-  partnerId: string;
+  tenantId: string;
   period: string;
   amount: number;
   status: "scheduled" | "paid" | "on_hold";

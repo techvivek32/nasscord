@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Users · Console" };
 export default function UsersPage() {
   return (
     <>
-      <PageHeader title="Users" description="Every seat across every tenant. Roles, 2FA state and last activity." />
+      <PageHeader title="Users" description="Everyone who can sign in: the super admin, tenants, traders and tenant users. Roles follow where a user belongs." />
       <Suspense fallback={<TableSkeleton rows={8} cols={7} />}>
         <UsersTable />
       </Suspense>

@@ -40,7 +40,7 @@ export function AuditTable() {
 
   if (audit.isLoading) return <TableSkeleton rows={10} cols={6} />;
   if (audit.isError) return <EmptyState title="Audit log unavailable" action={<Button variant="outline" size="sm" onClick={() => audit.refetch()}>Retry</Button>} />;
-  if ((audit.data ?? []).length === 0) return <EmptyState title="No audit events" description="Operator and system actions will appear here." />;
+  if ((audit.data ?? []).length === 0) return <EmptyState title="No audit events" description="Super admin, tenant, trader and system actions will appear here." />;
 
   return (
     <DataTable

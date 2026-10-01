@@ -87,7 +87,7 @@ export function EnginePage() {
       <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle>Parameters</CardTitle>
-          <CardDescription>TradeScope scan settings for every tenant. Defaults are the measured production values from September 2026.</CardDescription>
+          <CardDescription>TradeScope scan settings for every trader. Defaults are the measured production values from September 2026.</CardDescription>
           <CardAction>
             <Button type="submit" form="engine-form" size="sm" disabled={!isDirty || isSubmitting}>
               {isSubmitting ? "Saving" : "Save"}
@@ -130,7 +130,7 @@ export function EnginePage() {
                 <p className="text-xs text-muted-foreground">Bar size for RSI, ADX and relative volume.</p>
               </div>
               <NumberField id="engine-minscore" label="Minimum score" help="Setups below this score are logged, not sent." error={errors.minScore?.message} {...form.register("minScore")} min={50} max={95} step={1} />
-              <NumberField id="engine-maxopen" label="Max open setups" help="Concurrent alerts per tenant across all accounts." error={errors.maxOpen?.message} {...form.register("maxOpen")} min={1} max={20} step={1} />
+              <NumberField id="engine-maxopen" label="Max open setups" help="Concurrent alerts per trader across all accounts." error={errors.maxOpen?.message} {...form.register("maxOpen")} min={1} max={20} step={1} />
               <NumberField id="engine-atr" label="ATR stop multiple" help="Stop = entry minus this many ATRs." error={errors.atrStopMultiple?.message} {...form.register("atrStopMultiple")} min={0.5} max={5} step={0.1} />
               <NumberField id="engine-rr" label="Reward to risk" help="Target = entry plus this share of the risk." error={errors.rewardToRisk?.message} {...form.register("rewardToRisk")} min={0.25} max={5} step={0.01} />
             </div>

@@ -13,25 +13,26 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { requestPasswordReset, signIn, signInAs } from "@/lib/auth-actions";
 import { maskEmail } from "@/lib/format";
+import { ROLE_DESCRIPTION, ROLE_LABEL } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 import { CodeInput } from "@/app/(auth)/login/code-input";
 import { resetSchema } from "@/components/onboarding/schemas";
 
 type View = "credentials" | "code" | "reset";
-type DemoKind = "trader" | "operator" | "partner";
 
-/** Single-role previews. The super admin, who has all of them, gets its own button above these. */
-const DEMO: ReadonlyArray<{ kind: DemoKind; label: string; hint: string }> = [
-  { kind: "trader", label: "Trader", hint: "Customer's terminal" },
-  { kind: "operator", label: "Operator", hint: "Staff console" },
-  { kind: "partner", label: "Partner", hint: "Acme Capital portal" },
-];
+/** One demo login per role, in the order the buttons show. Names and emails come from DEMO_IDENTITIES via the page. */
+export interface DemoLogin {
+  role: Role;
+  name: string;
+  email: string;
+}
 
 /**
  * Sign-in card. Credentials are validated on the client, held in component state through the
  * two-factor step, then posted to the `signIn` server action as FormData. The action redirects
  * on success and sends `?error=invalid` back here on failure; the page remounts this component.
  */
-export function LoginForm({ next, invalid }: { next?: string; invalid: boolean }) {
+export function LoginForm({ next, invalid, demos }: { next?: string; invalid: boolean; demos: ReadonlyArray<DemoLogin> }) {
   const [view, setView] = React.useState<View>("credentials");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -205,22 +206,18 @@ export function LoginForm({ next, invalid }: { next?: string; invalid: boolean }
 
             <div className="grid gap-2">
               <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Demo identities</p>
-              <form action={() => signInAs("superadmin", next)} className="grid">
-                <Button type="submit" variant="secondary" className="h-auto items-center justify-between gap-3 px-2.5 py-2 text-left">
-                  <span className="flex min-w-0 flex-col">
-                    <span className="text-sm font-medium">Super admin</span>
-                    <span className="text-[11px] font-normal whitespace-normal text-muted-foreground">Vivek Desai, platform owner. Console, terminal and partner portal.</span>
-                  </span>
-                  <span className="shrink-0 rounded-4xl bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-primary">Full access</span>
-                </Button>
-              </form>
-              <p className="text-xs text-muted-foreground">Or see what one role sees:</p>
-              <div className="grid grid-cols-3 gap-2">
-                {DEMO.map((d) => (
-                  <form key={d.kind} action={() => signInAs(d.kind, next)} className="grid">
-                    <Button type="submit" variant="secondary" className="h-auto flex-col items-start gap-0 px-2.5 py-2 text-left">
-                      <span className="text-sm font-medium">{d.label}</span>
-                      <span className="text-[11px] font-normal text-muted-foreground">{d.hint}</span>
+              <p className="text-xs text-muted-foreground">Sign in as any of the four roles to see what that role sees.</p>
+              <div className="grid gap-2">
+                {demos.map((d) => (
+                  <form key={d.role} action={() => signInAs(d.role, next)} className="grid">
+                    <Button type="submit" variant="secondary" className="h-auto flex-col items-start gap-0.5 px-2.5 py-2 text-left whitespace-normal">
+                      <span className="flex w-full flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <span className="text-sm font-medium">{ROLE_LABEL[d.role]}</span>
+                        <span className="text-[11px] font-normal text-muted-foreground">
+                          {d.name} · {d.email}
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-normal text-muted-foreground">{ROLE_DESCRIPTION[d.role]}</span>
                     </Button>
                   </form>
                 ))}

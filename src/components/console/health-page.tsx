@@ -97,7 +97,7 @@ export function HealthPage() {
         <Card>
           <CardHeader>
             <CardTitle>Maintenance gate</CardTitle>
-            <CardDescription>Blocks tenant terminals during regular hours while the fleet is being worked on.</CardDescription>
+            <CardDescription>Blocks trader and tenant user terminals during regular hours while the fleet is being worked on. The super admin stays exempt.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
@@ -159,8 +159,8 @@ export function HealthPage() {
             <DialogDescription>
               {pending?.instances === 1
                 ? "This service has a single instance, so it will be unavailable for roughly 20 seconds."
-                : `Rolling restart across ${pending?.instances} instances. Traffic drains from each one first, so tenants should not notice.`}
-              {pending?.id === "svc_gw" ? " IBKR sessions re-authenticate with the stored credentials; tenants with an expired second factor will be asked to log in again." : ""}
+                : `Rolling restart across ${pending?.instances} instances. Traffic drains from each one first, so traders should not notice.`}
+              {pending?.id === "svc_gw" ? " IBKR sessions re-authenticate with the stored credentials; traders with an expired second factor will be asked to log in again." : ""}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

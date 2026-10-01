@@ -7,12 +7,12 @@ interface Action {
   href: string;
 }
 
-/** Closing call to action band. Left-aligned, token colors only. Actions default to Start free / Talk to partnerships. */
+/** Closing call to action band. Left-aligned, token colors only. Actions default to Start free / Become a tenant. */
 export function CtaBand({
   title = "Your brokers, one terminal.",
   lede,
   primary = { label: "Start free", href: "/signup" },
-  secondary = { label: "Talk to partnerships", href: "/partners" },
+  secondary = { label: "Become a tenant", href: "/tenants" },
 }: {
   title?: string;
   lede?: string;

@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtDate } from "@/lib/format";
 import { ControlRow, SectionTitle } from "./primitives";
-import { PLATFORM_DOMAIN } from "./lib";
+import { PLATFORM_DOMAIN, SUPER_ADMIN_EMAIL } from "./lib";
 
 const SESSION_ITEMS = [
   { value: "8h", label: "8 hours" },
@@ -34,7 +34,6 @@ interface ApiKey {
 
 const INITIAL_KEYS: ApiKey[] = [
   { id: "key_live", label: "Production", prefix: "nsk_live_4f8a", scope: "alerts:read orders:write positions:read", createdAt: "2026-03-01T00:00:00Z", lastUsedAt: "2026-09-30T18:51:00Z" },
-  { id: "key_partner", label: "Partner embed (Fintech Lab)", prefix: "nsk_live_9c21", scope: "alerts:read positions:read", createdAt: "2026-05-19T00:00:00Z", lastUsedAt: "2026-09-30T17:02:00Z" },
   { id: "key_test", label: "Sandbox", prefix: "nsk_test_77d0", scope: "all (paper only)", createdAt: "2026-06-10T00:00:00Z" },
 ];
 
@@ -42,7 +41,7 @@ const TEMPLATES = [
   { id: "otp", name: "Sign-in code", subject: "Your {{brand}} sign-in code", updatedAt: "2026-08-12T00:00:00Z" },
   { id: "alert", name: "TradeScope alert", subject: "{{symbol}} setup · score {{score}}", updatedAt: "2026-09-02T00:00:00Z" },
   { id: "invoice", name: "Invoice issued", subject: "Invoice {{number}} from {{brand}}", updatedAt: "2026-07-21T00:00:00Z" },
-  { id: "invite", name: "Workspace invitation", subject: "{{inviter}} invited you to {{tenant}}", updatedAt: "2026-06-30T00:00:00Z" },
+  { id: "invite", name: "Workspace invitation", subject: "{{inviter}} invited you to {{workspace}}", updatedAt: "2026-06-30T00:00:00Z" },
   { id: "suspend", name: "Workspace suspended", subject: "Action needed on your {{brand}} account", updatedAt: "2026-05-14T00:00:00Z" },
 ];
 
@@ -93,7 +92,7 @@ function GeneralTab() {
     <Card>
       <CardHeader>
         <CardTitle>General</CardTitle>
-        <CardDescription>Platform identity used wherever a tenant has no white-label override.</CardDescription>
+        <CardDescription>Platform identity every trader sees, unless their tenant has white-label.</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -106,7 +105,7 @@ function GeneralTab() {
           <Field id="set-name" label="Platform name">
             <Input id="set-name" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field id="set-domain" label="Apex domain" help="Tenant workspaces live on subdomains; white-label tenants CNAME to edge.">
+          <Field id="set-domain" label="Apex domain" help="Trader workspaces live on subdomains; white-label tenants CNAME to edge.">
             <Input id="set-domain" value={domain} className="font-mono" onChange={(e) => setDomain(e.target.value)} />
           </Field>
           <Field id="set-support" label="Support email" help="Shown in the terminal footer and in transactional emails.">
@@ -130,14 +129,14 @@ function BrandingTab() {
     <Card>
       <CardHeader>
         <CardTitle>Branding defaults</CardTitle>
-        <CardDescription>Applied to every tenant without its own white-label settings. Accent colors come from the design tokens and are overridden per tenant.</CardDescription>
+        <CardDescription>Applied to organic traders and to tenants without white-label. Accent colors come from the design tokens; a white-label tenant overrides them on the White-label page.</CardDescription>
       </CardHeader>
       <CardContent>
         <form
           className="grid max-w-xl gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            toast.success("Branding defaults saved", { description: "Tenants without overrides pick this up on next load." });
+            toast.success("Branding defaults saved", { description: "Traders without a white-label brand pick this up on next load." });
           }}
         >
           <Field id="brand-tagline" label="Tagline">
@@ -150,7 +149,7 @@ function BrandingTab() {
             <ControlRow id="brand-dark" label="Dark theme by default" help="New seats start in dark mode; they can switch any time.">
               <Switch id="brand-dark" checked={darkDefault} onCheckedChange={setDarkDefault} />
             </ControlRow>
-            <ControlRow id="brand-marks" label="Show broker monograms" help="Broker tiles next to accounts and positions. Some white-label partners prefer text only.">
+            <ControlRow id="brand-marks" label="Show broker monograms" help="Broker tiles next to accounts and positions. Some white-label tenants prefer text only.">
               <Switch id="brand-marks" checked={showBrokerMarks} onCheckedChange={setShowBrokerMarks} />
             </ControlRow>
           </div>
@@ -171,17 +170,17 @@ function SecurityTab() {
     <Card>
       <CardHeader>
         <CardTitle>Security</CardTitle>
-        <CardDescription>Applies to operator accounts on this console. Tenant security is set per workspace.</CardDescription>
+        <CardDescription>Applies to the super admin account on this console. Trader security is set per workspace.</CardDescription>
       </CardHeader>
       <CardContent className="grid max-w-xl gap-4">
         <div className="divide-y divide-border">
-          <ControlRow id="sec-2fa" label="Require 2FA for all operators" help="Operators without an authenticator are prompted to enroll at next sign-in.">
+          <ControlRow id="sec-2fa" label="Require 2FA on the console" help="Without an authenticator, the super admin is prompted to enroll at next sign-in.">
             <Switch
               id="sec-2fa"
               checked={require2fa}
               onCheckedChange={(on) => {
                 setRequire2fa(on);
-                toast.success(on ? "2FA required for operators" : "2FA no longer required", { description: on ? "1 operator will be prompted to enroll." : "Not recommended for production." });
+                toast.success(on ? "2FA required on the console" : "2FA no longer required", { description: on ? `${SUPER_ADMIN_EMAIL} already has 2FA on.` : "Not recommended for production." });
               }}
             />
           </ControlRow>
@@ -196,7 +195,7 @@ function SecurityTab() {
             />
           </ControlRow>
         </div>
-        <Field id="sec-session" label="Session lifetime" help="Idle operator sessions expire after this period.">
+        <Field id="sec-session" label="Session lifetime" help="Idle console sessions expire after this period.">
           <Select
             items={SESSION_ITEMS}
             value={session}
@@ -257,7 +256,15 @@ function ApiKeysTab() {
           ))}
         </ul>
         <div className="mt-3 border-t pt-3">
-          <Button variant="ghost" size="sm" onClick={() => toast("Key creation is done from the embedded partner's record", { description: "Partners > partner > API access." })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              const prefix = `nsk_live_${Math.random().toString(16).slice(2, 6)}`;
+              setKeys((ks) => [...ks, { id: `key_${prefix.slice(-4)}`, label: `Production key ${ks.length + 1}`, prefix, scope: "alerts:read positions:read", createdAt: new Date().toISOString() }]);
+              toast.success("API key created", { description: `${prefix}… copied to clipboard. It is shown once.` });
+            }}
+          >
             Create key
           </Button>
         </div>
@@ -330,7 +337,7 @@ function EmailTab() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Updated {fmtDate(t.updatedAt)}</span>
-                  <Button variant="outline" size="sm" onClick={() => toast(`Test ${t.name.toLowerCase()} sent to ops@nasscord.com`)}>
+                  <Button variant="outline" size="sm" onClick={() => toast(`Test ${t.name.toLowerCase()} sent to ${SUPER_ADMIN_EMAIL}`)}>
                     Send test
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => toast("Template editor opens in the mail service", { description: `${t.id}.mjml · last deploy ${fmtDate(t.updatedAt)}` })}>

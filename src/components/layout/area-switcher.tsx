@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { SHELL_AREAS, type ShellNavId } from "@/lib/nav";
 
 /**
- * Sidebar control for people whose role opens more than one area (the super admin, operators):
+ * Sidebar control for people whose role opens more than one area (the super admin):
  * shows the area they are in and jumps to the others. Renders nothing for a single-area role.
  */
 export function AreaSwitcher({ current, areas }: { current: ShellNavId; areas: ShellNavId[] }) {

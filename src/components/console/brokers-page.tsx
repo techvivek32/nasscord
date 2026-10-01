@@ -54,14 +54,14 @@ export function BrokersPage() {
         <Info />
         <AlertTitle>Three integration modes</AlertTitle>
         <AlertDescription>
-          <span className="font-medium text-foreground">Direct API</span> brokers trade through their own OAuth or session API. <span className="font-medium text-foreground">Aggregator</span> brokers (Fidelity, Robinhood) have no public trading API, so positions and balances sync read-only through a licensed aggregator. <span className="font-medium text-foreground">Coming soon</span> brokers are on the roadmap and hidden from tenants until enabled here.
+          <span className="font-medium text-foreground">Direct API</span> brokers trade through their own OAuth or session API. <span className="font-medium text-foreground">Aggregator</span> brokers (Fidelity, Robinhood) have no public trading API, so positions and balances sync read-only through a licensed aggregator. <span className="font-medium text-foreground">Coming soon</span> brokers are on the roadmap and hidden from traders until enabled here.
         </AlertDescription>
       </Alert>
 
       <Card>
         <CardHeader>
           <CardTitle>Broker registry</CardTitle>
-          <CardDescription>All 12 integrations. Disabling a broker hides it from the connect flow for every tenant; existing connections keep syncing.</CardDescription>
+          <CardDescription>All 12 integrations. Disabling a broker hides it from the connect flow for every trader; existing connections keep syncing.</CardDescription>
         </CardHeader>
         <CardContent>
           {overview.isLoading ? (
@@ -77,7 +77,7 @@ export function BrokersPage() {
                     <TableHead className={TH}>OAuth client</TableHead>
                     <TableHead className={`${TH} text-right`}>Connected accounts</TableHead>
                     <TableHead className={`${TH} w-52`}>Rate limit</TableHead>
-                    <TableHead className={`${TH} text-right`}>Enabled for tenants</TableHead>
+                    <TableHead className={`${TH} text-right`}>Enabled for traders</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -119,11 +119,11 @@ export function BrokersPage() {
                           <Switch
                             id={id}
                             checked={enabled[b.id]}
-                            aria-label={`${b.name} enabled for tenants`}
+                            aria-label={`${b.name} enabled for traders`}
                             onCheckedChange={(on) => {
                               setEnabled(b.id, on);
-                              toast.success(on ? `${b.name} is available to tenants` : `${b.name} hidden from the connect flow`, {
-                                description: b.mode === "planned" && on ? "Tenants will see it as coming soon." : undefined,
+                              toast.success(on ? `${b.name} is available to traders` : `${b.name} hidden from the connect flow`, {
+                                description: b.mode === "planned" && on ? "Traders will see it as coming soon." : undefined,
                               });
                             }}
                           />
@@ -141,13 +141,13 @@ export function BrokersPage() {
       <Card>
         <CardHeader>
           <CardTitle>Gateway pools</CardTitle>
-          <CardDescription>Each IBKR login needs its own gateway session, so pools scale per tenant rather than per request. Other brokers share stateless OAuth clients.</CardDescription>
+          <CardDescription>Each IBKR login needs its own gateway session, so pools scale per trader login rather than per request. Other brokers share stateless OAuth clients.</CardDescription>
         </CardHeader>
         <CardContent>
           {overview.isLoading ? (
             <TableSkeleton rows={3} cols={6} />
           ) : (overview.data?.gatewayPools ?? []).length === 0 ? (
-            <EmptyState title="No gateway pools" description="Pools appear when the first IBKR tenant connects." />
+            <EmptyState title="No gateway pools" description="Pools appear when the first IBKR trader connects." />
           ) : (
             <div className="overflow-x-auto">
               <Table>

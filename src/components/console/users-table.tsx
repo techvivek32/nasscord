@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, UserPlus, X } from "lucide-react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -12,65 +12,103 @@ import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useTenants, useUsers } from "@/hooks/queries";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useUsers, useWorkspaces } from "@/hooks/queries";
 import { maskEmail, timeAgo } from "@/lib/format";
-import { isStaff } from "@/lib/roles";
-import type { Role, User } from "@/lib/types";
+import { ROLES } from "@/lib/roles";
+import type { Role, User, Workspace } from "@/lib/types";
 import { RoleBadge, TwoFactorBadge } from "./badges";
 import { DEMO_NOW, ROLE_LABEL, shortId } from "./lib";
 import { TableSkeleton } from "./primitives";
-import { useConsoleStore } from "./store";
+import { useConsoleStore, useConsoleTenants } from "./store";
 
-type Row = User & { tenantName: string };
+/** `workspaceLabel`: where the user trades, or the tenant a tenant login runs. `tenantLabel`: the tenant a tenant user belongs to. */
+type Row = User & { workspaceLabel: string; tenantLabel: string };
+type RoleFilter = "all" | Role;
 
-const TENANT_ROLES: Role[] = ["owner", "trader", "viewer"];
-const ROLE_ITEMS = TENANT_ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }));
+/** The super admin and tenant logins are not seats in a workspace, so they are managed elsewhere. */
+const isLocked = (role: Role) => role === "superadmin" || role === "tenant";
+
+/** Roles follow where a user belongs: a workspace that came through a tenant makes them a tenant user. */
+const roleForWorkspace = (w: Workspace | undefined): Role => (w?.tenantId ? "tenant_user" : "trader");
 
 const inviteSchema = z.object({
   email: z.email("Enter a valid email address."),
-  tenantId: z.string().min(1, "Choose a tenant."),
-  role: z.enum(["owner", "trader", "viewer"], { error: "Choose a role." }),
+  workspaceId: z.string().min(1, "Choose a workspace."),
 });
 type InviteInput = z.input<typeof inviteSchema>;
 type InviteValues = z.output<typeof inviteSchema>;
 
 export function UsersTable() {
   const users = useUsers();
-  const tenants = useTenants();
+  const workspaces = useWorkspaces();
+  const { query: tenantsQuery, byId: tenantById } = useConsoleTenants();
   const search = useSearchParams();
   const router = useRouter();
   const focus = search.get("q") ?? "";
   const invited = useConsoleStore((s) => s.invitedUsers);
   const removed = useConsoleStore((s) => s.removedUserIds);
-  const roles = useConsoleStore((s) => s.userRoles);
   const reset2fa = useConsoleStore((s) => s.reset2fa);
-  const setUserRole = useConsoleStore((s) => s.setUserRole);
   const removeUser = useConsoleStore((s) => s.removeUser);
   const markReset2fa = useConsoleStore((s) => s.markReset2fa);
+  const [role, setRole] = React.useState<RoleFilter>("all");
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [pendingRemove, setPendingRemove] = React.useState<Row | null>(null);
 
-  const tenantName = React.useMemo(() => new Map((tenants.data ?? []).map((t) => [t.id, t.name] as const)), [tenants.data]);
+  const workspaceName = React.useMemo(() => new Map((workspaces.data ?? []).map((w) => [w.id, w.name] as const)), [workspaces.data]);
 
-  const rows = React.useMemo<Row[]>(
+  const all = React.useMemo<Row[]>(
     () =>
       [...invited, ...(users.data ?? [])]
         .filter((u) => !removed.includes(u.id))
         .filter((u) => !focus || u.email.toLowerCase() === focus.toLowerCase() || u.name.toLowerCase().includes(focus.toLowerCase()))
-        .map((u) => ({ ...u, role: roles[u.id] ?? u.role, twoFactor: reset2fa.includes(u.id) ? false : u.twoFactor, tenantName: tenantName.get(u.tenantId) ?? u.tenantId })),
-    [users.data, invited, removed, roles, reset2fa, tenantName, focus],
+        .map((u) => {
+          const tenantName = u.tenantId ? (tenantById.get(u.tenantId)?.name ?? u.tenantId) : "";
+          const workspaceLabel = u.workspaceId ? (workspaceName.get(u.workspaceId) ?? u.workspaceId) : tenantName;
+          // Only a tenant user belongs to a tenant; the other roles get a plain word instead of a name.
+          const tenantLabel = u.role === "tenant_user" ? tenantName : u.role === "trader" ? "Organic" : u.role === "tenant" ? "Own login" : "Platform owner";
+          return { ...u, twoFactor: reset2fa.includes(u.id) ? false : u.twoFactor, workspaceLabel, tenantLabel };
+        }),
+    [users.data, invited, removed, reset2fa, workspaceName, tenantById, focus],
   );
+  const rows = React.useMemo(() => (role === "all" ? all : all.filter((u) => u.role === role)), [all, role]);
 
   const columns = React.useMemo<ColumnDef<Row>[]>(
     () => [
-      { accessorKey: "name", header: "Name", cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
-      { accessorKey: "email", header: "Email", cell: ({ row }) => <span className="font-mono text-xs">{maskEmail(row.original.email)}</span> },
-      { accessorKey: "tenantName", header: "Tenant" },
+      {
+        id: "user",
+        accessorFn: (u) => `${u.name} ${u.email}`,
+        header: "User",
+        cell: ({ row }) => (
+          <div className="grid gap-0.5">
+            <span className="font-medium">{row.original.name}</span>
+            <span className="font-mono text-xs text-muted-foreground">{maskEmail(row.original.email)}</span>
+          </div>
+        ),
+      },
       { accessorKey: "role", header: "Role", cell: ({ row }) => <RoleBadge role={row.original.role} /> },
+      {
+        accessorKey: "workspaceLabel",
+        header: "Workspace",
+        cell: ({ row }) =>
+          row.original.role === "tenant" ? (
+            <div className="grid gap-0.5">
+              <span>{row.original.workspaceLabel}</span>
+              <span className="text-xs text-muted-foreground">Tenant portal, no workspace</span>
+            </div>
+          ) : (
+            <span>{row.original.workspaceLabel}</span>
+          ),
+      },
+      {
+        accessorKey: "tenantLabel",
+        header: "Tenant",
+        cell: ({ row }) => <span className={row.original.role === "tenant_user" ? undefined : "text-muted-foreground"}>{row.original.tenantLabel}</span>,
+      },
       { accessorKey: "twoFactor", header: "2FA", cell: ({ row }) => <TwoFactorBadge enabled={row.original.twoFactor} /> },
       { accessorKey: "lastActiveAt", header: "Last active", cell: ({ row }) => <span className="text-muted-foreground">{timeAgo(row.original.lastActiveAt, DEMO_NOW)}</span> },
       {
@@ -80,36 +118,21 @@ export function UsersTable() {
         meta: { align: "right" },
         cell: ({ row }) => {
           const u = row.original;
-          // Platform staff (operators and the super admin) are managed outside the tenant roles.
-          const isOperator = isStaff(u.role);
+          const locked = isLocked(u.role);
           return (
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.name}`} />}>
                 <MoreHorizontal />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-52">
                 {/* The label is a Base UI Menu.GroupLabel: it throws outside a group. */}
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel>{u.name}</DropdownMenuLabel>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger disabled={isOperator}>Change role</DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {TENANT_ROLES.map((r) => (
-                        <DropdownMenuItem
-                          key={r}
-                          disabled={r === u.role}
-                          onClick={() => {
-                            setUserRole(u.id, r);
-                            toast.success(`${u.name} is now ${ROLE_LABEL[r].toLowerCase()} in ${u.tenantName}`);
-                          }}
-                        >
-                          {ROLE_LABEL[r]}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                  <DropdownMenuLabel>
+                    <span className="block truncate">{u.name}</span>
+                    {locked ? <span className="block text-[11px] font-normal">{u.role === "superadmin" ? "The super admin account" : "Tenant login, managed on Tenants"}</span> : null}
+                  </DropdownMenuLabel>
                   <DropdownMenuItem
-                    disabled={!u.twoFactor}
+                    disabled={locked || !u.twoFactor}
                     onClick={() => {
                       markReset2fa(u.id);
                       toast.success(`2FA reset for ${u.name}`, { description: "They will enroll a new authenticator at next sign-in." });
@@ -119,7 +142,7 @@ export function UsersTable() {
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" disabled={isOperator} onClick={() => setPendingRemove(u)}>
+                <DropdownMenuItem variant="destructive" disabled={locked} onClick={() => setPendingRemove(u)}>
                   Remove
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -128,35 +151,60 @@ export function UsersTable() {
         },
       },
     ],
-    [setUserRole, markReset2fa],
+    [markReset2fa],
   );
 
-  if (users.isLoading || tenants.isLoading) return <TableSkeleton rows={8} cols={7} />;
+  if (users.isLoading || workspaces.isLoading || tenantsQuery.isLoading) return <TableSkeleton rows={8} cols={7} />;
   if (users.isError) return <EmptyState title="Users could not be loaded" action={<Button variant="outline" size="sm" onClick={() => users.refetch()}>Retry</Button>} />;
 
   return (
     <>
-      {rows.length === 0 ? (
-        <EmptyState title="No users" description="Invite the first user to a tenant to get started." action={<Button size="sm" onClick={() => setInviteOpen(true)}>Invite user</Button>} />
+      {all.length === 0 ? (
+        <EmptyState title="No users" description="Invite the first trader to a workspace to get started." action={<Button size="sm" onClick={() => setInviteOpen(true)}>Invite user</Button>} />
       ) : (
         <DataTable
           columns={columns}
           data={rows}
-          searchPlaceholder="Search name, email, tenant…"
+          searchPlaceholder="Search name, email, workspace, tenant…"
           pageSize={10}
+          emptyMessage="No users with this role."
           toolbar={
-            <div className="ml-auto flex items-center gap-2">
-              {focus ? (
-                <Button variant="outline" size="sm" onClick={() => router.replace("/admin/users")}>
-                  <X data-icon="inline-start" />
-                  <span className="max-w-40 truncate font-mono text-xs">{maskEmail(focus)}</span>
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <ToggleGroup
+                variant="outline"
+                spacing={0}
+                value={[role]}
+                onValueChange={(next) => {
+                  const v = next[0] as RoleFilter | undefined;
+                  if (v) setRole(v);
+                }}
+                aria-label="Filter by role"
+                className="overflow-x-auto"
+              >
+                <ToggleGroupItem value="all" size="sm" className="px-3 data-pressed:bg-muted aria-pressed:bg-muted">
+                  All
+                </ToggleGroupItem>
+                {ROLES.map((r) => (
+                  <ToggleGroupItem key={r} value={r} size="sm" className="px-3 whitespace-nowrap data-pressed:bg-muted aria-pressed:bg-muted">
+                    {ROLE_LABEL[r]}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <div className="ml-auto flex items-center gap-2">
+                {focus ? (
+                  <Button variant="outline" size="sm" onClick={() => router.replace("/admin/users")}>
+                    <X data-icon="inline-start" />
+                    <span className="max-w-40 truncate font-mono text-xs">{maskEmail(focus)}</span>
+                  </Button>
+                ) : null}
+                <span className="hidden text-xs text-muted-foreground tabular sm:inline">
+                  {rows.length} {rows.length === 1 ? "user" : "users"}
+                </span>
+                <Button size="sm" onClick={() => setInviteOpen(true)}>
+                  <UserPlus data-icon="inline-start" />
+                  Invite user
                 </Button>
-              ) : null}
-              <span className="hidden text-xs text-muted-foreground tabular sm:inline">{rows.length} users</span>
-              <Button size="sm" onClick={() => setInviteOpen(true)}>
-                <UserPlus data-icon="inline-start" />
-                Invite user
-              </Button>
+              </div>
             </div>
           }
         />
@@ -168,7 +216,7 @@ export function UsersTable() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remove {pendingRemove?.name}?</DialogTitle>
-            <DialogDescription>Their seat in {pendingRemove?.tenantName} frees up immediately. Trade history stays with the workspace.</DialogDescription>
+            <DialogDescription>Their seat in {pendingRemove?.workspaceLabel} frees up immediately. Trade history stays with the workspace.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendingRemove(null)}>
@@ -179,7 +227,7 @@ export function UsersTable() {
               onClick={() => {
                 if (pendingRemove) {
                   removeUser(pendingRemove.id);
-                  toast.success(`${pendingRemove.name} removed from ${pendingRemove.tenantName}`);
+                  toast.success(`${pendingRemove.name} removed from ${pendingRemove.workspaceLabel}`);
                 }
                 setPendingRemove(null);
               }}
@@ -194,27 +242,34 @@ export function UsersTable() {
 }
 
 function InviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const tenants = useTenants();
+  const workspaces = useWorkspaces();
+  const { byId: tenantById } = useConsoleTenants();
   const addUser = useConsoleStore((s) => s.addUser);
-  const tenantItems = React.useMemo(() => (tenants.data ?? []).map((t) => ({ value: t.id, label: t.name })), [tenants.data]);
-  const form = useForm<InviteInput, unknown, InviteValues>({ resolver: zodResolver(inviteSchema), defaultValues: { email: "", tenantId: "", role: "trader" } });
+  const workspaceItems = React.useMemo(() => (workspaces.data ?? []).map((w) => ({ value: w.id, label: w.name })), [workspaces.data]);
+  const form = useForm<InviteInput, unknown, InviteValues>({ resolver: zodResolver(inviteSchema), defaultValues: { email: "", workspaceId: "" } });
   const { errors, isSubmitting } = form.formState;
+  const workspaceId = useWatch({ control: form.control, name: "workspaceId" });
+  const workspace = workspaces.data?.find((w) => w.id === workspaceId);
+  const tenant = workspace?.tenantId ? tenantById.get(workspace.tenantId) : undefined;
+  const role = roleForWorkspace(workspace);
 
   async function onSubmit(v: InviteValues) {
     await new Promise((r) => setTimeout(r, 300));
-    const tenant = tenants.data?.find((t) => t.id === v.tenantId);
+    const ws = workspaces.data?.find((w) => w.id === v.workspaceId);
+    const derived = roleForWorkspace(ws);
     const local = v.email.split("@")[0];
     addUser({
       id: shortId("u"),
       name: local.replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       email: v.email,
-      role: v.role,
-      tenantId: v.tenantId,
+      role: derived,
+      workspaceId: v.workspaceId,
+      tenantId: ws?.tenantId,
       twoFactor: false,
       lastActiveAt: DEMO_NOW.toISOString(),
       createdAt: DEMO_NOW.toISOString(),
     });
-    toast.success(`Invitation sent to ${v.email}`, { description: `${ROLE_LABEL[v.role]} in ${tenant?.name ?? v.tenantId}. Expires in 7 days.` });
+    toast.success(`Invitation sent to ${v.email}`, { description: `${ROLE_LABEL[derived]} in ${ws?.name ?? v.workspaceId}. Expires in 7 days.` });
     form.reset();
     onOpenChange(false);
   }
@@ -233,48 +288,41 @@ function InviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
             {errors.email ? <p className="text-xs text-destructive" role="alert">{errors.email.message}</p> : null}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="invite-tenant">Tenant</Label>
+            <Label htmlFor="invite-workspace">Workspace</Label>
             <Controller
               control={form.control}
-              name="tenantId"
+              name="workspaceId"
               render={({ field }) => (
-                <Select items={tenantItems} value={field.value || null} onValueChange={(v) => field.onChange(v ?? "")}>
-                  <SelectTrigger id="invite-tenant" className="w-full" aria-invalid={!!errors.tenantId} onBlur={field.onBlur}>
+                <Select items={workspaceItems} value={field.value || null} onValueChange={(v) => field.onChange(v ?? "")}>
+                  <SelectTrigger id="invite-workspace" className="w-full" aria-invalid={!!errors.workspaceId} onBlur={field.onBlur}>
                     <SelectValue placeholder="Choose a workspace" />
                   </SelectTrigger>
                   <SelectContent>
-                    {tenantItems.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
+                    {workspaceItems.map((w) => (
+                      <SelectItem key={w.value} value={w.value}>
+                        {w.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
             />
-            {errors.tenantId ? <p className="text-xs text-destructive" role="alert">{errors.tenantId.message}</p> : null}
+            {errors.workspaceId ? <p className="text-xs text-destructive" role="alert">{errors.workspaceId.message}</p> : null}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="invite-role">Role</Label>
-            <Controller
-              control={form.control}
-              name="role"
-              render={({ field }) => (
-                <Select items={ROLE_ITEMS} value={field.value ?? null} onValueChange={(v) => field.onChange(v ?? undefined)}>
-                  <SelectTrigger id="invite-role" className="w-full" aria-invalid={!!errors.role} onBlur={field.onBlur}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ROLE_ITEMS.map((r) => (
-                      <SelectItem key={r.value} value={r.value}>
-                        {r.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <p className="text-xs text-muted-foreground">Owners manage billing and seats. Traders place orders. Viewers see positions only.</p>
+            <span className="text-sm font-medium" id="invite-role-label">
+              Role
+            </span>
+            <div className="flex flex-wrap items-center gap-2" aria-labelledby="invite-role-label">
+              {workspace ? <RoleBadge role={role} /> : <span className="text-sm text-muted-foreground">Set by the workspace</span>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {workspace
+                ? workspace.tenantId
+                  ? `${workspace.name} came through ${tenant?.name ?? workspace.tenantId}, so they join as a tenant user${tenant?.whiteLabel ? ` and see ${tenant.branding?.name ?? tenant.name}'s brand` : ""}.`
+                  : `${workspace.name} signed up directly, so they join as a trader.`
+                : "Roles follow where a user belongs: a workspace that came through a tenant makes them a tenant user, otherwise a trader."}
+            </p>
           </div>
         </form>
         <DialogFooter>

@@ -5,9 +5,9 @@ import { MaintenanceRow } from "@/components/console/maintenance-gate";
 import { requireRole } from "@/lib/auth";
 import { CONSOLE_ROLES, ROLE_LABEL, areasForRole } from "@/lib/roles";
 
-/** Platform console. Operators and the super admin only; the proxy redirects everyone else optimistically, this enforces it. */
+/** Platform console. The super admin only; the proxy redirects everyone else optimistically, this enforces it. */
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
-  const session = await requireRole(CONSOLE_ROLES, "/admin", "/app");
+  const session = await requireRole(CONSOLE_ROLES, "/admin");
   const user = { name: session.name, email: session.email, roleLabel: ROLE_LABEL[session.role] };
 
   return (

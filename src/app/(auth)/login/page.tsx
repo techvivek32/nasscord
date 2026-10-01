@@ -1,15 +1,21 @@
 import type { Metadata } from "next";
 import { RadarIcon, ShieldCheckIcon, WalletIcon } from "lucide-react";
 import { AuthHeader } from "@/app/(auth)/auth-header";
-import { LoginForm } from "@/app/(auth)/login/login-form";
+import { LoginForm, type DemoLogin } from "@/app/(auth)/login/login-form";
 import { BrokerMark } from "@/components/brokers/broker-mark";
+import { DEMO_IDENTITIES } from "@/lib/auth";
 import { TRADING_BROKERS } from "@/lib/brokers";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
+import type { Role } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Sign in",
   description: "Sign in to your Nasscord terminal.",
 };
+
+/** The demo buttons, in this order. */
+const DEMO_ORDER: Role[] = ["superadmin", "tenant", "trader", "tenant_user"];
+const DEMOS: DemoLogin[] = DEMO_ORDER.map((role) => ({ role, name: DEMO_IDENTITIES[role].name, email: DEMO_IDENTITIES[role].email }));
 
 const VALUE_LINES = [
   {
@@ -39,7 +45,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <main className="flex flex-1 items-start px-4 py-8 sm:px-6 lg:items-center lg:px-10 lg:py-12">
         <div className="mx-auto grid w-full max-w-5xl gap-10 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:items-center lg:gap-16">
           {/* key: a failed attempt re-renders the page with ?error=invalid and the form starts over on the credentials view */}
-          <LoginForm key={error ?? "clean"} next={safeNext} invalid={error === "invalid"} />
+          <LoginForm key={error ?? "clean"} next={safeNext} invalid={error === "invalid"} demos={DEMOS} />
 
           <aside className="hidden lg:block" aria-label="About Nasscord">
             <div className="grid gap-8 border-l border-border pl-10">

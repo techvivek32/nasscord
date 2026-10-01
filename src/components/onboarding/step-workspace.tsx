@@ -11,7 +11,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useTenants } from "@/hooks/queries";
+import { useWorkspaces } from "@/hooks/queries";
 import { slugify } from "@/lib/format";
 import { PLANS } from "@/lib/plans";
 import type { Plan } from "@/lib/types";
@@ -35,15 +35,15 @@ function priceLine(plan: Plan) {
   return `$${plan.monthly}/mo`;
 }
 
-/** Step 2: workspace name, subdomain, timezone and plan. */
-export function StepWorkspace({ partnerName, partnerActive }: { partnerName: string; partnerActive: boolean }) {
+/** Step 2: workspace name, subdomain, timezone and plan. `brandActive`: joining a white-label tenant, which sets the pricing. */
+export function StepWorkspace({ tenantName, brandActive }: { tenantName: string; brandActive: boolean }) {
   const workspace = useSignupStore((s) => s.workspace);
   const navigated = useSignupStore((s) => s.navigated);
   const setWorkspace = useSignupStore((s) => s.setWorkspace);
   const submitWorkspace = useSignupStore((s) => s.submitWorkspace);
   const back = useSignupStore((s) => s.back);
 
-  const tenants = useTenants();
+  const workspaces = useWorkspaces();
 
   const form = useForm<WorkspaceValues>({
     resolver: zodResolver(workspaceSchema),
@@ -66,8 +66,8 @@ export function StepWorkspace({ partnerName, partnerActive }: { partnerName: str
   useFocusOnMount("signup-workspace-name", navigated);
 
   const slugValid = workspaceSchema.shape.slug.safeParse(slug).success;
-  const taken = slugValid && (RESERVED_SLUGS.has(slug) || (tenants.data?.some((t) => t.slug === slug) ?? false));
-  const checking = slugValid && tenants.isPending;
+  const taken = slugValid && (RESERVED_SLUGS.has(slug) || (workspaces.data?.some((w) => w.slug === slug) ?? false));
+  const checking = slugValid && workspaces.isPending;
 
   React.useEffect(() => {
     if (taken) setError("slug", { type: "taken", message: "That subdomain is taken. Try another." });
@@ -174,9 +174,9 @@ export function StepWorkspace({ partnerName, partnerActive }: { partnerName: str
 
         <fieldset className="grid gap-3">
           <legend className="text-sm font-medium">Plan</legend>
-          {partnerActive ? (
+          {brandActive ? (
             <FieldHint>
-              List prices shown for reference. {partnerName} sets your pricing and bills you directly; nothing is charged by Nasscord.
+              List prices shown for reference. {tenantName} sets your pricing and bills you directly; nothing is charged by Nasscord.
             </FieldHint>
           ) : (
             <FieldHint>Switch plans any time from Settings. Yearly billing is about 20% less.</FieldHint>

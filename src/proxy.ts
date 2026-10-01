@@ -1,39 +1,33 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { CONSOLE_ROLES, PARTNER_PORTAL_ROLES } from "@/lib/roles";
-import { resolveTenantSlug } from "@/lib/tenant";
-import type { Session } from "@/lib/types";
+import { CONSOLE_ROLES, TENANT_PORTAL_ROLES, TERMINAL_ROLES, homeForRole } from "@/lib/roles";
+import { SESSION_COOKIE, parseSession } from "@/lib/session";
+import { resolveHost } from "@/lib/tenant";
+import type { Role } from "@/lib/types";
 
-const SESSION_COOKIE = "ns_session";
-const PROTECTED: Array<{ prefix: string; roles?: Session["role"][] }> = [
-  { prefix: "/app" },
+const PROTECTED: Array<{ prefix: string; roles: Role[] }> = [
+  { prefix: "/app", roles: TERMINAL_ROLES },
   { prefix: "/admin", roles: CONSOLE_ROLES },
-  { prefix: "/partner", roles: PARTNER_PORTAL_ROLES },
+  { prefix: "/tenant", roles: TENANT_PORTAL_ROLES },
 ];
 
 /**
  * Request proxy (Next.js 16 name for middleware).
- *  1. Resolve the tenant from the host and forward it as x-tenant.
- *  2. Optimistic auth gate: no session cookie -> /login?next=…; wrong role -> /app.
+ *  1. Resolve the host and forward it as x-workspace (subdomain) / x-tenant (white-label custom domain).
+ *  2. Optimistic auth gate: no session cookie -> /login?next=…; wrong role -> that role's own home.
  * Real authorization still happens in server components and actions.
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestHeaders = new Headers(request.headers);
-  const slug = resolveTenantSlug(request.headers.get("host"));
-  if (slug) requestHeaders.set("x-tenant", slug);
-  else requestHeaders.delete("x-tenant");
+  const host = resolveHost(request.headers.get("host"));
+  for (const [name, value] of [["x-workspace", host.workspace], ["x-tenant", host.tenantId]] as const) {
+    if (value) requestHeaders.set(name, value);
+    else requestHeaders.delete(name);
+  }
 
   const rule = PROTECTED.find((r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`));
   if (rule) {
-    const raw = request.cookies.get(SESSION_COOKIE)?.value;
-    let session: Session | null = null;
-    if (raw) {
-      try {
-        session = JSON.parse(raw) as Session;
-      } catch {
-        session = null;
-      }
-    }
+    const session = parseSession(request.cookies.get(SESSION_COOKIE)?.value);
     if (!session) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
@@ -41,9 +35,9 @@ export function proxy(request: NextRequest) {
       url.searchParams.set("next", pathname);
       return NextResponse.redirect(url);
     }
-    if (rule.roles && !rule.roles.includes(session.role)) {
+    if (!rule.roles.includes(session.role)) {
       const url = request.nextUrl.clone();
-      url.pathname = "/app";
+      url.pathname = homeForRole(session.role);
       url.search = "";
       return NextResponse.redirect(url);
     }

@@ -39,12 +39,12 @@ export const qk = {
   tickers: ["tickers"] as const,
   equity: ["equity"] as const,
   backtest: ["backtest"] as const,
+  workspaces: ["workspaces"] as const,
+  workspace: (id: string) => ["workspace", id] as const,
   tenants: ["tenants"] as const,
-  tenant: (id: string) => ["tenant", id] as const,
   overview: ["platform-overview"] as const,
   users: ["users"] as const,
   invoices: ["invoices"] as const,
-  partners: ["partners"] as const,
   audit: ["audit"] as const,
 };
 
@@ -57,10 +57,12 @@ export const useTickers = () => useQuery({ queryKey: qk.tickers, queryFn: api.fe
 export const useEquityCurve = () => useQuery({ queryKey: qk.equity, queryFn: api.fetchEquityCurve, staleTime: 60_000 });
 export const useBacktest = () => useQuery({ queryKey: qk.backtest, queryFn: api.fetchBacktest, staleTime: 300_000 });
 
+/** Trading workspaces (the console's "Traders"). */
+export const useWorkspaces = () => useQuery({ queryKey: qk.workspaces, queryFn: api.fetchWorkspaces });
+export const useWorkspace = (id: string) => useQuery({ queryKey: qk.workspace(id), queryFn: () => api.fetchWorkspace(id), enabled: !!id });
+/** Tenants (distributors) with their payouts and applications. */
 export const useTenants = () => useQuery({ queryKey: qk.tenants, queryFn: api.fetchTenants });
-export const useTenant = (id: string) => useQuery({ queryKey: qk.tenant(id), queryFn: () => api.fetchTenant(id), enabled: !!id });
 export const usePlatformOverview = () => useQuery({ queryKey: qk.overview, queryFn: api.fetchPlatformOverview, refetchInterval: 30_000 });
 export const useUsers = () => useQuery({ queryKey: qk.users, queryFn: api.fetchUsers });
 export const useInvoices = () => useQuery({ queryKey: qk.invoices, queryFn: api.fetchInvoices });
-export const usePartners = () => useQuery({ queryKey: qk.partners, queryFn: api.fetchPartners });
 export const useAudit = () => useQuery({ queryKey: qk.audit, queryFn: api.fetchAudit });

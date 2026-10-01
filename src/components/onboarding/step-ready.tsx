@@ -16,13 +16,16 @@ import { getBroker } from "@/lib/brokers";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
 import { fmtMoney } from "@/lib/format";
 import { getPlan } from "@/lib/plans";
-import { FALLBACK_SETUP_MS, MAX_REPORTED_SETUP_MS, formatElapsed } from "@/components/onboarding/data";
+import { FALLBACK_SETUP_MS, MAX_REPORTED_SETUP_MS, SIGNUP_TENANT_ID, formatElapsed } from "@/components/onboarding/data";
 import { inviteSchema, type InviteValues } from "@/components/onboarding/schemas";
 import { FieldError, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { riskDollars, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
 
-/** Step 5: confirmation, summary, launch. */
-export function StepReady({ partnerName, partnerActive }: { partnerName: string; partnerActive: boolean }) {
+/**
+ * Step 5: confirmation, summary, launch. `tenantJoined`: a valid tenant code was entered, so the user
+ * becomes a tenant user of that tenant; otherwise an organic trader. `brandActive`: that tenant has white-label.
+ */
+export function StepReady({ tenantName, tenantJoined, brandActive }: { tenantName: string; tenantJoined: boolean; brandActive: boolean }) {
   const router = useRouter();
   const account = useSignupStore((s) => s.account);
   const workspace = useSignupStore((s) => s.workspace);
@@ -45,8 +48,8 @@ export function StepReady({ partnerName, partnerActive }: { partnerName: string;
   const elapsed = startedAt && completedAt && completedAt > startedAt ? completedAt - startedAt : null;
   const setupMs = elapsed !== null && elapsed <= MAX_REPORTED_SETUP_MS ? elapsed : FALLBACK_SETUP_MS;
 
-  const planLine = partnerActive
-    ? `${plan.name} · billed by ${partnerName}`
+  const planLine = brandActive
+    ? `${plan.name} · billed by ${tenantName}`
     : plan.monthly === 0
       ? `${plan.name} · $0`
       : plan.id === "pro"
@@ -57,7 +60,12 @@ export function StepReady({ partnerName, partnerActive }: { partnerName: string;
     setLaunching(true);
     React.startTransition(async () => {
       try {
-        await completeSignup({ name: account.fullName || "New trader", email: account.email, tenantSlug: workspace.slug });
+        await completeSignup({
+          name: account.fullName || "New trader",
+          email: account.email,
+          workspaceSlug: workspace.slug,
+          tenantId: tenantJoined ? SIGNUP_TENANT_ID : undefined,
+        });
         markLaunched();
         router.push("/app");
       } catch {
@@ -81,6 +89,7 @@ export function StepReady({ partnerName, partnerActive }: { partnerName: string;
         <Row label="Workspace URL">
           <span className="font-mono text-xs break-all">{workspace.slug}.nasscord.com</span>
         </Row>
+        <Row label="How you joined">{tenantJoined ? `You joined through ${tenantName} as a tenant user` : "You signed up directly, as a trader"}</Row>
         <Row label="Plan">{planLine}</Row>
         <Row label="Brokers">
           {connections.length ? (
@@ -123,7 +132,7 @@ export function StepReady({ partnerName, partnerActive }: { partnerName: string;
             Invite a teammate
           </DialogTrigger>
           <DialogContent>
-            <InviteForm tenantSlug={workspace.slug} invitedBy={account.email} seatLimit={plan.limits.seats} onDone={() => setInviteOpen(false)} />
+            <InviteForm workspaceSlug={workspace.slug} invitedBy={account.email} seatLimit={plan.limits.seats} onDone={() => setInviteOpen(false)} />
           </DialogContent>
         </Dialog>
         <Button id="signup-open-terminal" type="button" size="lg" onClick={openTerminal} disabled={launching}>
@@ -154,14 +163,14 @@ export function StepReady({ partnerName, partnerActive }: { partnerName: string;
   );
 }
 
-function InviteForm({ tenantSlug, invitedBy, seatLimit, onDone }: { tenantSlug: string; invitedBy: string; seatLimit: number | "unlimited"; onDone: () => void }) {
+function InviteForm({ workspaceSlug, invitedBy, seatLimit, onDone }: { workspaceSlug: string; invitedBy: string; seatLimit: number | "unlimited"; onDone: () => void }) {
   const [pending, setPending] = React.useState(false);
   const { register, handleSubmit, formState, setError } = useForm<InviteValues>({ resolver: zodResolver(inviteSchema), defaultValues: { email: "" } });
 
   const submit = (values: InviteValues) => {
     setPending(true);
     React.startTransition(async () => {
-      const res = await inviteTeammate({ email: values.email, tenantSlug, invitedBy });
+      const res = await inviteTeammate({ email: values.email, workspaceSlug, invitedBy });
       setPending(false);
       if (!res.ok) {
         setError("email", { message: res.error });

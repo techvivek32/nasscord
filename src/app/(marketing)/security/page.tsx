@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SHELL_AREAS } from "@/lib/nav";
+import { ROLES, ROLE_DESCRIPTION, ROLE_LABEL, areasForRole } from "@/lib/roles";
 import { Container, Section, SectionHead } from "@/components/marketing/container";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { SecurityControlDetails, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
@@ -12,16 +14,16 @@ export const metadata: Metadata = {
 
 const PIPELINE = [
   { name: "Browser or mobile app", note: "Your session, 2FA, no broker credentials" },
-  { name: "Nasscord web tier", note: "Tenant resolution, auth, audit log" },
+  { name: "Nasscord web tier", note: "Workspace and brand resolution, auth, audit log" },
   { name: "Proxy", note: "Strips forwarding headers so browser and keepalive share one session" },
-  { name: "Gateway process (per tenant login)", note: "Holds the decrypted broker token in memory only" },
+  { name: "Gateway process (per login)", note: "Holds the decrypted broker token in memory only" },
   { name: "Broker API", note: "Orders, positions, balances; custody stays here" },
 ];
 
 const ISOLATION = [
   {
-    title: "Dedicated gateway process per tenant login",
-    body: "Every login that connects Interactive Brokers gets its own Client Portal gateway process. Processes are pooled per tenant, never across tenants, and a white-label partner gets a pool of its own.",
+    title: "Dedicated gateway process per login",
+    body: "Every login that connects Interactive Brokers gets its own Client Portal gateway process. Processes are pooled per workspace, never across workspaces, and a white-label tenant gets a pool of its own for its traders.",
   },
   {
     title: "Proxy keeps one session",
@@ -39,7 +41,7 @@ const ISOLATION = [
 
 const STORE = [
   "Your name, email, hashed password and 2FA secret",
-  "Encrypted broker refresh tokens and gateway session cookies, per tenant key",
+  "Encrypted broker refresh tokens and gateway session cookies, per workspace key",
   "Which accounts you connected, masked account numbers and their inclusion in the combined book",
   "Orders you placed through Nasscord, their verification results and fills",
   "Alert history and your settings",
@@ -55,10 +57,10 @@ const NEVER = [
 ];
 
 const ACCOUNT = [
-  { title: "Two-factor authentication", body: "Time-based one-time codes on every account. Desk owners can require it for every seat. Recovery codes are shown once at setup." },
+  { title: "Two-factor authentication", body: "Time-based one-time codes on every account. A Desk workspace can require it for every seat. Recovery codes are shown once at setup." },
   { title: "Session expiry", body: "Web sessions expire after 12 hours of inactivity and are revoked when the password changes. Mobile sessions are bound to the device and revocable from Settings." },
   { title: "New device notices", body: "A sign-in from a device we have not seen sends an email with the time, approximate location and a one-click revoke link." },
-  { title: "Roles", body: "Owner, trader and viewer roles on Desk and Enterprise. Viewers can see positions and alerts but cannot place or cancel orders." },
+  { title: "Roles", body: "Every login has exactly one of four roles, and the role decides which areas it can open. A tenant's login never opens the terminal, and only the super admin opens the console." },
 ];
 
 export default function SecurityPage() {
@@ -125,7 +127,7 @@ export default function SecurityPage() {
             <Card className="gap-4">
               <CardHeader>
                 <CardTitle className="text-base font-semibold">What we store</CardTitle>
-                <CardDescription>Encrypted at rest, in a US region, with per-tenant keys for broker material.</CardDescription>
+                <CardDescription>Encrypted at rest, in a US region, with per-workspace keys for broker material.</CardDescription>
               </CardHeader>
               <CardContent>
                 <ul className="grid gap-2 text-sm text-muted-foreground">
@@ -173,6 +175,20 @@ export default function SecurityPage() {
               </div>
             ))}
           </dl>
+          <div id="roles" className="grid gap-4 border-t border-border pt-8">
+            <h3 className="text-base font-semibold">The four roles</h3>
+            <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              {ROLES.map((role) => (
+                <div key={role} className="grid gap-1">
+                  <dt className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold">
+                    {ROLE_LABEL[role]}
+                    <span className="text-xs font-normal text-muted-foreground">Opens {areasForRole(role).map((a) => SHELL_AREAS[a].title.toLowerCase()).join(", ")}</span>
+                  </dt>
+                  <dd className="text-sm leading-relaxed text-muted-foreground">{ROLE_DESCRIPTION[role]}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </Container>
       </Section>
 
@@ -217,7 +233,7 @@ export default function SecurityPage() {
                   <li>We do not sell personal data and do not share broker data with anyone except the broker it came from and the aggregator you authorized.</li>
                   <li>Payment processing, email delivery and error monitoring use vendors under data processing agreements.</li>
                   <li>You can export or delete your data from Settings. Deletion removes broker tokens immediately.</li>
-                  <li>White-label tenants are controllers of their customers&apos; data; Nasscord processes it on their instructions.</li>
+                  <li>White-label tenants are controllers of their traders&apos; data; Nasscord processes it on their instructions.</li>
                 </ul>
               </CardContent>
             </Card>

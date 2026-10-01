@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DEMO_IDENTITIES, SESSION_COOKIE, homeForRole } from "@/lib/auth";
-import type { Role, Session } from "@/lib/types";
+import type { Session } from "@/lib/types";
 
 async function setSession(session: Session) {
   const jar = await cookies();
@@ -16,19 +16,15 @@ async function setSession(session: Session) {
   });
 }
 
-function roleFromEmail(email: string): Role {
-  const e = email.toLowerCase();
-  if (e.startsWith("ops@") || e.startsWith("admin@")) return "operator";
-  if (e.startsWith("partner")) return "partner";
-  return "owner";
-}
-
 function safeNext(next: unknown): string | null {
   if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//")) return null;
   return next;
 }
 
-/** Email + password sign-in. The demo accepts any password of 6+ characters. */
+/**
+ * Email + password sign-in. The demo accepts any password of 6+ characters.
+ * A demo identity's address signs in as that identity; any other address is an organic trader.
+ */
 export async function signIn(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -36,31 +32,39 @@ export async function signIn(formData: FormData) {
   if (!email.includes("@") || password.length < 6) {
     redirect(`/login?error=invalid${next ? `&next=${encodeURIComponent(next)}` : ""}`);
   }
-  // The platform owner's address signs in as the super admin, whichever way he signs in.
-  const owner = DEMO_IDENTITIES.superadmin;
-  if (email.toLowerCase() === owner.email) {
-    await setSession(owner);
-    redirect(next ?? homeForRole(owner.role));
+  const known = Object.values(DEMO_IDENTITIES).find((s) => s.email === email.toLowerCase());
+  if (known) {
+    await setSession(known);
+    redirect(next ?? homeForRole(known.role));
   }
-  const role = roleFromEmail(email);
   const name = email
     .split("@")[0]
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-  await setSession({ uid: `u_${email.toLowerCase()}`, name, email, role, tenant: role === "partner" ? "acme" : "vivek" });
-  redirect(next ?? homeForRole(role));
+  await setSession({ uid: `u_${email.toLowerCase()}`, name, email, role: "trader", workspace: DEMO_IDENTITIES.trader.workspace });
+  redirect(next ?? homeForRole("trader"));
 }
 
-/** One-click demo identities (super admin / trader / operator / partner). */
+/** One-click demo identities, one per role. */
 export async function signInAs(kind: keyof typeof DEMO_IDENTITIES, next?: string) {
   const s = DEMO_IDENTITIES[kind];
   await setSession(s);
   redirect(safeNext(next) ?? homeForRole(s.role));
 }
 
-/** Called by the signup wizard once the workspace exists. Does not redirect; the wizard decides. */
-export async function completeSignup(input: { name: string; email: string; tenantSlug: string }) {
-  await setSession({ uid: `u_${input.email.toLowerCase()}`, name: input.name, email: input.email, role: "owner", tenant: input.tenantSlug });
+/**
+ * Called by the signup wizard once the workspace exists. Does not redirect; the wizard decides.
+ * A valid tenant code makes the new user a tenant user of that tenant; without one they are an organic trader.
+ */
+export async function completeSignup(input: { name: string; email: string; workspaceSlug: string; tenantId?: string }) {
+  await setSession({
+    uid: `u_${input.email.toLowerCase()}`,
+    name: input.name,
+    email: input.email,
+    role: input.tenantId ? "tenant_user" : "trader",
+    workspace: input.workspaceSlug,
+    tenantId: input.tenantId,
+  });
   return { ok: true as const };
 }
 
@@ -75,10 +79,10 @@ export async function requestPasswordReset(input: { email: string }) {
 }
 
 /** Teammate invite from the signup wizard. The demo records nothing; the real version emails a join link. */
-export async function inviteTeammate(input: { email: string; tenantSlug: string; invitedBy: string }) {
+export async function inviteTeammate(input: { email: string; workspaceSlug: string; invitedBy: string }) {
   const email = input.email.trim();
   if (!email.includes("@")) return { ok: false as const, error: "Enter a valid email address." };
-  if (!input.tenantSlug) return { ok: false as const, error: "Create the workspace first." };
+  if (!input.workspaceSlug) return { ok: false as const, error: "Create the workspace first." };
   return { ok: true as const, email };
 }
 

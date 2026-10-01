@@ -6,13 +6,13 @@ import { EmptyState } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePlatformOverview, useTenants } from "@/hooks/queries";
+import { usePlatformOverview, useWorkspaces } from "@/hooks/queries";
 import { fmtMoney, fmtNum } from "@/lib/format";
 import { PLANS } from "@/lib/plans";
 import { PlanBadge } from "./badges";
 import { MoneyTooltip, moneyAxis } from "./chart-bits";
 import { ChartCardSkeleton, TableSkeleton } from "./primitives";
-import { applyTenantOverrides, useTenantOverrides } from "./store";
+import { applyWorkspaceOverrides, useWorkspaceOverrides } from "./store";
 
 const COST_CONFIG: ChartConfig = {
   mrr: { label: "MRR", color: "var(--chart-1)" },
@@ -28,23 +28,23 @@ const TH = "text-xs font-semibold tracking-wide text-muted-foreground uppercase"
 
 export function RevenuePage() {
   const overview = usePlatformOverview();
-  const tenants = useTenants();
-  const overrides = useTenantOverrides();
+  const workspaces = useWorkspaces();
+  const overrides = useWorkspaceOverrides();
   const d = overview.data;
 
   const mix = React.useMemo(() => {
-    const list = (tenants.data ?? []).map((t) => applyTenantOverrides(t, overrides));
-    const total = list.reduce((s, t) => s + t.mrr, 0);
+    const list = (workspaces.data ?? []).map((w) => applyWorkspaceOverrides(w, overrides));
+    const total = list.reduce((s, w) => s + w.mrr, 0);
     return {
       total,
       rows: PLANS.map((p) => {
-        const inPlan = list.filter((t) => t.plan === p.id);
-        const mrr = inPlan.reduce((s, t) => s + t.mrr, 0);
-        return { plan: p.id, tenants: inPlan.length, mrr, share: total ? (mrr / total) * 100 : 0, arpt: inPlan.length ? mrr / inPlan.length : 0 };
+        const inPlan = list.filter((w) => w.plan === p.id);
+        const mrr = inPlan.reduce((s, w) => s + w.mrr, 0);
+        return { plan: p.id, workspaces: inPlan.length, mrr, share: total ? (mrr / total) * 100 : 0, arpw: inPlan.length ? mrr / inPlan.length : 0 };
       }),
       count: list.length,
     };
-  }, [tenants.data, overrides]);
+  }, [workspaces.data, overrides]);
 
   const latest = d?.mrrHistory[d.mrrHistory.length - 1];
   const margin = latest ? ((latest.mrr - latest.infra) / latest.mrr) * 100 : null;
@@ -108,23 +108,23 @@ export function RevenuePage() {
       <Card>
         <CardHeader>
           <CardTitle>Plan mix</CardTitle>
-          <CardDescription>Computed from the tenant list as it stands right now, including any plan changes made in this session.</CardDescription>
+          <CardDescription>Computed from the trader workspaces as they stand right now, including any plan changes made in this session.</CardDescription>
         </CardHeader>
         <CardContent>
-          {tenants.isLoading ? (
+          {workspaces.isLoading ? (
             <TableSkeleton rows={4} cols={5} />
           ) : mix.count === 0 ? (
-            <EmptyState title="No tenants" description="Plan mix appears once tenants exist." />
+            <EmptyState title="No workspaces" description="Plan mix appears once traders have workspaces." />
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className={TH}>Plan</TableHead>
-                    <TableHead className={`${TH} text-right`}>Tenants</TableHead>
+                    <TableHead className={`${TH} text-right`}>Workspaces</TableHead>
                     <TableHead className={`${TH} text-right`}>MRR</TableHead>
                     <TableHead className={`${TH} text-right`}>Share</TableHead>
-                    <TableHead className={`${TH} text-right`}>Avg revenue per tenant</TableHead>
+                    <TableHead className={`${TH} text-right`}>Avg revenue per workspace</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -133,10 +133,10 @@ export function RevenuePage() {
                       <TableCell>
                         <PlanBadge plan={r.plan} />
                       </TableCell>
-                      <TableCell className="text-right tabular">{fmtNum(r.tenants)}</TableCell>
+                      <TableCell className="text-right tabular">{fmtNum(r.workspaces)}</TableCell>
                       <TableCell className="text-right font-medium tabular">{fmtMoney(r.mrr, { digits: 0 })}</TableCell>
                       <TableCell className="text-right tabular">{r.share.toFixed(1)}%</TableCell>
-                      <TableCell className="text-right tabular">{r.arpt ? fmtMoney(r.arpt, { digits: 0 }) : <span className="text-muted-foreground">Free</span>}</TableCell>
+                      <TableCell className="text-right tabular">{r.arpw ? fmtMoney(r.arpw, { digits: 0 }) : <span className="text-muted-foreground">Free</span>}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

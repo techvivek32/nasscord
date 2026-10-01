@@ -25,15 +25,15 @@ export const SECURITY_CONTROLS: SecurityControl[] = [
     id: "encryption",
     icon: Lock,
     title: "Tokens encrypted at rest",
-    body: "Refresh tokens and session cookies are encrypted with per-tenant keys and decrypted only inside the broker gateway.",
+    body: "Refresh tokens and session cookies are encrypted with per-workspace keys and decrypted only inside the broker gateway.",
     detail:
-      "Broker tokens are written encrypted with a key that belongs to your tenant. The web tier never holds a decrypted token; only the gateway process that talks to the broker does, in memory, for the life of the request.",
+      "Broker tokens are written encrypted with a key that belongs to your workspace. The web tier never holds a decrypted token; only the gateway process that talks to the broker does, in memory, for the life of the request.",
   },
   {
     id: "gateway",
     icon: ServerCog,
-    title: "Dedicated broker gateway per tenant",
-    body: "Each tenant gets its own gateway processes. Broker sessions are never shared across customers.",
+    title: "Dedicated broker gateway per workspace",
+    body: "Each workspace gets its own gateway processes. Broker sessions are never shared across customers.",
     detail:
       "For Interactive Brokers, each login runs its own Client Portal gateway process. A reverse proxy in front of it strips forwarding headers so the browser and the keepalive worker present as one client and share one session instead of fighting over it.",
   },
@@ -58,13 +58,13 @@ export const SECURITY_CONTROLS: SecurityControl[] = [
     icon: FileClock,
     title: "Audit log",
     body: "Every order, cancel, connection change and settings change is recorded with actor, time and result.",
-    detail: "The log is append-only from the application's point of view and is available to tenant owners in the terminal and to operators in the console.",
+    detail: "The log is append-only from the application's point of view and is available to your workspace in the terminal and to the Nasscord super admin in the console.",
   },
   {
     id: "2fa",
     icon: ClipboardCheck,
     title: "2FA on sign-in",
-    body: "Time-based one-time codes on every account. Owners can require it for every seat on a Desk plan.",
+    body: "Time-based one-time codes on every account. A Desk workspace can require it for every seat.",
     detail: "Sessions expire after 12 hours of inactivity and are revoked when a password changes. New device sign-ins are announced by email.",
   },
   {

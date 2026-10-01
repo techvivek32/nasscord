@@ -14,11 +14,11 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
     ],
   },
   {
-    title: "Partners",
+    title: "Tenants",
     links: [
-      { label: "White-label", href: "/partners#white-label" },
-      { label: "Referral", href: "/partners#referral" },
-      { label: "Partner portal", href: "/partner" },
+      { label: "Commission", href: "/tenants#commission" },
+      { label: "White-label", href: "/tenants#white-label" },
+      { label: "Tenant portal", href: "/tenant" },
     ],
   },
   {

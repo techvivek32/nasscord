@@ -1,14 +1,16 @@
 "use client";
 
+import * as React from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
+import { useTenants } from "@/hooks/queries";
 import { ENGINE_DEFAULTS, UNIVERSE } from "@/lib/engine";
 import { PLANS } from "@/lib/plans";
-import type { BrokerId, EngineParams, Partner, PlanId, Role, Tenant, TenantFeatures, TenantStatus, User } from "@/lib/types";
+import type { BrokerId, EngineParams, PlanId, Tenant, TenantBranding, User, Workspace, WorkspaceFeatures, WorkspaceStatus } from "@/lib/types";
 
 /* ------------------------------------------------------------------
-   Operator console client state. Everything here is a local override on
-   top of the mock data, so every switch, approve button and plan edit
+   Super admin console client state. Everything here is a local override
+   on top of the mock data, so every switch, approve button and plan edit
    reacts immediately without a backend. The real console will replace
    each setter with a mutation and drop the override maps.
    ------------------------------------------------------------------ */
@@ -26,14 +28,7 @@ export interface PlanMatrixRow {
 }
 export type PlanMatrix = Record<PlanId, PlanMatrixRow>;
 
-export interface WhiteLabelOverride {
-  enabled?: boolean;
-  brandName?: string;
-  domain?: string;
-  accent?: string;
-}
-
-export type PartnerDecision = "approved" | "declined";
+export type TenantDecision = "approved" | "declined";
 
 function defaultPlanMatrix(): PlanMatrix {
   const out = {} as PlanMatrix;
@@ -53,7 +48,7 @@ function defaultPlanMatrix(): PlanMatrix {
   return out;
 }
 
-/** Planned brokers ship disabled for tenants until an integration is live. */
+/** Planned brokers ship disabled for traders until an integration is live. */
 const DEFAULT_BROKER_ENABLED: Record<BrokerId, boolean> = {
   ibkr: true,
   schwab: true,
@@ -73,31 +68,33 @@ interface ConsoleState {
   maintenanceOn: boolean;
   setMaintenance: (on: boolean) => void;
 
-  tenantStatus: Record<string, TenantStatus>;
-  setTenantStatus: (id: string, status: TenantStatus) => void;
-  tenantPlan: Record<string, PlanId>;
-  setTenantPlan: (id: string, plan: PlanId) => void;
-  tenantFeatures: Record<string, Partial<TenantFeatures>>;
-  setTenantFeature: (id: string, key: keyof TenantFeatures, value: boolean) => void;
-  tenantWhiteLabel: Record<string, WhiteLabelOverride>;
-  setTenantWhiteLabel: (id: string, patch: WhiteLabelOverride) => void;
-  tenantLimits: Record<string, { seatLimit?: number; brokerLimit?: number }>;
-  setTenantLimits: (id: string, patch: { seatLimit?: number; brokerLimit?: number }) => void;
+  /* Workspaces (the Traders pages) */
+  workspaceStatus: Record<string, WorkspaceStatus>;
+  setWorkspaceStatus: (id: string, status: WorkspaceStatus) => void;
+  workspacePlan: Record<string, PlanId>;
+  setWorkspacePlan: (id: string, plan: PlanId) => void;
+  workspaceFeatures: Record<string, Partial<WorkspaceFeatures>>;
+  setWorkspaceFeature: (id: string, key: keyof WorkspaceFeatures, value: boolean) => void;
+  workspaceLimits: Record<string, { seatLimit?: number }>;
+  setWorkspaceLimits: (id: string, patch: { seatLimit?: number }) => void;
+
+  /* Tenants (the Tenants and White-label pages). Only the super admin writes these. */
+  tenantWhiteLabel: Record<string, boolean>;
+  setTenantWhiteLabel: (id: string, on: boolean) => void;
+  tenantBranding: Record<string, TenantBranding>;
+  setTenantBranding: (id: string, branding: TenantBranding) => void;
+  tenantDecisions: Record<string, TenantDecision>;
+  decideTenant: (applicationId: string, decision: TenantDecision) => void;
+  addedTenants: Tenant[];
+  addTenant: (t: Tenant) => void;
 
   brokerEnabled: Record<BrokerId, boolean>;
   setBrokerEnabled: (id: BrokerId, on: boolean) => void;
-
-  partnerDecisions: Record<string, PartnerDecision>;
-  decidePartner: (applicationId: string, decision: PartnerDecision) => void;
-  addedPartners: Partner[];
-  addPartner: (p: Partner) => void;
 
   invitedUsers: User[];
   addUser: (u: User) => void;
   removedUserIds: string[];
   removeUser: (id: string) => void;
-  userRoles: Record<string, Role>;
-  setUserRole: (id: string, role: Role) => void;
   reset2fa: string[];
   markReset2fa: (id: string) => void;
 
@@ -119,33 +116,32 @@ export const useConsoleStore = create<ConsoleState>()((set) => ({
   maintenanceOn: false,
   setMaintenance: (on) => set({ maintenanceOn: on }),
 
-  tenantStatus: {},
-  setTenantStatus: (id, status) => set((s) => ({ tenantStatus: { ...s.tenantStatus, [id]: status } })),
-  tenantPlan: {},
-  setTenantPlan: (id, plan) => set((s) => ({ tenantPlan: { ...s.tenantPlan, [id]: plan } })),
-  tenantFeatures: {},
-  setTenantFeature: (id, key, value) =>
-    set((s) => ({ tenantFeatures: { ...s.tenantFeatures, [id]: { ...s.tenantFeatures[id], [key]: value } } })),
+  workspaceStatus: {},
+  setWorkspaceStatus: (id, status) => set((s) => ({ workspaceStatus: { ...s.workspaceStatus, [id]: status } })),
+  workspacePlan: {},
+  setWorkspacePlan: (id, plan) => set((s) => ({ workspacePlan: { ...s.workspacePlan, [id]: plan } })),
+  workspaceFeatures: {},
+  setWorkspaceFeature: (id, key, value) =>
+    set((s) => ({ workspaceFeatures: { ...s.workspaceFeatures, [id]: { ...s.workspaceFeatures[id], [key]: value } } })),
+  workspaceLimits: {},
+  setWorkspaceLimits: (id, patch) => set((s) => ({ workspaceLimits: { ...s.workspaceLimits, [id]: { ...s.workspaceLimits[id], ...patch } } })),
+
   tenantWhiteLabel: {},
-  setTenantWhiteLabel: (id, patch) =>
-    set((s) => ({ tenantWhiteLabel: { ...s.tenantWhiteLabel, [id]: { ...s.tenantWhiteLabel[id], ...patch } } })),
-  tenantLimits: {},
-  setTenantLimits: (id, patch) => set((s) => ({ tenantLimits: { ...s.tenantLimits, [id]: { ...s.tenantLimits[id], ...patch } } })),
+  setTenantWhiteLabel: (id, on) => set((s) => ({ tenantWhiteLabel: { ...s.tenantWhiteLabel, [id]: on } })),
+  tenantBranding: {},
+  setTenantBranding: (id, branding) => set((s) => ({ tenantBranding: { ...s.tenantBranding, [id]: branding } })),
+  tenantDecisions: {},
+  decideTenant: (applicationId, decision) => set((s) => ({ tenantDecisions: { ...s.tenantDecisions, [applicationId]: decision } })),
+  addedTenants: [],
+  addTenant: (t) => set((s) => ({ addedTenants: [t, ...s.addedTenants] })),
 
   brokerEnabled: DEFAULT_BROKER_ENABLED,
   setBrokerEnabled: (id, on) => set((s) => ({ brokerEnabled: { ...s.brokerEnabled, [id]: on } })),
-
-  partnerDecisions: {},
-  decidePartner: (applicationId, decision) => set((s) => ({ partnerDecisions: { ...s.partnerDecisions, [applicationId]: decision } })),
-  addedPartners: [],
-  addPartner: (p) => set((s) => ({ addedPartners: [p, ...s.addedPartners] })),
 
   invitedUsers: [],
   addUser: (u) => set((s) => ({ invitedUsers: [u, ...s.invitedUsers] })),
   removedUserIds: [],
   removeUser: (id) => set((s) => ({ removedUserIds: [...s.removedUserIds, id] })),
-  userRoles: {},
-  setUserRole: (id, role) => set((s) => ({ userRoles: { ...s.userRoles, [id]: role } })),
   reset2fa: [],
   markReset2fa: (id) => set((s) => ({ reset2fa: s.reset2fa.includes(id) ? s.reset2fa : [...s.reset2fa, id] })),
 
@@ -163,37 +159,51 @@ export const useConsoleStore = create<ConsoleState>()((set) => ({
   markRestarted: (serviceId) => set((s) => ({ restartedAt: { ...s.restartedAt, [serviceId]: new Date().toISOString() } })),
 }));
 
-/** Apply the operator's local overrides to a tenant record from the API. */
-export function applyTenantOverrides(t: Tenant, s: Pick<ConsoleState, "tenantStatus" | "tenantPlan" | "tenantFeatures" | "tenantWhiteLabel" | "tenantLimits">): Tenant {
-  const wl = s.tenantWhiteLabel[t.id];
-  const limits = s.tenantLimits[t.id];
-  const whiteLabel = wl?.enabled ?? t.whiteLabel;
-  const accent = wl?.accent ?? t.branding?.accent;
-  // Branding needs an accent to be renderable; without one the tenant inherits the platform tokens.
-  const branding =
-    accent && (whiteLabel || t.branding)
-      ? {
-          name: wl?.brandName ?? t.branding?.name ?? t.name,
-          accent,
-          accentDark: wl?.accent ?? t.branding?.accentDark ?? accent,
-          domain: wl?.domain ?? t.branding?.domain,
-          supportEmail: t.branding?.supportEmail,
-        }
-      : undefined;
+/* ---------------- workspaces ---------------- */
+
+export type WorkspaceOverrides = Pick<ConsoleState, "workspaceStatus" | "workspacePlan" | "workspaceFeatures" | "workspaceLimits">;
+
+/** Apply the super admin's local overrides to a workspace record from the API. */
+export function applyWorkspaceOverrides(w: Workspace, o: WorkspaceOverrides): Workspace {
   return {
-    ...t,
-    status: s.tenantStatus[t.id] ?? t.status,
-    plan: s.tenantPlan[t.id] ?? t.plan,
-    features: { ...t.features, ...s.tenantFeatures[t.id] },
-    whiteLabel,
-    branding,
-    seatLimit: limits?.seatLimit ?? t.seatLimit,
+    ...w,
+    status: o.workspaceStatus[w.id] ?? w.status,
+    plan: o.workspacePlan[w.id] ?? w.plan,
+    features: { ...w.features, ...o.workspaceFeatures[w.id] },
+    seatLimit: o.workspaceLimits[w.id]?.seatLimit ?? w.seatLimit,
   };
 }
 
-/** The five override maps the tenant views need, selected shallowly so the selector is stable. */
-export function useTenantOverrides() {
+/** The four override maps the workspace views need, selected shallowly so the selector is stable. */
+export function useWorkspaceOverrides(): WorkspaceOverrides {
   return useConsoleStore(
-    useShallow((s) => ({ tenantStatus: s.tenantStatus, tenantPlan: s.tenantPlan, tenantFeatures: s.tenantFeatures, tenantWhiteLabel: s.tenantWhiteLabel, tenantLimits: s.tenantLimits })),
+    useShallow((s) => ({ workspaceStatus: s.workspaceStatus, workspacePlan: s.workspacePlan, workspaceFeatures: s.workspaceFeatures, workspaceLimits: s.workspaceLimits })),
   );
+}
+
+/* ---------------- tenants ---------------- */
+
+export type TenantOverrides = Pick<ConsoleState, "tenantWhiteLabel" | "tenantBranding">;
+
+/** Apply the super admin's white-label grants and branding edits to a tenant record from the API. */
+export function applyTenantOverrides(t: Tenant, o: TenantOverrides): Tenant {
+  return { ...t, whiteLabel: o.tenantWhiteLabel[t.id] ?? t.whiteLabel, branding: o.tenantBranding[t.id] ?? t.branding };
+}
+
+/** The white-label override maps, selected shallowly so the selector is stable. */
+export function useTenantOverrides(): TenantOverrides {
+  return useConsoleStore(useShallow((s) => ({ tenantWhiteLabel: s.tenantWhiteLabel, tenantBranding: s.tenantBranding })));
+}
+
+/**
+ * Every tenant as the console sees it right now: the API list plus tenants added or approved in
+ * this session, with white-label overrides applied. `byId` resolves a workspace's or a user's tenantId.
+ */
+export function useConsoleTenants() {
+  const query = useTenants();
+  const added = useConsoleStore((s) => s.addedTenants);
+  const overrides = useTenantOverrides();
+  const tenants = React.useMemo(() => [...added, ...(query.data?.tenants ?? [])].map((t) => applyTenantOverrides(t, overrides)), [added, query.data, overrides]);
+  const byId = React.useMemo(() => new Map(tenants.map((t) => [t.id, t] as const)), [tenants]);
+  return { query, tenants, byId };
 }

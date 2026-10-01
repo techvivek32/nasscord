@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { getPlan, REFERRAL_SHARE_PCT } from "@/lib/plans";
+import { COMMISSION_PCT, getPlan } from "@/lib/plans";
 import { fmtMoney } from "@/lib/format";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ function clamp(n: number, lo: number, hi: number) {
 }
 
 /**
- * Referral payout estimate: referred paid accounts x plan mix x plan price x 25%.
+ * Tenant commission estimate: paid accounts you bring x plan mix x plan price x COMMISSION_PCT.
  * Prices come from lib/plans, so a price change updates the calculator automatically.
  */
 export function RevenueCalculator({ className }: { className?: string }) {
@@ -36,19 +36,19 @@ export function RevenueCalculator({ className }: { className?: string }) {
   const deskAccounts = Math.round((accounts * deskPct) / 100);
   const proAccounts = accounts - deskAccounts;
   const subscriptionRevenue = proAccounts * proPrice + deskAccounts * deskPrice;
-  const payout = (subscriptionRevenue * REFERRAL_SHARE_PCT) / 100;
+  const commission = (subscriptionRevenue * COMMISSION_PCT) / 100;
 
   return (
     <Card className={cn("gap-0 py-0", className)}>
       <div className="grid lg:grid-cols-[1fr_minmax(0,20rem)]">
         <div className="grid gap-6 p-5 sm:p-6">
           <CardHeader className="px-0">
-            <CardTitle className="text-lg font-semibold">Estimate your referral payout</CardTitle>
-            <CardDescription>Paid accounts you refer, the plan they land on, and how they bill. Starter accounts are free and earn nothing until they upgrade.</CardDescription>
+            <CardTitle className="text-lg font-semibold">Estimate your commission</CardTitle>
+            <CardDescription>Paid accounts you bring, the plan they land on, and how they bill. Starter accounts are free and earn no commission until they upgrade.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 px-0">
             <div className="grid gap-2">
-              <Label htmlFor={accountsId}>Referred paid accounts</Label>
+              <Label htmlFor={accountsId}>Paid accounts you bring</Label>
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   id={accountsId}
@@ -130,9 +130,9 @@ export function RevenueCalculator({ className }: { className?: string }) {
 
         <aside className="grid content-start gap-5 border-t border-border bg-muted/40 p-5 sm:p-6 lg:border-t-0 lg:border-l" aria-live="polite">
           <div className="grid gap-1">
-            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Monthly payout</span>
-            <span className="font-heading text-4xl font-semibold tracking-tight tabular">{fmtMoney(payout, { digits: 0 })}</span>
-            <span className="text-xs text-muted-foreground">{REFERRAL_SHARE_PCT}% of {fmtMoney(subscriptionRevenue, { digits: 0 })} in subscriptions</span>
+            <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Monthly commission</span>
+            <span className="font-heading text-4xl font-semibold tracking-tight tabular">{fmtMoney(commission, { digits: 0 })}</span>
+            <span className="text-xs text-muted-foreground">{COMMISSION_PCT}% of {fmtMoney(subscriptionRevenue, { digits: 0 })} in subscriptions</span>
           </div>
           <dl className="grid gap-2 text-sm">
             <div className="flex justify-between gap-3">
@@ -148,12 +148,12 @@ export function RevenueCalculator({ className }: { className?: string }) {
               <dd className="font-mono tabular">{fmtMoney(deskAccounts * deskPrice, { digits: 0 })}</dd>
             </div>
             <div className="flex justify-between gap-3 border-t border-border pt-2 font-medium">
-              <dt>Yearly payout</dt>
-              <dd className="font-mono tabular">{fmtMoney(payout * 12, { digits: 0 })}</dd>
+              <dt>Yearly commission</dt>
+              <dd className="font-mono tabular">{fmtMoney(commission * 12, { digits: 0 })}</dd>
             </div>
           </dl>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Estimate only. Payouts follow collected revenue after refunds and are paid monthly by ACH once the balance reaches $100.
+            Estimate only. Commission follows collected revenue after refunds and are paid monthly by ACH once the balance reaches $100.
           </p>
         </aside>
       </div>

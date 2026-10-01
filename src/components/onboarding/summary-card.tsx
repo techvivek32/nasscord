@@ -4,21 +4,22 @@ import { BrokerMark } from "@/components/brokers/broker-mark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getPlan } from "@/lib/plans";
 import { fmtMoney } from "@/lib/format";
-import { isPartnerCode, riskDollars, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
+import { ROLE_LABEL } from "@/lib/roles";
+import { isTenantCode, riskDollars, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
 
-/** Live summary in the rail: updates as the trader fills the steps. */
-export function SummaryCard({ partnerName }: { partnerName?: string }) {
+/** Live summary in the rail: updates as the trader fills the steps. `whiteLabel`: the tenant sets its traders' pricing. */
+export function SummaryCard({ tenantName, whiteLabel = false }: { tenantName?: string; whiteLabel?: boolean }) {
   const workspace = useSignupStore((s) => s.workspace);
   const connections = useSignupStore((s) => s.connections);
   const prefs = useSignupStore((s) => s.prefs);
-  const partnerCode = useSignupStore((s) => s.account.partnerCode);
+  const tenantCode = useSignupStore((s) => s.account.tenantCode);
   const plan = getPlan(workspace.plan);
   const defaultAccount = selectDefaultAccount({ connections, prefs });
-  const partner = isPartnerCode(partnerCode) ? partnerName : undefined;
+  const tenant = isTenantCode(tenantCode) ? tenantName : undefined;
 
   const price = plan.monthly === 0 ? "$0" : `$${plan.monthly}/mo`;
-  const planLine = partner
-    ? `${plan.name} · partner pricing`
+  const planLine = tenant && whiteLabel
+    ? `${plan.name} · ${tenant} pricing`
     : plan.id === "pro"
       ? `${plan.name} · 14-day trial, then ${price}`
       : `${plan.name} · ${price}`;
@@ -38,7 +39,7 @@ export function SummaryCard({ partnerName }: { partnerName?: string }) {
               <span className="text-muted-foreground">Not set yet</span>
             )}
           </Row>
-          {partner ? <Row label="Partner">{partner}</Row> : null}
+          <Row label="Joining as">{tenant ? `${ROLE_LABEL.tenant_user} through ${tenant}` : ROLE_LABEL.trader}</Row>
           <Row label="Plan">{planLine}</Row>
           <Row label="Brokers">
             {connections.length ? (

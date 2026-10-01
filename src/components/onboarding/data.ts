@@ -1,15 +1,20 @@
 import type { BrokerAccount, BrokerId, PlanId } from "@/lib/types";
 
 /* ------------------------------------------------------------------
-   Static data for the signup wizard: step list, timezones, the partner
+   Static data for the signup wizard: step list, timezones, the tenant
    code, risk presets and the accounts each broker returns in the demo
    connect flow. Balances match src/lib/mock/trading.ts for the three
    brokers the demo trader already has connected.
    ------------------------------------------------------------------ */
 
 export const SIGNUP_DRAFT_KEY = "nasscord-signup-draft";
-export const PARTNER_CODE = "NOVA-PARTNER";
-export const PARTNER_TENANT_SLUG = "acme";
+/**
+ * The demo tenant code: Acme Capital's referral code. Entering it makes the new user a tenant user
+ * of Acme (and, because Acme has white-label, previews Acme's brand); without it they are an organic trader.
+ */
+export const TENANT_CODE = "ACME";
+/** The tenant TENANT_CODE resolves to. */
+export const SIGNUP_TENANT_ID = "t_acme";
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5;
 
@@ -34,12 +39,12 @@ export type TimezoneId = (typeof TIMEZONES)[number]["value"];
 export const TIMEZONE_IDS = TIMEZONES.map((t) => t.value) as [TimezoneId, ...TimezoneId[]];
 export const DEFAULT_TIMEZONE: TimezoneId = "America/New_York";
 
-/** Plans offered during self-serve signup. Enterprise goes through the partner flow. */
+/** Plans offered during self-serve signup. Enterprise goes through the tenant program (white-label). */
 export const SIGNUP_PLAN_IDS = ["starter", "pro", "desk"] as const satisfies ReadonlyArray<PlanId>;
 export type SignupPlanId = (typeof SIGNUP_PLAN_IDS)[number];
 
-/** Subdomains the platform keeps for itself. */
-export const RESERVED_SLUGS = new Set(["www", "app", "api", "admin", "partner", "partners", "login", "signup", "status", "help", "docs", "mail"]);
+/** Subdomains the platform keeps for itself. "partner" and "partners" stay reserved: they were route names before the tenant rename. */
+export const RESERVED_SLUGS = new Set(["www", "app", "api", "admin", "tenant", "tenants", "traders", "partner", "partners", "login", "signup", "status", "help", "docs", "mail"]);
 
 export const RISK_OPTIONS = [0.5, 1, 2] as const;
 export type RiskPct = (typeof RISK_OPTIONS)[number];

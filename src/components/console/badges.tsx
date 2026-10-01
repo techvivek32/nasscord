@@ -1,9 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { TONE_BADGE } from "@/components/status-dot";
 import { PLAN_LABEL } from "@/lib/plans";
-import type { HealthStatus, Incident, InvoiceStatus, PartnerStatus, PlanId, Role, TenantStatus } from "@/lib/types";
+import type { HealthStatus, Incident, InvoiceStatus, PlanId, Role, TenantStatus, WorkspaceStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { HEALTH, INCIDENT_SEVERITY, INCIDENT_STATUS, INVOICE_STATUS, PARTNER_STATUS, PLAN_TONE, ROLE_LABEL, TENANT_STATUS, type Tone } from "./lib";
+import { HEALTH, INCIDENT_SEVERITY, INCIDENT_STATUS, INVOICE_STATUS, PLAN_TONE, ROLE_LABEL, TENANT_STATUS, WORKSPACE_STATUS, type Tone } from "./lib";
 
 export function ToneBadge({ tone, children, className }: { tone: Tone; children: React.ReactNode; className?: string }) {
   return (
@@ -13,11 +13,32 @@ export function ToneBadge({ tone, children, className }: { tone: Tone; children:
   );
 }
 
+export function WorkspaceStatusBadge({ status, className }: { status: WorkspaceStatus; className?: string }) {
+  const s = WORKSPACE_STATUS[status];
+  return (
+    <ToneBadge tone={s.tone} className={className}>
+      {s.label}
+    </ToneBadge>
+  );
+}
+
 export function TenantStatusBadge({ status, className }: { status: TenantStatus; className?: string }) {
   const s = TENANT_STATUS[status];
   return (
     <ToneBadge tone={s.tone} className={className}>
       {s.label}
+    </ToneBadge>
+  );
+}
+
+/**
+ * Whether a tenant has white-label. Default wording names the feature ("White-label");
+ * `compact` reads On / Off for a column that is already headed White-label.
+ */
+export function WhiteLabelBadge({ on, compact = false, className }: { on: boolean; compact?: boolean; className?: string }) {
+  return (
+    <ToneBadge tone={on ? "brand" : "neutral"} className={className}>
+      {compact ? (on ? "On" : "Off") : on ? "White-label" : "No white-label"}
     </ToneBadge>
   );
 }
@@ -32,11 +53,6 @@ export function PlanBadge({ plan, className }: { plan: PlanId; className?: strin
 
 export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
   const s = INVOICE_STATUS[status];
-  return <ToneBadge tone={s.tone}>{s.label}</ToneBadge>;
-}
-
-export function PartnerStatusBadge({ status }: { status: PartnerStatus }) {
-  const s = PARTNER_STATUS[status];
   return <ToneBadge tone={s.tone}>{s.label}</ToneBadge>;
 }
 
@@ -70,11 +86,4 @@ export function TwoFactorBadge({ enabled }: { enabled: boolean }) {
 export function ResultBadge({ result }: { result: "ok" | "denied" | "error" }) {
   const map = { ok: { tone: "good", label: "OK" }, denied: { tone: "warn", label: "Denied" }, error: { tone: "bad", label: "Error" } } as const;
   return <ToneBadge tone={map[result].tone}>{map[result].label}</ToneBadge>;
-}
-
-export const MODEL_LABEL = { white_label: "White-label", referral: "Referral", embedded: "Embedded" } as const;
-
-export function ModelBadge({ model }: { model: keyof typeof MODEL_LABEL }) {
-  const tone: Tone = model === "white_label" ? "brand" : model === "referral" ? "good" : "neutral";
-  return <ToneBadge tone={tone}>{MODEL_LABEL[model]}</ToneBadge>;
 }

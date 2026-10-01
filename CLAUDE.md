@@ -3,8 +3,8 @@
 # Nasscord — project conventions
 
 Nasscord is a multi-tenant, multi-broker trading platform for US traders (the productized successor of a single-user
-IBKR terminal). This repo is the frontend: public site, onboarding, the trader terminal, the platform operator console
-and the partner portal. Data is served from a mock data layer today; every fetch goes through `src/lib/api` so a real
+IBKR terminal). This repo is the frontend: public site, onboarding, the trader terminal, the super admin console
+and the tenant portal. Data is served from a mock data layer today; every fetch goes through `src/lib/api` so a real
 backend can replace it without touching pages.
 
 ## Stack (do not add alternatives)
@@ -28,31 +28,37 @@ backend can replace it without touching pages.
 
 ## Where things live
 ```
-src/app/(marketing)/…        public site: /, /pricing, /brokers, /partners, /security (+ header/footer in layout)
+src/app/(marketing)/…        public site: /, /pricing, /brokers, /tenants, /security (+ header/footer in layout)
 src/app/(auth)/login|signup  sign-in and the 5-step onboarding wizard
-src/app/(app)/app/…          trader terminal (tenant scoped, white-label aware)
-src/app/(admin)/admin/…      platform operator console
-src/app/(partner)/partner/…  partner portal (white-label / referral / embedded)
-src/proxy.ts                 tenant resolution from host -> x-tenant header; optimistic auth gate
+src/app/(app)/app/…          trader terminal (workspace scoped; wears the tenant's brand when it has white-label)
+src/app/(admin)/admin/…      super admin console: Traders (workspaces), Tenants, Users, White-label (its own section), …
+src/app/(tenant)/tenant/…    tenant portal (commission for every tenant; Traders, Branding, Plans need white-label)
+src/proxy.ts                 host -> x-workspace / x-tenant headers; optimistic auth gate (wrong role -> homeForRole)
 src/lib/types.ts             the domain model — extend here, never invent parallel shapes
 src/lib/brokers.ts           THE broker registry (names, monograms, colors, statuses). Render brokers from here only
-src/lib/plans.ts             plans, prices, partner models
+src/lib/plans.ts             plans, prices, COMMISSION_PCT, WHITE_LABEL_FEE, TENANT_OFFERS (commission + white-label)
 src/lib/engine.ts            TradeScope constants: 44 symbols, 15m, minScore 70, max 5 open, stop 2.2×ATR, R:R 0.72,
                              sizeByRisk (1% of net liq, 95% cash cap), backtest stats, market session helper
-src/lib/mock/*               demo data (tenants, trading, platform). Pages read it via src/lib/api, not directly
+src/lib/mock/*               demo data (workspaces, tenants, trading, platform). Pages read it via src/lib/api, not directly
 src/lib/demo-clock.ts        DEMO_NOW, the instant the demo data is pinned to. Measure "x ago" / "today" / ranges from
                              it, not from new Date(); only the market session uses the real clock
 src/lib/api/index.ts         async data functions (swap point for the real backend)
 src/hooks/queries.ts         react-query hooks with production-like refetch intervals
 src/lib/auth.ts              getSession / requireSession / requireRole (server). src/lib/auth-actions.ts = server actions
-src/lib/roles.ts             who may open which area (CONSOLE_ROLES, PARTNER_PORTAL_ROLES, areasForRole), ROLE_LABEL.
-                             `superadmin` is the platform owner: console + partner portal + his own terminal. Pure data,
+src/lib/roles.ts             the four roles and who may open which area (CONSOLE_ROLES, TENANT_PORTAL_ROLES,
+                             TERMINAL_ROLES, areasForRole), ROLE_LABEL, ROLE_DESCRIPTION. Roles: `superadmin` (platform
+                             owner: console + tenant portal + their own terminal; the only one who grants white-label),
+                             `tenant` (distributor, earns commission; portal only), `trader` (organic user) and
+                             `tenant_user` (a trader who belongs to a tenant). Vocabulary: a `Tenant` is a distributor;
+                             a `Workspace` is a trader's desk (the console calls these "Traders"). Pure data,
                              shared by proxy.ts, the layouts and the area switcher; change access here only
-src/lib/tenant*.ts           host -> tenant, branding, getCurrentTenant()
-src/lib/nav.ts               sidebar/nav configs for terminal, console, partner portal, marketing. Every NavItem needs a
+src/lib/branding.ts          pure branding/host rules (DEFAULT_BRANDING, whiteLabelBranding, hostFor): safe for client code
+src/lib/tenant*.ts           host resolution and lookups (reads mock data: server/proxy only), getCurrentWorkspace(),
+                             getCurrentBranding()
+src/lib/nav.ts               sidebar/nav configs for terminal, console, tenant portal, marketing. Every NavItem needs a
                              `description`: the intro tour is built from it
 src/lib/tours.ts             intro tour steps per area (sidebar steps come from lib/nav; extra steps target `data-tour`)
-src/components/layout/app-shell.tsx   the shared sidebar + header shell (terminal, console, partner all use it). It also
+src/components/layout/app-shell.tsx   the shared sidebar + header shell (terminal, console, tenant portal all use it). It also
                              mounts the area switcher, the tour and its replay button
 src/components/layout/user-menu.tsx   the one account menu (Settings, Sign out) for every area; do not copy it
 src/components/tour/*        Tour (spotlight + card, opens once per area per browser) and TourButton
@@ -73,7 +79,7 @@ data-table, tenant-theme, theme-toggle, marketing/container (Container, Section,
   by default, no emoji, no em-dashes in copy.
 - Reuse: `StatCard` for every KPI, `BrokerMark` + `BrokerStatusBadge` for every broker, `Pnl` / `PctChange` for signed
   numbers, `DataTable` for tables with more than ~6 rows, `PageHeader` at the top of every app page, `DemoFlag` on
-  panels that show demo numbers a real user could mistake for their own (terminal, console, partner).
+  panels that show demo numbers a real user could mistake for their own (terminal, console, tenant portal).
 - Responsive: every page works at 375px and 1440px. Grids stack; tables scroll inside `DataTable` / `overflow-x-auto`;
   the sidebar collapses (already handled by `AppShell`).
 - States: every interactive control does something visible (state change, `toast`, dialog, navigation). Loading via
@@ -82,7 +88,7 @@ data-table, tenant-theme, theme-toggle, marketing/container (Container, Section,
   contradicts `lib/engine.ts`, `lib/plans.ts` or `lib/brokers.ts`.
 
 ## Server vs client
-- Pages and layouts are server components by default. Read session/tenant there (`getSession`, `getCurrentTenant`)
+- Pages and layouts are server components by default. Read session/workspace there (`getSession`, `getCurrentWorkspace`)
   and pass plain data down. Put `"use client"` on interactive leaf components, not on whole pages, unless the page is
   entirely interactive (the terminal pages mostly are; that is fine).
 - Server actions live in files with `"use server"` and export only async functions.

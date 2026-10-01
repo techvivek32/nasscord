@@ -13,14 +13,14 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePlatformOverview, useTenants } from "@/hooks/queries";
+import { usePlatformOverview, useWorkspaces } from "@/hooks/queries";
 import { getBroker } from "@/lib/brokers";
 import { fmtMoney, fmtNum, fmtPct, timeAgo } from "@/lib/format";
 import { PlanBadge, SeverityBadge } from "./badges";
 import { CountTooltip, MoneyTooltip, moneyAxis } from "./chart-bits";
 import { DEMO_NOW, INCIDENT_STATUS } from "./lib";
 import { ChartCardSkeleton, ListSkeleton, StatGridSkeleton, TableSkeleton } from "./primitives";
-import { applyTenantOverrides, useTenantOverrides } from "./store";
+import { applyWorkspaceOverrides, useWorkspaceOverrides } from "./store";
 
 const MRR_CONFIG: ChartConfig = { mrr: { label: "MRR", color: "var(--chart-1)" } };
 const SIGNUP_CONFIG: ChartConfig = {
@@ -31,7 +31,7 @@ const SIGNUP_CONFIG: ChartConfig = {
 
 /* Twelve-week trails for the KPI tiles. Endpoints match PLATFORM_KPIS. */
 const SPARK = {
-  tenants: [241, 248, 254, 261, 266, 272, 279, 285, 291, 298, 305, 312],
+  workspaces: [241, 248, 254, 261, 266, 272, 279, 285, 291, 298, 305, 312],
   accounts: [902, 928, 951, 977, 1004, 1031, 1058, 1082, 1109, 1136, 1161, 1184],
   trial: [27.1, 27.6, 28.0, 28.4, 28.6, 29.1, 29.5, 29.8, 30.2, 30.5, 30.8, 31.0],
   alerts: [1720, 1810, 1890, 1960, 2010, 2080, 2120, 2170, 2210, 2250, 2280, 2310],
@@ -40,16 +40,16 @@ const SPARK = {
 
 export function Overview() {
   const overview = usePlatformOverview();
-  const tenants = useTenants();
-  const overrides = useTenantOverrides();
+  const workspaces = useWorkspaces();
+  const overrides = useWorkspaceOverrides();
 
   const recent = React.useMemo(
     () =>
-      (tenants.data ?? [])
-        .map((t) => applyTenantOverrides(t, overrides))
+      (workspaces.data ?? [])
+        .map((w) => applyWorkspaceOverrides(w, overrides))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .slice(0, 6),
-    [tenants.data, overrides],
+    [workspaces.data, overrides],
   );
 
   const d = overview.data;
@@ -61,7 +61,7 @@ export function Overview() {
       {k ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <StatCard label="MRR" value={fmtMoney(k.mrr, { digits: 0 })} delta={fmtPct(k.mrrDeltaPct, 1)} deltaLabel="MoM" spark={d.mrrHistory.map((m) => m.mrr)} sparkColor="var(--chart-1)" />
-          <StatCard label="Active tenants" value={fmtNum(k.activeTenants)} delta={`+${k.newTenantsThisMonth}`} deltaLabel="this month" spark={SPARK.tenants} sparkColor="var(--chart-1)" />
+          <StatCard label="Active workspaces" value={fmtNum(k.activeWorkspaces)} delta={`+${k.newWorkspacesThisMonth}`} deltaLabel="this month" spark={SPARK.workspaces} sparkColor="var(--chart-1)" />
           <StatCard label="Connected broker accounts" value={fmtNum(k.connectedAccounts)} spark={SPARK.accounts} sparkColor="var(--chart-1)" />
           <StatCard label="Trial to paid" value={`${k.trialToPaidPct}%`} delta={k.trialToPaidDeltaPts} deltaLabel="pts" spark={SPARK.trial} sparkColor="var(--chart-1)" />
           <StatCard label="Alerts sent today" value={fmtNum(k.alertsSentToday)} spark={SPARK.alerts} sparkColor="var(--chart-1)" hint={<span className="text-[11px] text-muted-foreground">15m scan</span>} />
@@ -76,7 +76,7 @@ export function Overview() {
           <Card className="lg:col-span-3">
             <CardHeader>
               <CardTitle>MRR, last 12 months</CardTitle>
-              <CardDescription>Monthly recurring revenue at month end, all plans and partner-billed seats.</CardDescription>
+              <CardDescription>Monthly recurring revenue at month end, all plans, organic and tenant-sourced.</CardDescription>
             </CardHeader>
             <CardContent>
               <ChartContainer config={MRR_CONFIG} className="aspect-[16/7] w-full">
@@ -103,7 +103,7 @@ export function Overview() {
         {d ? (
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>New tenants by plan, last 12 weeks</CardTitle>
+              <CardTitle>New workspaces by plan, last 12 weeks</CardTitle>
               <CardDescription>Signups per ISO week. Enterprise deals are contracted and excluded.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -122,7 +122,7 @@ export function Overview() {
             </CardContent>
           </Card>
         ) : (
-          <ChartCardSkeleton title="New tenants by plan, last 12 weeks" className="lg:col-span-2" />
+          <ChartCardSkeleton title="New workspaces by plan, last 12 weeks" className="lg:col-span-2" />
         )}
       </div>
 
@@ -140,7 +140,7 @@ export function Overview() {
         <CardContent>
           {d ? (
             d.brokerHealth.length === 0 ? (
-              <EmptyState title="No broker connections yet" description="Health appears once the first tenant connects an account." />
+              <EmptyState title="No broker connections yet" description="Health appears once the first trader connects an account." />
             ) : (
               <Table>
                 <TableHeader>
@@ -193,31 +193,31 @@ export function Overview() {
             <CardTitle>Recent signups</CardTitle>
             <CardDescription>Newest workspaces across all plans.</CardDescription>
             <CardAction>
-              <Button variant="ghost" size="sm" render={<Link href="/admin/tenants" />}>
-                All tenants
+              <Button variant="ghost" size="sm" render={<Link href="/admin/traders" />}>
+                All traders
               </Button>
             </CardAction>
           </CardHeader>
           <CardContent>
-            {tenants.isLoading ? (
+            {workspaces.isLoading ? (
               <ListSkeleton rows={5} />
             ) : recent.length === 0 ? (
               <EmptyState title="No signups yet" description="New workspaces appear here as soon as someone completes onboarding." />
             ) : (
               <ul className="divide-y divide-border">
-                {recent.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-3 py-2.5">
+                {recent.map((w) => (
+                  <li key={w.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <Link href={`/admin/tenants/${t.id}`} className="block truncate text-sm font-medium hover:underline">
-                        {t.name}
+                      <Link href={`/admin/traders/${w.id}`} className="block truncate text-sm font-medium hover:underline">
+                        {w.name}
                       </Link>
                       <p className="truncate text-xs text-muted-foreground">
-                        {t.owner.name} · {timeAgo(t.createdAt, DEMO_NOW)}
+                        {w.owner.name} · {timeAgo(w.createdAt, DEMO_NOW)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <BrokerMarks ids={t.brokers} max={3} />
-                      <PlanBadge plan={t.plan} />
+                      <BrokerMarks ids={w.brokers} max={3} />
+                      <PlanBadge plan={w.plan} />
                     </div>
                   </li>
                 ))}

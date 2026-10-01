@@ -51,7 +51,7 @@ function priceHint(plan: Plan, billing: Billing) {
 
 export function PlanCard({ plan, billing, className }: { plan: Plan; billing: Billing; className?: string }) {
   const price = billing === "yearly" ? plan.yearly : plan.monthly;
-  const href = plan.id === "enterprise" ? "/partners" : "/signup";
+  const href = plan.id === "enterprise" ? "/tenants#white-label" : "/signup";
 
   return (
     <Card className={cn("relative h-full gap-5", plan.featured && "ring-2 ring-primary", className)}>

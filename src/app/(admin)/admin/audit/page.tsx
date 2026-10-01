@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Audit Log · Console" };
 export default function AuditPage() {
   return (
     <>
-      <PageHeader title="Audit Log" description="Every operator, owner and system action with actor, target and result. Retained for 7 years." />
+      <PageHeader title="Audit Log" description="Every super admin, tenant, trader and system action with actor, target and result. Retained for 7 years." />
       <AuditTable />
     </>
   );

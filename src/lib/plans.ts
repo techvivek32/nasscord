@@ -1,4 +1,4 @@
-import type { PartnerModelInfo, Plan, PlanId } from "@/lib/types";
+import type { Plan, PlanId, TenantOffer } from "@/lib/types";
 
 export const PLANS: Plan[] = [
   {
@@ -47,7 +47,7 @@ export const PLANS: Plan[] = [
       "Up to 5 seats",
       "Shared watchlists and alerts",
       "Team audit log",
-      "Role-based access",
+      "Separate login and 2FA for each trader",
       "Priority support",
     ],
     limits: { brokers: "unlimited", seats: 5, alertDelayMin: 0 },
@@ -84,44 +84,39 @@ export const PLAN_LABEL: Record<PlanId, string> = {
   enterprise: "Enterprise",
 };
 
-/** Standard referral commission, percent of subscription revenue. The one place this number is defined. */
-export const REFERRAL_SHARE_PCT = 25;
+/** Tenant commission, percent of the subscription revenue of the traders a tenant brings. The one place this number is defined. */
+export const COMMISSION_PCT = 25;
 
-export const PARTNER_MODELS: PartnerModelInfo[] = [
+/** White-label platform fee, per month, on top of per-seat pricing. */
+export const WHITE_LABEL_FEE = 999;
+
+/**
+ * What a tenant gets. Every tenant earns commission. White-label is an add-on: the super admin
+ * grants it to a tenant from the console's White-label page.
+ */
+export const TENANT_OFFERS: TenantOffer[] = [
   {
-    id: "white_label",
-    name: "White-label",
-    summary: "Your brand, domain and pricing. Nasscord runs the engine, the broker connections and the infrastructure.",
-    pricing: "From $999/mo platform fee plus per-seat.",
-    bullets: [
-      "Custom domain and branding, including accent color and emails",
-      "You set plans and prices; we bill on your behalf or you bill directly",
-      "Dedicated broker gateway pool for your tenants",
-      "Partner console with revenue, seats and support tools",
-    ],
-  },
-  {
-    id: "referral",
-    name: "Referral commission",
-    summary: "Introduce traders to Nasscord and earn a share of their subscription for as long as they stay.",
-    pricing: `${REFERRAL_SHARE_PCT}% of subscription revenue, lifetime, paid monthly.`,
+    id: "commission",
+    name: "Commission",
+    summary: "Bring traders to Nasscord and earn a share of their subscription for as long as they stay.",
+    pricing: `${COMMISSION_PCT}% of subscription revenue, lifetime, paid monthly.`,
     bullets: [
       "Personal referral link and codes",
       "Attribution tracked from first visit to paid plan",
       "Monthly payouts by ACH, $100 minimum",
-      "Dashboard with clicks, trials and conversions",
+      "Tenant portal with clicks, trials and conversions",
     ],
   },
   {
-    id: "embedded",
-    name: "Embedded / API",
-    summary: "Put TradeScope alerts and the verified order engine inside your own product.",
-    pricing: "Custom, based on volume.",
+    id: "white_label",
+    name: "White-label",
+    summary: "Your brand, domain and pricing on the terminal your traders use. Nasscord runs the engine, the broker connections and the infrastructure.",
+    pricing: `From $${WHITE_LABEL_FEE}/mo platform fee plus per-seat. Granted after review.`,
     bullets: [
-      "REST and streaming APIs for alerts, orders and positions",
-      "Broker connections handled by Nasscord",
-      "Usage-based pricing",
-      "Solution engineering during integration",
+      "Custom domain and branding, including accent color and emails",
+      "You set plans and prices for your traders",
+      "Dedicated broker gateway pool for your traders",
+      "Turned on by Nasscord once your application is approved",
     ],
   },
 ];

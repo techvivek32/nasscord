@@ -13,25 +13,25 @@ import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { PARTNER_CODE, SSO_IDENTITIES, type SsoProvider } from "@/components/onboarding/data";
+import { SSO_IDENTITIES, TENANT_CODE, type SsoProvider } from "@/components/onboarding/data";
 import { PasswordStrength } from "@/components/onboarding/password-strength";
 import { accountSchema, type AccountValues } from "@/components/onboarding/schemas";
 import { FieldError, FieldHint, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
-import { isPartnerCode, useSignupStore } from "@/components/onboarding/store";
+import { isTenantCode, useSignupStore } from "@/components/onboarding/store";
 import { cn } from "@/lib/utils";
 
 const SSO_LABEL: Record<SsoProvider, string> = { google: "Google", apple: "Apple" };
 
-/** Step 1: who you are. SSO fills a demo identity; the form path validates with zod. */
-export function StepAccount({ partnerName }: { partnerName: string }) {
+/** Step 1: who you are. SSO fills a demo identity; the form path validates with zod. `whiteLabel`: the code's tenant has its own brand. */
+export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; whiteLabel: boolean }) {
   const account = useSignupStore((s) => s.account);
   const navigated = useSignupStore((s) => s.navigated);
   const submitAccount = useSignupStore((s) => s.submitAccount);
-  const setPartnerCode = useSignupStore((s) => s.setPartnerCode);
+  const setTenantCode = useSignupStore((s) => s.setTenantCode);
   const markStarted = useSignupStore((s) => s.markStarted);
 
   const [showPassword, setShowPassword] = React.useState(false);
-  const [codeOpen, setCodeOpen] = React.useState(account.partnerCode.length > 0);
+  const [codeOpen, setCodeOpen] = React.useState(account.tenantCode.length > 0);
 
   const form = useForm<AccountValues>({
     resolver: zodResolver(accountSchema),
@@ -40,32 +40,32 @@ export function StepAccount({ partnerName }: { partnerName: string }) {
       fullName: account.fullName,
       email: account.email,
       password: "",
-      partnerCode: account.partnerCode,
+      tenantCode: account.tenantCode,
     },
   });
   const { register, handleSubmit, control, getValues, formState } = form;
   const { errors, isSubmitting } = formState;
 
   const password = useWatch({ control, name: "password" }) ?? "";
-  const partnerCode = useWatch({ control, name: "partnerCode" }) ?? "";
-  const partnerMatch = isPartnerCode(partnerCode);
+  const tenantCode = useWatch({ control, name: "tenantCode" }) ?? "";
+  const tenantMatch = isTenantCode(tenantCode);
 
-  // The partner code drives the live white-label preview around this card, so it goes to the store as typed.
+  // The tenant code drives the live white-label preview around this card, so it goes to the store as typed.
   React.useEffect(() => {
-    setPartnerCode(partnerCode);
-  }, [partnerCode, setPartnerCode]);
+    setTenantCode(tenantCode);
+  }, [tenantCode, setTenantCode]);
 
   useFocusOnMount("signup-fullName", navigated);
 
   const onSubmit = (values: AccountValues) => {
-    submitAccount({ fullName: values.fullName, email: values.email, password: values.password, partnerCode: values.partnerCode.trim() });
+    submitAccount({ fullName: values.fullName, email: values.email, password: values.password, tenantCode: values.tenantCode.trim() });
   };
 
   const onSso = (provider: SsoProvider) => {
     const identity = SSO_IDENTITIES[provider];
     markStarted();
     toast.success(`Signed in with ${SSO_LABEL[provider]}`, { description: `${identity.fullName} · ${identity.email}. Demo identity, nothing was sent to ${SSO_LABEL[provider]}.` });
-    submitAccount({ fullName: identity.fullName, email: identity.email, password: "", partnerCode: getValues("partnerCode").trim() }, provider);
+    submitAccount({ fullName: identity.fullName, email: identity.email, password: "", tenantCode: getValues("tenantCode").trim() }, provider);
   };
 
   return (
@@ -149,35 +149,40 @@ export function StepAccount({ partnerName }: { partnerName: string }) {
             render={<Button type="button" variant="ghost" size="sm" className="w-fit -ml-2.5 text-muted-foreground hover:text-foreground" />}
           >
             <ChevronDownIcon className={cn("transition-transform", codeOpen && "rotate-180")} />
-            Invite or partner code
-            {partnerMatch ? <span className="ml-1 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-primary">Applied</span> : null}
+            Invite or tenant code
+            {tenantMatch ? <span className="ml-1 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-primary">Applied</span> : null}
           </CollapsibleTrigger>
           <CollapsibleContent className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="signup-partnerCode">Code</Label>
+              <Label htmlFor="signup-tenantCode">Code</Label>
               <Input
-                id="signup-partnerCode"
+                id="signup-tenantCode"
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                placeholder={PARTNER_CODE}
+                placeholder={TENANT_CODE}
                 className="font-mono uppercase sm:max-w-xs"
-                aria-invalid={!!errors.partnerCode}
-                aria-describedby={errors.partnerCode ? "signup-partnerCode-error" : "signup-partnerCode-hint"}
-                {...register("partnerCode")}
+                aria-invalid={!!errors.tenantCode}
+                aria-describedby={errors.tenantCode ? "signup-tenantCode-error" : "signup-tenantCode-hint"}
+                {...register("tenantCode")}
               />
-              <FieldError id="signup-partnerCode-error" message={errors.partnerCode?.message} />
-              {!partnerMatch ? (
-                <FieldHint id="signup-partnerCode-hint">
-                  Codes come from a teammate&apos;s invite or a partner firm. Try <span className="font-mono">{PARTNER_CODE}</span> to see the white-label flow.
+              <FieldError id="signup-tenantCode-error" message={errors.tenantCode?.message} />
+              {!tenantMatch ? (
+                <FieldHint id="signup-tenantCode-hint">
+                  Codes come from a teammate&apos;s invite or from the tenant who referred you. Try <span className="font-mono">{TENANT_CODE}</span> to join through {tenantName}
+                  {whiteLabel ? " and see the white-label flow" : ""}.
                 </FieldHint>
               ) : null}
             </div>
-            {partnerMatch ? (
+            {tenantMatch ? (
               <Alert className="bg-brand-soft/60">
                 <HandshakeIcon className="text-primary" />
-                <AlertTitle>You are joining through {partnerName} (white-label partner).</AlertTitle>
-                <AlertDescription>Their branding and pricing apply. Your workspace runs on Nasscord under their name.</AlertDescription>
+                <AlertTitle>You are joining through {tenantName} as a tenant user.</AlertTitle>
+                <AlertDescription>
+                  {whiteLabel
+                    ? "Their branding and pricing apply. Your workspace runs on Nasscord under their name."
+                    : `You trade from the same terminal as every Nasscord trader, and ${tenantName} is credited for bringing you.`}
+                </AlertDescription>
               </Alert>
             ) : null}
           </CollapsibleContent>

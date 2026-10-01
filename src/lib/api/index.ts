@@ -8,10 +8,11 @@
    ------------------------------------------------------------------ */
 
 import { ALERTS, CLOSED_ALERTS, CONNECTIONS, DAILY_PNL, EQUITY_CURVE, EXECUTIONS, OPEN_ALERTS, ORDERS, POSITIONS, TICKERS } from "@/lib/mock/trading";
-import { AUDIT, BROKER_HEALTH, GATEWAY_POOLS, INCIDENTS, INVOICES, MRR_HISTORY, PARTNERS, PARTNER_APPLICATIONS, PAYOUTS, PLATFORM_KPIS, REVENUE_BY_PLAN, SERVICES, SIGNUPS_BY_PLAN, USERS } from "@/lib/mock/platform";
+import { AUDIT, BROKER_HEALTH, GATEWAY_POOLS, INCIDENTS, INVOICES, MRR_HISTORY, PAYOUTS, PLATFORM_KPIS, REVENUE_BY_PLAN, SERVICES, SIGNUPS_BY_PLAN, TENANT_APPLICATIONS, USERS } from "@/lib/mock/platform";
 import { TENANTS } from "@/lib/mock/tenants";
+import { WORKSPACES } from "@/lib/mock/workspaces";
 import { BACKTEST, ENGINE_DEFAULTS, LIFETIME_RECORD } from "@/lib/engine";
-import type { Alert, BrokerConnection, Execution, Order, Position, Tenant, Ticker } from "@/lib/types";
+import type { Alert, BrokerConnection, Execution, Order, Position, Tenant, Ticker, Workspace } from "@/lib/types";
 
 const latency = (ms = 120) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -49,14 +50,24 @@ export async function fetchBacktest() {
   return { stats: BACKTEST, lifetime: LIFETIME_RECORD, params: ENGINE_DEFAULTS };
 }
 
-/* ---------- platform (operator scoped) ---------- */
-export async function fetchTenants(): Promise<Tenant[]> {
+/* ---------- platform (super admin scoped) ---------- */
+/** Trading workspaces: organic traders and the ones that came through a tenant. */
+export async function fetchWorkspaces(): Promise<Workspace[]> {
   await latency();
-  return structuredClone(TENANTS);
+  return structuredClone(WORKSPACES);
 }
-export async function fetchTenant(idOrSlug: string): Promise<Tenant | null> {
+export async function fetchWorkspace(idOrSlug: string): Promise<Workspace | null> {
   await latency(80);
-  return structuredClone(TENANTS.find((t) => t.id === idOrSlug || t.slug === idOrSlug) ?? null);
+  return structuredClone(WORKSPACES.find((w) => w.id === idOrSlug || w.slug === idOrSlug) ?? null);
+}
+/** Tenants (distributors), their payouts and the open applications to become one. */
+export async function fetchTenants() {
+  await latency();
+  return { tenants: structuredClone(TENANTS), payouts: structuredClone(PAYOUTS), applications: structuredClone(TENANT_APPLICATIONS) };
+}
+export async function fetchTenant(id: string): Promise<Tenant | null> {
+  await latency(80);
+  return structuredClone(TENANTS.find((t) => t.id === id) ?? null);
 }
 export async function fetchPlatformOverview() {
   await latency();
@@ -78,10 +89,6 @@ export async function fetchUsers() {
 export async function fetchInvoices() {
   await latency();
   return structuredClone(INVOICES);
-}
-export async function fetchPartners() {
-  await latency();
-  return { partners: structuredClone(PARTNERS), payouts: structuredClone(PAYOUTS), applications: structuredClone(PARTNER_APPLICATIONS) };
 }
 export async function fetchAudit() {
   await latency();

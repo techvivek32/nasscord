@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Activity, BarChart3, Bell, BookOpen, Briefcase, Building2, ChartCandlestick, ClipboardList, CreditCard, Gauge, Handshake,
-  History, Layers, LineChart, ListOrdered, PlugZap, Radar, ScrollText, Settings, ShieldCheck, Users, Wallet,
+  History, Layers, LineChart, ListOrdered, Palette, PlugZap, Radar, ScrollText, Settings, ShieldCheck, Users, Wallet,
 } from "lucide-react";
 import type { AreaId } from "@/lib/roles";
 
@@ -48,26 +48,32 @@ export const TERMINAL_NAV: NavGroup[] = [
   },
 ];
 
-/** Platform operator console. */
+/** Super admin console. */
 export const CONSOLE_NAV: NavGroup[] = [
   {
-    items: [{ title: "Overview", href: "/admin", icon: Gauge, description: "Revenue, customers and broker health at a glance." }],
+    items: [{ title: "Overview", href: "/admin", icon: Gauge, description: "Revenue, traders, tenants and broker health at a glance." }],
   },
   {
     label: "Customers",
     items: [
-      { title: "Tenants", href: "/admin/tenants", icon: Building2, description: "Every customer workspace. Open one to change its plan, limits or features, or to suspend it." },
-      { title: "Users", href: "/admin/users", icon: Users, description: "Everyone who can sign in, across all tenants. Invite, change a role, reset 2FA." },
-      { title: "Partners", href: "/admin/partners", icon: Handshake, description: "White-label, referral and embedded partners, their applications and payouts." },
+      { title: "Traders", href: "/admin/traders", icon: Building2, description: "Every trading workspace, organic or through a tenant. Open one to change its plan, limits or features, or to suspend it." },
+      { title: "Tenants", href: "/admin/tenants", icon: Handshake, description: "Distributors who bring traders and earn commission: applications, commission and payouts." },
+      { title: "Users", href: "/admin/users", icon: Users, description: "Everyone who can sign in: tenants, traders and tenant users. Invite, reset 2FA or remove a login." },
+    ],
+  },
+  {
+    label: "White-label",
+    items: [
+      { title: "White-label", href: "/admin/white-label", icon: Palette, description: "Turn white-label on for a tenant and set the name, accent color and domain their traders see." },
     ],
   },
   {
     label: "Platform",
     items: [
-      { title: "Brokers", href: "/admin/brokers", icon: PlugZap, description: "Every broker integration. Turn one on or off for all tenants and watch rate limits." },
+      { title: "Brokers", href: "/admin/brokers", icon: PlugZap, description: "Every broker integration. Turn one on or off for all traders and watch rate limits." },
       { title: "Plans & Billing", href: "/admin/billing", icon: CreditCard, description: "Plan prices and entitlements, and this month's invoices." },
       { title: "Revenue", href: "/admin/revenue", icon: BarChart3, description: "Recurring revenue against infrastructure cost, and revenue by plan." },
-      { title: "Alert Engine", href: "/admin/engine", icon: Radar, description: "TradeScope scan settings and the symbol universe, for every tenant." },
+      { title: "Alert Engine", href: "/admin/engine", icon: Radar, description: "TradeScope scan settings and the symbol universe, for every trader." },
     ],
   },
   {
@@ -75,31 +81,34 @@ export const CONSOLE_NAV: NavGroup[] = [
     items: [
       { title: "System Health", href: "/admin/health", icon: Activity, description: "Service status, restarts, incidents and the maintenance gate." },
       { title: "Audit Log", href: "/admin/audit", icon: ScrollText, description: "Who did what, when and from where." },
-      { title: "Settings", href: "/admin/settings", icon: Settings, description: "Platform identity, branding defaults, staff security, API keys and email." },
+      { title: "Settings", href: "/admin/settings", icon: Settings, description: "Platform identity, branding defaults, security, API keys and email." },
     ],
   },
 ];
 
-/** Partner portal (white-label and referral partners). */
-export const PARTNER_NAV: NavGroup[] = [
+/** Tenant portal: commission for every tenant, white-label pages for the ones the super admin granted it. */
+export const TENANT_NAV: NavGroup[] = [
   {
-    items: [{ title: "Overview", href: "/partner", icon: Gauge, description: "Referred accounts, attributed revenue and your next payout." }],
+    items: [{ title: "Overview", href: "/tenant", icon: Gauge, description: "Traders you brought, the commission they earn you and your next payout." }],
   },
   {
     label: "Program",
     items: [
-      { title: "Referrals", href: "/partner/referrals", icon: Handshake, description: "Your referral codes and the funnel from click to paid account." },
-      { title: "Tenants", href: "/partner/tenants", icon: Building2, description: "Branded workspaces you run for your own customers." },
-      { title: "Payouts", href: "/partner/payouts", icon: Wallet, description: "Commission history, statements and the bank account payouts go to." },
+      { title: "Referrals", href: "/tenant/referrals", icon: Handshake, description: "Your referral codes and the funnel from click to paid account." },
+      { title: "Traders", href: "/tenant/traders", icon: Building2, description: "Branded workspaces you run for your traders. Needs white-label." },
+      { title: "Payouts", href: "/tenant/payouts", icon: Wallet, description: "Commission history, statements and the bank account payouts go to." },
     ],
   },
   {
     label: "White-label",
     items: [
-      { title: "Branding", href: "/partner/branding", icon: Layers, description: "Your name, accent color, domain and emails on the terminal." },
-      { title: "Plans", href: "/partner/plans", icon: ClipboardList, description: "The plans and prices your traders see." },
-      { title: "Settings", href: "/partner/settings", icon: ShieldCheck, description: "Contacts, notifications, API keys and your agreement." },
+      { title: "Branding", href: "/tenant/branding", icon: Layers, description: "Your name, accent color, domain and emails on the terminal. Needs white-label." },
+      { title: "Plans", href: "/tenant/plans", icon: ClipboardList, description: "The plans and prices your traders see. Needs white-label." },
     ],
+  },
+  {
+    label: "Account",
+    items: [{ title: "Settings", href: "/tenant/settings", icon: ShieldCheck, description: "Contacts, notifications, API keys and your agreement." }],
   },
 ];
 
@@ -110,7 +119,7 @@ export const PARTNER_NAV: NavGroup[] = [
 export const SHELL_NAVS = {
   terminal: TERMINAL_NAV,
   console: CONSOLE_NAV,
-  partner: PARTNER_NAV,
+  tenant: TENANT_NAV,
 } satisfies Record<AreaId, NavGroup[]>;
 
 export type ShellNavId = keyof typeof SHELL_NAVS;
@@ -119,13 +128,13 @@ export type ShellNavId = keyof typeof SHELL_NAVS;
 export const SHELL_AREAS: Record<ShellNavId, { title: string; description: string; href: string; icon: LucideIcon }> = {
   terminal: { title: "Terminal", description: "Trade: alerts, orders and positions", href: "/app", icon: ChartCandlestick },
   console: { title: "Console", description: "Run the platform: customers, billing, health", href: "/admin", icon: Gauge },
-  partner: { title: "Partner portal", description: "Referrals, payouts and white-label", href: "/partner", icon: Handshake },
+  tenant: { title: "Tenant portal", description: "Referrals, commission and white-label", href: "/tenant", icon: Handshake },
 };
 
 export const MARKETING_NAV: Array<{ title: string; href: string }> = [
   { title: "Platform", href: "/#platform" },
   { title: "Brokers", href: "/brokers" },
   { title: "Pricing", href: "/pricing" },
-  { title: "Partners", href: "/partners" },
+  { title: "Tenants", href: "/tenants" },
   { title: "Security", href: "/security" },
 ];

@@ -49,7 +49,7 @@ export function MaintenanceSwitch({ id, size = "default", className }: { id: str
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Who is blocked</dt>
-              <dd className="text-right font-medium">Every tenant login, including white-label domains</dd>
+              <dd className="text-right font-medium">Traders and tenant users, including white-label domains</dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Exempt</dt>

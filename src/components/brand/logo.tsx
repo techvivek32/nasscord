@@ -17,7 +17,7 @@ export function LogoMark({ className, size = 28 }: { className?: string; size?: 
 
 /**
  * Wordmark. `name` defaults to Nasscord; white-label tenants pass their brand name.
- * `sub` renders a small uppercase product suffix (Terminal, Console, Partners).
+ * `sub` renders a small uppercase product suffix (Terminal, Console, Tenants).
  */
 export function Logo({
   name = "Nasscord",

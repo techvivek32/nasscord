@@ -29,7 +29,7 @@ export interface TicketDraft {
 interface TerminalData {
   hydrated: boolean;
   selectedAccountId: AccountScope;
-  /** null until the tenant default has been applied (see initPaperMode). */
+  /** null until the workspace default has been applied (see initPaperMode). */
   paperMode: boolean | null;
   /** Per-account overrides of BrokerAccount.included, set from /app/brokers. */
   includedOverrides: Record<string, boolean>;
@@ -47,7 +47,7 @@ interface TerminalData {
 
 interface TerminalActions {
   setSelectedAccount: (id: AccountScope) => void;
-  initPaperMode: (tenantDefault: boolean) => void;
+  initPaperMode: (workspaceDefault: boolean) => void;
   setPaperMode: (on: boolean) => void;
   setIncluded: (accountId: string, included: boolean) => void;
   addWatch: (symbol: string) => void;
@@ -114,8 +114,8 @@ export const useTerminalStore = create<TerminalStore>()(
 
       setSelectedAccount: (selectedAccountId) => set({ selectedAccountId }),
 
-      initPaperMode: (tenantDefault) => {
-        if (get().paperMode === null) set({ paperMode: tenantDefault });
+      initPaperMode: (workspaceDefault) => {
+        if (get().paperMode === null) set({ paperMode: workspaceDefault });
       },
 
       setPaperMode: (paperMode) => set({ paperMode }),
@@ -167,8 +167,8 @@ export const useTerminalStore = create<TerminalStore>()(
   ),
 );
 
-/** Called once from the terminal layout (client side). Reads the persisted slice, then applies the tenant default for paper mode. */
-export async function hydrateTerminalStore(tenantPaperDefault: boolean) {
+/** Called once from the terminal layout (client side). Reads the persisted slice, then applies the workspace default for paper mode. */
+export async function hydrateTerminalStore(workspacePaperDefault: boolean) {
   const store = useTerminalStore;
   if (store.getState().hydrated) return;
   try {
@@ -176,6 +176,6 @@ export async function hydrateTerminalStore(tenantPaperDefault: boolean) {
   } catch {
     /* storage unavailable: run with defaults */
   }
-  store.getState().initPaperMode(tenantPaperDefault);
+  store.getState().initPaperMode(workspacePaperDefault);
   store.setState({ hydrated: true });
 }

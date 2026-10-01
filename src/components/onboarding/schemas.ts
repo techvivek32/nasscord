@@ -20,7 +20,7 @@ export const accountSchema = z.object({
     .string()
     .min(8, "Use at least 8 characters")
     .refine((p) => passwordScore(p) >= 3, "Meet at least three of the four password rules"),
-  partnerCode: z.string().trim().max(32, "Codes are at most 32 characters"),
+  tenantCode: z.string().trim().max(32, "Codes are at most 32 characters"),
 });
 export type AccountValues = z.infer<typeof accountSchema>;
 

@@ -29,7 +29,7 @@ import { SHELL_NAVS, type ShellNavId } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 
 /**
- * Generic application shell used by the terminal, the console and the partner portal.
+ * Generic application shell used by the terminal, the console and the tenant portal.
  * Sidebar nav is picked by id from SHELL_NAVS (the config holds icon components, so server layouts
  * pass the id, not the config); header slot for page-specific controls.
  * Active item = exact match for the group's root href, prefix match for everything else.

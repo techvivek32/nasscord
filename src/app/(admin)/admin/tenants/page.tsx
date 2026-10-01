@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { TenantsTable } from "@/components/console/tenants-table";
+import { TenantsPage } from "@/components/console/tenants-page";
+import { COMMISSION_PCT } from "@/lib/plans";
 
 export const metadata: Metadata = { title: "Tenants · Console" };
 
-export default function TenantsPage() {
+export default function TenantsAdminPage() {
   return (
     <>
-      <PageHeader title="Tenants" description="Every workspace on the platform. Click a row to edit branding, limits, flags and billing." />
-      <TenantsTable />
+      <PageHeader title="Tenants" description={`Distributors who bring traders and earn ${COMMISSION_PCT}% commission: their applications and monthly payouts.`} />
+      <TenantsPage />
     </>
   );
 }

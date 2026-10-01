@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Stat tile: label · value · optional delta (colored by whether up is good) · optional sparkline.
- * Use the same tile everywhere a KPI appears (terminal, console, partner portal).
+ * Use the same tile everywhere a KPI appears (terminal, console, tenant portal).
  */
 export function StatCard({
   label,

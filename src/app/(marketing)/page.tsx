@@ -4,7 +4,8 @@ import { ArrowRight, Check } from "lucide-react";
 import { fetchAlerts, fetchConnections, fetchPositions, fetchTenant } from "@/lib/api";
 import { BROKERS, PLANNED_BROKERS, SYNC_BROKERS, TRADING_BROKERS } from "@/lib/brokers";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
-import { getPlan } from "@/lib/plans";
+import { COMMISSION_PCT, getPlan } from "@/lib/plans";
+import { whiteLabelBranding } from "@/lib/tenant";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Container, Section, SectionHead } from "@/components/marketing/container";
@@ -14,10 +15,10 @@ import { CordDiagram } from "@/components/marketing/cord-diagram";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { FaqList, type FaqItem } from "@/components/marketing/faq";
 import { FeaturesGrid } from "@/components/marketing/features-grid";
-import { PartnerModelCards } from "@/components/marketing/partner-models";
 import { PricingPlans } from "@/components/marketing/pricing-plans";
 import { SecurityControlList, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
 import { NumberedSteps } from "@/components/marketing/steps";
+import { TenantOfferCards } from "@/components/marketing/tenant-offers";
 import { TerminalPreview } from "@/components/marketing/terminal-preview";
 
 export const metadata: Metadata = {
@@ -63,16 +64,17 @@ function buildFaq(): FaqItem[] {
     },
     {
       q: "Do you store my broker password?",
-      a: "No. Every broker connection is an OAuth grant made on the broker's own sign-in page; Nasscord receives a scoped token and stores it encrypted with a per-tenant key. Interactive Brokers additionally requires its own gateway login with a second factor, which you complete on IBKR's page each session. Revoking access at the broker ends the connection immediately.",
+      a: "No. Every broker connection is an OAuth grant made on the broker's own sign-in page; Nasscord receives a scoped token and stores it encrypted with a per-workspace key. Interactive Brokers additionally requires its own gateway login with a second factor, which you complete on IBKR's page each session. Revoking access at the broker ends the connection immediately.",
     },
     {
       q: "Can I use my own brand?",
       a: (
         <>
-          Yes. The white-label program puts your name, domain, accent color and email templates on the terminal while Nasscord runs the engine and the broker
-          connections. You set plans and prices for your customers. See{" "}
-          <Link href="/partners#white-label" className="text-primary hover:underline">
-            white-label partnerships
+          Yes, as a tenant with white-label. It puts your name, domain, accent color and email templates on the terminal your traders use while Nasscord
+          runs the engine and the broker connections, and you set the plans and prices they see. White-label is an add-on that Nasscord turns on after
+          reviewing your application; every tenant earns {COMMISSION_PCT}% commission either way. See{" "}
+          <Link href="/tenants#white-label" className="text-primary hover:underline">
+            white-label for tenants
           </Link>
           .
         </>
@@ -94,7 +96,7 @@ function buildFaq(): FaqItem[] {
 }
 
 export default async function HomePage() {
-  const [alerts, positions, connections, acme] = await Promise.all([fetchAlerts(), fetchPositions(), fetchConnections(), fetchTenant("acme")]);
+  const [alerts, positions, connections, acme] = await Promise.all([fetchAlerts(), fetchPositions(), fetchConnections(), fetchTenant("t_acme")]);
   const faq = buildFaq();
 
   return (
@@ -209,14 +211,19 @@ export default async function HomePage() {
         </Container>
       </Section>
 
-      {/* 7. Partners */}
-      <Section id="partners">
+      {/* 7. Tenants */}
+      <Section id="tenants">
         <Container className="grid gap-8">
-          <SectionHead eyebrow="Partners" title="Your brand, our engine." lede="Run Nasscord under your name, refer traders for a lifetime share, or embed the engine in your own product." className="mb-0 sm:mb-0" />
-          <PartnerModelCards preview={acme?.branding} />
+          <SectionHead
+            eyebrow="Tenants"
+            title="Bring traders. Earn on every one."
+            lede={`Tenants earn ${COMMISSION_PCT}% of the subscriptions of the traders they bring, for as long as those traders stay. Add white-label to run the terminal under your own brand.`}
+            className="mb-0 sm:mb-0"
+          />
+          <TenantOfferCards preview={whiteLabelBranding(acme)} />
           <div>
-            <Button size="lg" render={<Link href="/partners#apply" />}>
-              Apply as a partner
+            <Button size="lg" render={<Link href="/tenants#apply" />}>
+              Apply as a tenant
             </Button>
           </div>
         </Container>

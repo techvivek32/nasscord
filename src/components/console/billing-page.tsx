@@ -17,6 +17,7 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { PLANS } from "@/lib/plans";
 import type { Invoice, PlanId } from "@/lib/types";
 import { InvoiceStatusBadge } from "./badges";
+import { SUPER_ADMIN_EMAIL } from "./lib";
 import { TableSkeleton } from "./primitives";
 import { type PlanMatrix, type PlanMatrixRow, useConsoleStore } from "./store";
 
@@ -59,7 +60,7 @@ export function PlanMatrixCard() {
     <Card>
       <CardHeader>
         <CardTitle>Plan matrix</CardTitle>
-        <CardDescription>Prices and entitlements per plan. Changes apply to new subscriptions; existing tenants keep their price until renewal.</CardDescription>
+        <CardDescription>Prices and entitlements per plan. Changes apply to new subscriptions; existing workspaces keep their price until renewal.</CardDescription>
         <CardAction>
           <Button
             size="sm"
@@ -150,7 +151,7 @@ export function PlanMatrixCard() {
             </TableBody>
           </Table>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">{savedAt ? `Last saved ${fmtDate(savedAt)} by ops@nasscord.com.` : "Not changed since deploy."}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{savedAt ? `Last saved ${fmtDate(savedAt)} by ${SUPER_ADMIN_EMAIL}.` : "Not changed since deploy."}</p>
       </CardContent>
     </Card>
   );
@@ -158,7 +159,7 @@ export function PlanMatrixCard() {
 
 const INVOICE_COLUMNS: ColumnDef<Invoice>[] = [
   { accessorKey: "id", header: "Invoice", cell: ({ row }) => <span className="font-mono text-xs">{row.original.id}</span> },
-  { accessorKey: "tenantName", header: "Tenant", cell: ({ row }) => <span className="font-medium">{row.original.tenantName}</span> },
+  { accessorKey: "workspaceName", header: "Workspace", cell: ({ row }) => <span className="font-medium">{row.original.workspaceName}</span> },
   { accessorKey: "amount", header: "Amount", meta: { align: "right" }, cell: ({ row }) => <span className="font-medium tabular">{fmtMoney(row.original.amount, { digits: 0 })}</span> },
   { accessorKey: "status", header: "Status", cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} /> },
   { accessorKey: "issuedAt", header: "Issued", cell: ({ row }) => <span className="text-muted-foreground">{fmtDate(row.original.issuedAt)}</span> },
@@ -176,7 +177,7 @@ const INVOICE_COLUMNS: ColumnDef<Invoice>[] = [
             <MoreHorizontal />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem disabled={inv.status === "paid" || inv.status === "void"} onClick={() => toast.success(`Reminder sent for ${inv.id}`, { description: `${inv.tenantName} · ${fmtMoney(inv.amount, { digits: 0 })} due ${fmtDate(inv.dueAt)}` })}>
+            <DropdownMenuItem disabled={inv.status === "paid" || inv.status === "void"} onClick={() => toast.success(`Reminder sent for ${inv.id}`, { description: `${inv.workspaceName} · ${fmtMoney(inv.amount, { digits: 0 })} due ${fmtDate(inv.dueAt)}` })}>
               Send reminder
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => toast(`Downloading ${inv.id}.pdf`)}>Download PDF</DropdownMenuItem>
@@ -204,7 +205,7 @@ export function InvoicesCard() {
       <CardHeader>
         <CardTitle>Invoices</CardTitle>
         <CardDescription>
-          {invoices.data ? `${fmtMoney(totals.open, { digits: 0 })} open · ${fmtMoney(totals.pastDue, { digits: 0 })} past due` : "This month's invoices across all tenants."}
+          {invoices.data ? `${fmtMoney(totals.open, { digits: 0 })} open · ${fmtMoney(totals.pastDue, { digits: 0 })} past due` : "This month's invoices across all workspaces."}
         </CardDescription>
         <CardAction>
           <Button
@@ -228,9 +229,9 @@ export function InvoicesCard() {
         {invoices.isLoading ? (
           <TableSkeleton rows={6} cols={7} />
         ) : (invoices.data ?? []).length === 0 ? (
-          <EmptyState title="No invoices this cycle" description="Invoices are issued on each tenant's billing day." />
+          <EmptyState title="No invoices this cycle" description="Invoices are issued on each workspace's billing day." />
         ) : (
-          <DataTable columns={INVOICE_COLUMNS} data={invoices.data ?? []} searchPlaceholder="Search invoice or tenant…" pageSize={10} />
+          <DataTable columns={INVOICE_COLUMNS} data={invoices.data ?? []} searchPlaceholder="Search invoice or workspace…" pageSize={10} />
         )}
       </CardContent>
     </Card>

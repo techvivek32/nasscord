@@ -9,12 +9,12 @@ import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, Comma
 import { UserMenu, type ShellUser } from "@/components/layout/user-menu";
 import { DemoFlag } from "@/components/page-header";
 import { BrokerMarks } from "@/components/brokers/broker-mark";
-import { useTenants, useUsers } from "@/hooks/queries";
+import { useUsers, useWorkspaces } from "@/hooks/queries";
 import { maskEmail } from "@/lib/format";
 import { PLAN_LABEL } from "@/lib/plans";
-import { useConsoleStore } from "./store";
+import { useConsoleStore, useConsoleTenants } from "./store";
 import { MAINTENANCE_WINDOW_INLINE, ROLE_LABEL } from "./lib";
-import { TenantStatusBadge } from "./badges";
+import { WorkspaceStatusBadge } from "./badges";
 
 /** Console header: global search (⌘K), environment badge, maintenance banner, demo flag, account menu. */
 export function ConsoleHeader({ user }: { user: ShellUser }) {
@@ -34,7 +34,7 @@ export function ConsoleHeader({ user }: { user: ShellUser }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" className="gap-2 text-muted-foreground" onClick={() => setOpen(true)} aria-label="Search tenants and users" aria-keyshortcuts="Meta+K Control+K" data-tour="console-search">
+      <Button variant="outline" size="sm" className="gap-2 text-muted-foreground" onClick={() => setOpen(true)} aria-label="Search traders and users" aria-keyshortcuts="Meta+K Control+K" data-tour="console-search">
         <Search />
         <span className="hidden sm:inline">Search</span>
         <kbd className="hidden rounded border border-input bg-muted px-1 font-mono text-[10px] text-muted-foreground md:inline">⌘K</kbd>
@@ -56,9 +56,13 @@ export function ConsoleHeader({ user }: { user: ShellUser }) {
 
 function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const router = useRouter();
-  const tenants = useTenants();
+  const workspaces = useWorkspaces();
   const users = useUsers();
-  const tenantName = React.useMemo(() => new Map((tenants.data ?? []).map((t) => [t.id, t.name] as const)), [tenants.data]);
+  const { byId: tenantById } = useConsoleTenants();
+  const workspaceName = React.useMemo(() => new Map((workspaces.data ?? []).map((w) => [w.id, w.name] as const)), [workspaces.data]);
+  /** Where a user belongs, for the right-hand column: their workspace, or the tenant a tenant login runs. */
+  const placeOf = (u: { workspaceId?: string; tenantId?: string }) =>
+    (u.workspaceId ? (workspaceName.get(u.workspaceId) ?? u.workspaceId) : undefined) ?? (u.tenantId ? (tenantById.get(u.tenantId)?.name ?? u.tenantId) : "");
 
   const go = (href: string) => {
     onOpenChange(false);
@@ -66,33 +70,36 @@ function GlobalSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search the console" description="Find a tenant or a user and jump to it." className="sm:max-w-lg">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search the console" description="Find a trader or a user and jump to it." className="sm:max-w-lg">
       <Command>
-        <CommandInput placeholder="Search tenants, owners, users…" autoFocus />
+        <CommandInput placeholder="Search traders, owners, users…" autoFocus />
         <CommandList>
-          <CommandEmpty>{tenants.isLoading || users.isLoading ? "Loading…" : "No tenant or user matches."}</CommandEmpty>
-          <CommandGroup heading="Tenants">
-            {(tenants.data ?? []).map((t) => (
-              <CommandItem key={t.id} value={`${t.name} ${t.slug} ${t.owner.name} ${t.owner.email} ${PLAN_LABEL[t.plan]}`} onSelect={() => go(`/admin/tenants/${t.id}`)}>
-                <Building2 className="text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="truncate">{t.name}</span>
-                  <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{t.slug}</span>
-                </span>
-                <BrokerMarks ids={t.brokers} max={3} className="hidden sm:inline-flex" />
-                <TenantStatusBadge status={t.status} />
-              </CommandItem>
-            ))}
+          <CommandEmpty>{workspaces.isLoading || users.isLoading ? "Loading…" : "No trader or user matches."}</CommandEmpty>
+          <CommandGroup heading="Traders">
+            {(workspaces.data ?? []).map((w) => {
+              const tenantName = w.tenantId ? (tenantById.get(w.tenantId)?.name ?? w.tenantId) : "Organic";
+              return (
+                <CommandItem key={w.id} value={`${w.name} ${w.slug} ${w.owner.name} ${w.owner.email} ${PLAN_LABEL[w.plan]} ${tenantName}`} onSelect={() => go(`/admin/traders/${w.id}`)}>
+                  <Building2 className="text-muted-foreground" />
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="truncate">{w.name}</span>
+                    <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{w.slug}</span>
+                  </span>
+                  <BrokerMarks ids={w.brokers} max={3} className="hidden sm:inline-flex" />
+                  <WorkspaceStatusBadge status={w.status} />
+                </CommandItem>
+              );
+            })}
           </CommandGroup>
           <CommandGroup heading="Users">
             {(users.data ?? []).map((u) => (
-              <CommandItem key={u.id} value={`${u.name} ${u.email} ${tenantName.get(u.tenantId) ?? ""} ${ROLE_LABEL[u.role]}`} onSelect={() => go(`/admin/users?q=${encodeURIComponent(u.email)}`)}>
+              <CommandItem key={u.id} value={`${u.name} ${u.email} ${placeOf(u)} ${ROLE_LABEL[u.role]}`} onSelect={() => go(`/admin/users?q=${encodeURIComponent(u.email)}`)}>
                 <UserIcon className="text-muted-foreground" />
                 <span className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="truncate">{u.name}</span>
                   <span className="hidden truncate font-mono text-xs text-muted-foreground sm:inline">{maskEmail(u.email)}</span>
                 </span>
-                <span className="text-xs text-muted-foreground">{tenantName.get(u.tenantId) ?? u.tenantId}</span>
+                <span className="text-xs text-muted-foreground">{placeOf(u)}</span>
                 <Badge variant="outline">{ROLE_LABEL[u.role]}</Badge>
               </CommandItem>
             ))}

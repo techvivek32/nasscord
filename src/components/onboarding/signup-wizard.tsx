@@ -12,18 +12,19 @@ import { StepWorkspace } from "@/components/onboarding/step-workspace";
 import { StepBrokers } from "@/components/onboarding/step-brokers";
 import { StepPreferences } from "@/components/onboarding/step-preferences";
 import { StepReady } from "@/components/onboarding/step-ready";
-import { isPartnerCode, useSignupStore } from "@/components/onboarding/store";
+import { isTenantCode, useSignupStore } from "@/components/onboarding/store";
 
 /**
  * Root of the signup wizard. Two columns on desktop (rail 280px + step card), stacked on
- * mobile with a compact progress line. The right column takes the partner's accent as soon
- * as a valid partner code is entered, so the trader sees the white-label preview live.
+ * mobile with a compact progress line. A valid tenant code makes the new user a tenant user of
+ * that tenant; when the tenant has white-label (`tenantBranding` is set) the right column takes
+ * its accent as soon as the code is entered, so the trader sees the white-label preview live.
  */
-export function SignupWizard({ partnerName, partnerBranding }: { partnerName: string; partnerBranding: TenantBranding | null }) {
+export function SignupWizard({ tenantName, tenantBranding }: { tenantName: string; tenantBranding: TenantBranding | null }) {
   const hydrated = useSignupStore((s) => s.hydrated);
   const step = useSignupStore((s) => s.step);
   const furthest = useSignupStore((s) => s.furthest);
-  const partnerCode = useSignupStore((s) => s.account.partnerCode);
+  const tenantCode = useSignupStore((s) => s.account.tenantCode);
   const goTo = useSignupStore((s) => s.goTo);
 
   React.useEffect(() => {
@@ -34,20 +35,23 @@ export function SignupWizard({ partnerName, partnerBranding }: { partnerName: st
     else useSignupStore.setState({ hydrated: true });
   }, []);
 
-  const partnerActive = isPartnerCode(partnerCode) && partnerBranding !== null;
+  /** Signing up through the tenant: the user becomes a tenant user. */
+  const tenantJoined = isTenantCode(tenantCode);
+  /** ...and the tenant has white-label, so its brand and pricing apply. */
+  const brandActive = tenantJoined && tenantBranding !== null;
 
   const stepCard = !hydrated ? (
     <WizardSkeleton />
   ) : step === 1 ? (
-    <StepAccount partnerName={partnerName} />
+    <StepAccount tenantName={tenantName} whiteLabel={tenantBranding !== null} />
   ) : step === 2 ? (
-    <StepWorkspace partnerName={partnerName} partnerActive={partnerActive} />
+    <StepWorkspace tenantName={tenantName} brandActive={brandActive} />
   ) : step === 3 ? (
     <StepBrokers />
   ) : step === 4 ? (
     <StepPreferences />
   ) : (
-    <StepReady partnerName={partnerName} partnerActive={partnerActive} />
+    <StepReady tenantName={tenantName} tenantJoined={tenantJoined} brandActive={brandActive} />
   );
 
   return (
@@ -60,7 +64,7 @@ export function SignupWizard({ partnerName, partnerBranding }: { partnerName: st
         {hydrated ? (
           <>
             <StepRail current={step} furthest={furthest} onSelect={goTo} />
-            <SummaryCard partnerName={partnerName} />
+            <SummaryCard tenantName={tenantName} whiteLabel={tenantBranding !== null} />
           </>
         ) : (
           <RailSkeleton />
@@ -73,11 +77,11 @@ export function SignupWizard({ partnerName, partnerBranding }: { partnerName: st
       </div>
 
       <section aria-live="polite" className="min-w-0">
-        {partnerActive && partnerBranding ? (
-          <TenantTheme branding={partnerBranding}>
+        {brandActive && tenantBranding ? (
+          <TenantTheme branding={tenantBranding}>
             <div className="grid gap-4">
               {stepCard}
-              <PartnerPreviewNote name={partnerBranding.name} />
+              <TenantPreviewNote name={tenantBranding.name} />
             </div>
           </TenantTheme>
         ) : (
@@ -85,7 +89,7 @@ export function SignupWizard({ partnerName, partnerBranding }: { partnerName: st
         )}
         {hydrated ? (
           <div className="mt-6 lg:hidden">
-            <SummaryCard partnerName={partnerName} />
+            <SummaryCard tenantName={tenantName} whiteLabel={tenantBranding !== null} />
           </div>
         ) : null}
       </section>
@@ -93,7 +97,7 @@ export function SignupWizard({ partnerName, partnerBranding }: { partnerName: st
   );
 }
 
-function PartnerPreviewNote({ name }: { name: string }) {
+function TenantPreviewNote({ name }: { name: string }) {
   return (
     <p className="text-xs text-muted-foreground">
       Preview: buttons, links and focus rings use {name}&apos;s accent. Your terminal will look the same after setup.

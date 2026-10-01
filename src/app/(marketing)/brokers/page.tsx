@@ -48,7 +48,7 @@ const CONNECT_STEPS = [
   },
   {
     title: "Token refresh",
-    body: "The broker returns a short-lived access token plus a refresh token. Both are stored encrypted with your tenant's key and refreshed by the gateway before they expire, so you are not asked to sign in again unless the broker requires it.",
+    body: "The broker returns a short-lived access token plus a refresh token. Both are stored encrypted with your workspace's key and refreshed by the gateway before they expire, so you are not asked to sign in again unless the broker requires it.",
   },
   {
     title: "One IBKR gateway session per login",
@@ -122,7 +122,7 @@ export default function BrokersPage() {
                 <li>Move money in or out of a brokerage account.</li>
                 <li>Change the account owner, beneficiaries or bank links.</li>
                 <li>Act after you revoke the grant at the broker.</li>
-                <li>Share a session with another tenant or another user.</li>
+                <li>Share a session with another workspace or another user.</li>
               </ul>
             </CardContent>
           </Card>

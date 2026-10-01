@@ -6,8 +6,8 @@ import { slugify } from "@/lib/format";
 import type { BrokerId } from "@/lib/types";
 import {
   DEFAULT_TIMEZONE,
-  PARTNER_CODE,
   SIGNUP_DRAFT_KEY,
+  TENANT_CODE,
   defaultWorkspaceName,
   type DemoAccount,
   type RiskPct,
@@ -21,6 +21,8 @@ import type { PreferencesValues } from "@/components/onboarding/schemas";
 /* ------------------------------------------------------------------
    Wizard state. Persisted to localStorage under nasscord-signup-draft so
    a refresh does not lose progress. The password is never persisted.
+   Version 3 renamed the account's invite code field to tenantCode;
+   version 2 drafts are migrated, anything older starts over.
    Hydration is manual (skipHydration) so the server render and the first
    client render agree; the wizard shows a skeleton until `hydrated`.
    ------------------------------------------------------------------ */
@@ -35,7 +37,8 @@ export interface AccountDraft {
   fullName: string;
   email: string;
   password: string;
-  partnerCode: string;
+  /** Optional tenant code. A valid one (isTenantCode) signs the user up as a tenant user of that tenant. */
+  tenantCode: string;
   sso: SsoProvider | null;
 }
 
@@ -72,7 +75,7 @@ interface SignupActions {
   back: () => void;
   markStarted: () => void;
   submitAccount: (values: Omit<AccountDraft, "sso">, sso?: SsoProvider | null) => void;
-  setPartnerCode: (code: string) => void;
+  setTenantCode: (code: string) => void;
   setWorkspace: (patch: Partial<WorkspaceDraft>) => void;
   submitWorkspace: () => void;
   addConnection: (brokerId: BrokerId, accounts: DemoAccount[]) => void;
@@ -96,7 +99,7 @@ const initialData: SignupData = {
   furthest: 1,
   startedAt: null,
   completedAt: null,
-  account: { fullName: "", email: "", password: "", partnerCode: "", sso: null },
+  account: { fullName: "", email: "", password: "", tenantCode: "", sso: null },
   workspace: { name: "", nameEdited: false, slug: "", slugEdited: false, timezone: DEFAULT_TIMEZONE, plan: "pro" },
   connections: [],
   notify: [],
@@ -127,6 +130,36 @@ const safeStorage: StateStorage = {
     }
   },
 };
+
+/** What goes to localStorage. Shared by `partialize` and the migration's fresh start. */
+function toDraft(s: SignupData) {
+  return {
+    launched: s.launched,
+    step: s.step,
+    furthest: s.furthest,
+    startedAt: s.startedAt,
+    completedAt: s.completedAt,
+    account: { ...s.account, password: "" },
+    workspace: s.workspace,
+    connections: s.connections,
+    notify: s.notify,
+    prefs: s.prefs,
+  };
+}
+type SignupDraft = ReturnType<typeof toDraft>;
+
+/**
+ * Drafts saved by an older wizard. Version 2 kept the code under the field's previous name, and the
+ * only code it accepted no longer exists, so the tenant code starts empty and the rest of the draft
+ * is kept. Anything older, or anything unreadable, starts over.
+ */
+function migrateDraft(persisted: unknown, version: number): SignupDraft {
+  const fresh = toDraft(initialData);
+  if (version !== 2 || typeof persisted !== "object" || persisted === null) return fresh;
+  const old = persisted as Partial<SignupDraft>;
+  const a: Partial<AccountDraft> = old.account ?? {};
+  return { ...fresh, ...old, account: { fullName: a.fullName ?? "", email: a.email ?? "", password: "", tenantCode: "", sso: a.sso ?? null } };
+}
 
 function pickDefaultAccount(connections: ConnectedBroker[], current: string) {
   const all = connections.flatMap((c) => c.accounts);
@@ -168,7 +201,7 @@ export const useSignupStore = create<SignupStore>()(
         });
       },
 
-      setPartnerCode: (partnerCode) => set((s) => ({ account: { ...s.account, partnerCode } })),
+      setTenantCode: (tenantCode) => set((s) => ({ account: { ...s.account, tenantCode } })),
 
       setWorkspace: (patch) => set((s) => ({ workspace: { ...s.workspace, ...patch } })),
 
@@ -209,29 +242,20 @@ export const useSignupStore = create<SignupStore>()(
     }),
     {
       name: SIGNUP_DRAFT_KEY,
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => safeStorage),
       skipHydration: true,
-      partialize: (s) => ({
-        launched: s.launched,
-        step: s.step,
-        furthest: s.furthest,
-        startedAt: s.startedAt,
-        completedAt: s.completedAt,
-        account: { ...s.account, password: "" },
-        workspace: s.workspace,
-        connections: s.connections,
-        notify: s.notify,
-        prefs: s.prefs,
-      }),
+      partialize: (s) => toDraft(s),
+      migrate: migrateDraft,
     },
   ),
 );
 
 /* ---------- selectors ---------- */
 
-export function isPartnerCode(code: string) {
-  return code.trim().toUpperCase() === PARTNER_CODE;
+/** True when the code is the demo tenant's (Acme Capital's) code. Case and surrounding spaces do not matter. */
+export function isTenantCode(code: string) {
+  return code.trim().toUpperCase() === TENANT_CODE;
 }
 
 export function selectAllAccounts(s: Pick<SignupStore, "connections">): DemoAccount[] {

@@ -27,7 +27,7 @@ import { useTerminalStore } from "@/components/terminal/store";
 
 export interface SettingsProps {
   user: { name: string; email: string };
-  tenant: { name: string; plan: PlanId; timezone: string; features: { options: boolean; extendedHours: boolean; paperDefault: boolean } };
+  workspace: { name: string; plan: PlanId; timezone: string; features: { options: boolean; extendedHours: boolean; paperDefault: boolean } };
 }
 
 const TIMEZONES = [
@@ -42,7 +42,7 @@ const TZ_ITEMS = TIMEZONES.map((t) => ({ value: t.value, label: t.label }));
 
 type Tab = "profile" | "notifications" | "risk" | "security" | "billing";
 
-export function SettingsTabs({ user, tenant }: SettingsProps) {
+export function SettingsTabs({ user, workspace }: SettingsProps) {
   const [tab, setTab] = React.useState<Tab>("profile");
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="gap-4">
@@ -56,19 +56,19 @@ export function SettingsTabs({ user, tenant }: SettingsProps) {
         </TabsList>
       </div>
       <TabsContent value="profile">
-        <ProfileForm user={user} timezone={tenant.timezone} />
+        <ProfileForm user={user} timezone={workspace.timezone} />
       </TabsContent>
       <TabsContent value="notifications">
         <NotificationsForm email={user.email} />
       </TabsContent>
       <TabsContent value="risk">
-        <RiskForm features={tenant.features} />
+        <RiskForm features={workspace.features} />
       </TabsContent>
       <TabsContent value="security">
         <SecurityPanel email={user.email} />
       </TabsContent>
       <TabsContent value="billing">
-        <BillingPanel plan={tenant.plan} tenantName={tenant.name} />
+        <BillingPanel plan={workspace.plan} workspaceName={workspace.name} />
       </TabsContent>
     </Tabs>
   );
@@ -249,7 +249,7 @@ const riskSchema = z.object({
 });
 type RiskValues = z.infer<typeof riskSchema>;
 
-function RiskForm({ features }: { features: SettingsProps["tenant"]["features"] }) {
+function RiskForm({ features }: { features: SettingsProps["workspace"]["features"] }) {
   const { paperMode } = usePaperMode();
   const setPaperMode = useTerminalStore((s) => s.setPaperMode);
   const defaults = React.useMemo<RiskValues>(
@@ -434,7 +434,7 @@ function SecurityPanel({ email }: { email: string }) {
 
 /* ---------------- Billing ---------------- */
 
-function BillingPanel({ plan: planId, tenantName }: { plan: PlanId; tenantName: string }) {
+function BillingPanel({ plan: planId, workspaceName }: { plan: PlanId; workspaceName: string }) {
   const plan = getPlan(planId);
   const price = plan.monthly === null ? "Custom" : `${fmtMoney(plan.monthly, { digits: 0 })}/mo`;
   return (
@@ -447,7 +447,7 @@ function BillingPanel({ plan: planId, tenantName }: { plan: PlanId; tenantName: 
                 {plan.name} · {price}
               </CardTitle>
               <CardDescription>
-                {tenantName} · {plan.tagline}
+                {workspaceName} · {plan.tagline}
                 {plan.monthly !== null && plan.monthly > 0 ? ` · next invoice Oct 30, 2026 for ${fmtMoney(plan.monthly, { digits: 0 })}` : ""}
               </CardDescription>
             </div>

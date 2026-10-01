@@ -28,11 +28,11 @@ const INTRO: Record<ShellNavId, TourStep> = {
   },
   console: {
     title: "Welcome to the console",
-    body: "You run the platform from here: customers, brokers, billing and system health. Traders and partners never see this area. The tour takes about a minute.",
+    body: "You run the platform from here: traders, tenants, white-label, brokers, billing and system health. Traders and tenants never see this area. The tour takes about a minute.",
   },
-  partner: {
-    title: "Welcome to the partner portal",
-    body: "Track the traders you refer, the commission you earn and, for white-label partners, the branded workspaces you run. The tour takes under a minute.",
+  tenant: {
+    title: "Welcome to the tenant portal",
+    body: "Track the traders you bring, the commission you earn and, once white-label is on, the branded workspaces you run. The tour takes under a minute.",
   },
 };
 
@@ -45,20 +45,22 @@ const GROUPS: Record<ShellNavId, Array<{ title: string; body: string }>> = {
   ],
   console: [
     { title: "Overview", body: "Start here. The health of the whole business on one page." },
-    { title: "Customers", body: "Who uses the platform." },
+    { title: "Customers", body: "Who uses the platform: traders, the tenants who bring them, and every login." },
+    { title: "White-label", body: "Give a tenant their own brand and domain on the terminal. Only you can turn it on." },
     { title: "Platform", body: "What the platform offers and what it earns." },
     { title: "Operations", body: "Keeping it running, and the record of every change." },
   ],
-  partner: [
+  tenant: [
     { title: "Overview", body: "Start here. Your program on one page." },
-    { title: "Program", body: "The traders you refer and what you earn." },
-    { title: "White-label", body: "Your brand on the terminal." },
+    { title: "Program", body: "The traders you bring and the commission you earn." },
+    { title: "White-label", body: "Your brand on the terminal, once Nasscord turns white-label on for you." },
+    { title: "Account", body: "Contacts, keys and your agreement." },
   ],
 };
 
 const AREA_SWITCHER: TourStep = {
   title: "Switch area",
-  body: "Your account can open more than one area. Move between the console, the terminal and the partner portal from this menu.",
+  body: "Your account can open more than one area. Move between the console, the terminal and the tenant portal from this menu.",
   targets: ['[data-tour="area-switcher"]'],
   optional: true,
 };
@@ -88,7 +90,7 @@ const EXTRA: Record<ShellNavId, TourStep[]> = {
   console: [
     {
       title: "Search",
-      body: "Find any tenant or user and jump straight to it. Keyboard shortcut: Ctrl K, or Cmd K on a Mac.",
+      body: "Find any trader workspace or user and jump straight to it. Keyboard shortcut: Ctrl K, or Cmd K on a Mac.",
       targets: ['[data-tour="console-search"]'],
       optional: true,
     },
@@ -99,7 +101,7 @@ const EXTRA: Record<ShellNavId, TourStep[]> = {
       optional: true,
     },
   ],
-  partner: [],
+  tenant: [],
 };
 
 const USER_MENU: TourStep = {
