@@ -75,8 +75,16 @@ data-table, tenant-theme, theme-toggle, marketing/container (Container, Section,
 - Type: headings use the `font-heading` face automatically (Instrument Sans). UI text is IBM Plex Sans. Tickers,
   prices, ids: `font-mono` + `tabular`. Uppercase labels get `tracking-wide`. Headings get `tracking-tight`.
 - Layout: left-aligned, generous spacing with `gap-*`, hairline `border-border` dividers between sections, cards only
-  for functional objects (broker tiles, plans, stat tiles, alert cards, tables). No gradient heroes, nothing centered
-  by default, no emoji, no em-dashes in copy.
+  for functional objects (broker tiles, plans, stat tiles, alert cards, tables). No gradient heroes in the app areas,
+  nothing centered by default, no emoji, no em-dashes in copy.
+- Public website (`src/app/(marketing)`) keeps the cobalt palette but has its own editorial layer: square controls,
+  hairline rules, numbered sections, dot-grid panels (`DotPanel`, the `dotgrid` utility) and the cord chart
+  (`marketing/cord-diagram.tsx`) in the home hero. Website-only names map onto app tokens under `.site-theme` in
+  globals.css (`site-accent`, `site-accent-ink`, `site-accent-soft`, `site-band`). Type: Instrument Serif for
+  headings (put the emphasis word in `<em>`), Instrument Sans for text, IBM Plex Mono for labels and numbers; loaded
+  by the marketing layout (`marketing/site-fonts.ts`). Building blocks: `PageHero`, `SectionHead` / `Eyebrow`,
+  `Statement`, `PaperCard`, `DotPanel`, the `site-label` / `site-caption` / `site-link` utilities, and motion via
+  `reveal()` / `delay()` (`marketing/motion.ts`) with `RevealRoot`. Keep motion calm and reduced-motion safe.
 - Reuse: `StatCard` for every KPI, `BrokerMark` + `BrokerStatusBadge` for every broker, `Pnl` / `PctChange` for signed
   numbers, `DataTable` for tables with more than ~6 rows, `PageHeader` at the top of every app page, `DemoFlag` on
   panels that show demo numbers a real user could mistake for their own (terminal, console, tenant portal).

@@ -57,7 +57,7 @@ export function TenantApplyForm({ defaultWhiteLabel = false, className }: { defa
 
   if (submitted) {
     return (
-      <Card className={cn("gap-4", className)} role="status">
+      <Card className={cn("gap-4 rounded-[2px] py-7 ring-foreground", className)} role="status">
         <CardHeader className="gap-3">
           <CheckCircle2 aria-hidden="true" className="size-8 text-gain-foreground" />
           <CardTitle className="text-lg font-semibold">{SUCCESS}</CardTitle>
@@ -86,9 +86,9 @@ export function TenantApplyForm({ defaultWhiteLabel = false, className }: { defa
   }
 
   return (
-    <Card className={cn("gap-5", className)}>
+    <Card className={cn("gap-5 rounded-[2px] py-7 ring-foreground", className)}>
       <CardHeader>
-        <CardTitle className="text-lg font-semibold">Apply to become a tenant</CardTitle>
+        <CardTitle className="font-serif text-4xl font-normal">Apply to become a tenant</CardTitle>
         <CardDescription>Tell us who you are and who your traders are. A person reads every application.</CardDescription>
       </CardHeader>
       <CardContent>

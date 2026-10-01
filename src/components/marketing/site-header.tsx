@@ -1,39 +1,32 @@
 import Link from "next/link";
-import { Logo } from "@/components/brand/logo";
+import { ArrowRight } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Container } from "@/components/marketing/container";
+import { HeaderShell, NavLinks } from "@/components/marketing/header-shell";
 import { MobileMenu } from "@/components/marketing/mobile-menu";
+import { SiteLogo } from "@/components/marketing/site-logo";
 import { MARKETING_NAV } from "@/lib/nav";
 
-/** Sticky public-site header. Server component; only the mobile menu is client-side. */
+/** Public-site header: paper bar with a hairline, serif wordmark, plain links and square buttons. */
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur-md">
-      <Container className="flex h-16 items-center gap-4 lg:gap-6">
-        <Logo />
-        <nav aria-label="Primary" className="ml-auto hidden items-center gap-1 md:flex">
-          {MARKETING_NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground hover:no-underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-              {item.title}
-            </Link>
-          ))}
-        </nav>
-        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 md:ml-2">
+    <HeaderShell>
+      <Container className="flex h-16 items-center gap-4 lg:gap-8">
+        <SiteLogo />
+        <NavLinks items={MARKETING_NAV} className="mx-auto hidden md:flex" />
+        <div className="ml-auto flex items-center gap-2 md:ml-0">
           <ThemeToggle />
-          <Button variant="ghost" className="hidden md:inline-flex" render={<Link href="/login" />}>
+          <Button variant="outline" className="hidden h-10 rounded-[2px] border-foreground bg-transparent px-4 text-[0.95rem] hover:bg-foreground hover:text-background md:inline-flex" render={<Link href="/login" />}>
             Sign in
           </Button>
-          <Button className="hidden sm:inline-flex" render={<Link href="/signup" />}>
+          <Button className="group/cta hidden h-10 rounded-[2px] px-4 text-[0.95rem] sm:inline-flex" render={<Link href="/signup" />}>
             Start free
+            <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-0.5" />
           </Button>
           <MobileMenu items={MARKETING_NAV} />
         </div>
       </Container>
-    </header>
+    </HeaderShell>
   );
 }

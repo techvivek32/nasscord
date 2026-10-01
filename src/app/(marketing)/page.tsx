@@ -1,24 +1,26 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { fetchAlerts, fetchConnections, fetchPositions, fetchTenant } from "@/lib/api";
 import { BROKERS, PLANNED_BROKERS, SYNC_BROKERS, TRADING_BROKERS } from "@/lib/brokers";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
 import { COMMISSION_PCT, getPlan } from "@/lib/plans";
 import { whiteLabelBranding } from "@/lib/tenant";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Container, Section, SectionHead } from "@/components/marketing/container";
+import { Container, Eyebrow, Section, SectionHead, Statement } from "@/components/marketing/container";
 import { BrokerGrid, BrokerLegend } from "@/components/marketing/broker-grid";
-import { BrokerStrip } from "@/components/marketing/broker-strip";
-import { CordDiagram } from "@/components/marketing/cord-diagram";
+import { CordCard } from "@/components/marketing/cord-diagram";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { FaqList, type FaqItem } from "@/components/marketing/faq";
-import { FeaturesGrid } from "@/components/marketing/features-grid";
+import { Audiences, FeaturesGrid, Principles } from "@/components/marketing/features-grid";
+import { delay, reveal } from "@/components/marketing/motion";
+import { PlatformSetup } from "@/components/marketing/platform-setup";
 import { PricingPlans } from "@/components/marketing/pricing-plans";
+import { CountUp } from "@/components/marketing/reveal";
+import { RiskCalculator } from "@/components/marketing/risk-calculator";
 import { SecurityControlList, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
-import { NumberedSteps } from "@/components/marketing/steps";
-import { TenantOfferCards } from "@/components/marketing/tenant-offers";
+import { TenantProgram } from "@/components/marketing/tenant-program";
+import { programFor } from "@/components/tenant/program";
 import { TerminalPreview } from "@/components/marketing/terminal-preview";
 
 export const metadata: Metadata = {
@@ -27,20 +29,12 @@ export const metadata: Metadata = {
     "Connect Interactive Brokers, Schwab, E*TRADE and more in minutes. TradeScope alerts, a verified order engine, risk sizing and one combined account view.",
 };
 
-const TRUST = ["No broker passwords stored", "OAuth per broker", "Custody stays at your broker", "Setup in about 2 minutes"];
 
-const STEPS = [
-  { title: "Create your account", body: "Email and a password with 2FA. The Starter plan is free and needs no card." },
-  { title: "Connect your brokers", body: "Each broker opens its own sign-in page and hands Nasscord a scoped token. Pick which accounts join the combined book." },
-  { title: "Trade from one screen", body: "Alerts, orders, positions and P&L for every account in one terminal, on desktop and on your phone." },
-];
+/** "Live positions and P&L" -> "live positions and P&L": lower-case the first letter only. */
+const lcFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
-const FOUR_SETUPS = [
-  { was: "Broker gateway", now: "Started for you, one session per login, kept alive." },
-  { was: "Proxy", now: "Sits between the browser and the gateway so both share one session." },
-  { was: "Terminal", now: "The web terminal you see. Same components on mobile." },
-  { was: "Alert engine", now: "TradeScope runs server-side and delivers to the terminal, push and email." },
-];
+/** "A, B and C". */
+const andList = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
 function buildFaq(): FaqItem[] {
   const starter = getPlan("starter");
@@ -55,7 +49,7 @@ function buildFaq(): FaqItem[] {
           Orders route through the broker API at {live.slice(0, -1).join(", ")} and {live.at(-1)}. {beta.join(", ")} is in beta with limit and market orders.{" "}
           {SYNC_BROKERS.map((b) => b.name).join(" and ")} publish no trading API, so their positions and balances sync read-only.{" "}
           {PLANNED_BROKERS.map((b) => b.name).join(" and ")} are planned. The{" "}
-          <Link href="/brokers" className="text-primary hover:underline">
+          <Link href="/brokers" className="site-link">
             brokers page
           </Link>{" "}
           has the capability matrix.
@@ -73,7 +67,7 @@ function buildFaq(): FaqItem[] {
           Yes, as a tenant with white-label. It puts your name, domain, accent color and email templates on the terminal your traders use while Nasscord
           runs the engine and the broker connections, and you set the plans and prices they see. White-label is an add-on that Nasscord turns on after
           reviewing your application; every tenant earns {COMMISSION_PCT}% commission either way. See{" "}
-          <Link href="/tenants#white-label" className="text-primary hover:underline">
+          <Link href="/tenants#white-label" className="site-link">
             white-label for tenants
           </Link>
           .
@@ -85,8 +79,12 @@ function buildFaq(): FaqItem[] {
       a: `TradeScope scans ${ENGINE_DEFAULTS.universeSize} US large caps on ${ENGINE_DEFAULTS.timeframe} bars and scores each one on trend strength (ADX), momentum (RSI), relative volume and breakout structure. A setup becomes an alert only when its score clears ${ENGINE_DEFAULTS.minScore}, and never more than ${ENGINE_DEFAULTS.maxOpen} are open at once. Each alert carries an entry, a stop at ${ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry and a target at ${ENGINE_DEFAULTS.rewardToRisk} times the risk, and the stop trails to breakeven once price moves in your favor. The terminal shows the full backtest, including drawdowns and losing streaks, before you turn alerts on.`,
     },
     {
+      q: "Can I practice before using real money?",
+      a: `Yes. Switch the terminal to paper mode and the order ticket only offers your paper accounts, so practice orders never reach a live one; leaving paper mode asks you to confirm. ${andList(BROKERS.filter((b) => b.capabilities.paper).map((b) => b.name))} offer paper accounts, and they connect like any other account.`,
+    },
+    {
       q: "Is there a free plan?",
-      a: `Yes. ${starter.name} is $${starter.monthly} for as long as you like: ${starter.features[0].toLowerCase()}, ${starter.features[1].toLowerCase()} and ${starter.features[2].toLowerCase()}. ${pro.name} is $${pro.monthly}/mo (or $${pro.yearly}/mo billed yearly) with a 14-day trial, and it unlocks real-time alerts, the verified order engine and unlimited broker connections.`,
+      a: `Yes. ${starter.name} is $${starter.monthly} for as long as you like: ${lcFirst(starter.features[0])}, ${lcFirst(starter.features[1])} and ${lcFirst(starter.features[2])}. ${pro.name} is $${pro.monthly}/mo (or $${pro.yearly}/mo billed yearly) with a 14-day trial, and it unlocks real-time alerts, the verified order engine and unlimited broker connections.`,
     },
     {
       q: "What happens if a broker session drops?",
@@ -95,164 +93,231 @@ function buildFaq(): FaqItem[] {
   ];
 }
 
+const STATS = [
+  { value: BROKERS.length, label: "US brokers" },
+  { value: ENGINE_DEFAULTS.universeSize, label: "Symbols scanned" },
+  { value: ENGINE_DEFAULTS.atrStopMultiple, decimals: 1, suffix: "x", label: "ATR stop" },
+  { value: COMMISSION_PCT, suffix: "%", label: "Tenant commission" },
+];
+
+/** Hairlines for the 2x2 (phone) / 1x4 (wider) stat strip. */
+function statCell(i: number) {
+  return [
+    "border-border py-4",
+    i % 2 === 1 ? "border-l pl-4" : "pr-4",
+    i >= 2 && "border-t sm:border-t-0",
+    i === 2 && "sm:border-l sm:pl-4",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export default async function HomePage() {
   const [alerts, positions, connections, acme] = await Promise.all([fetchAlerts(), fetchPositions(), fetchConnections(), fetchTenant("t_acme")]);
   const faq = buildFaq();
+  const lead = alerts.open[0];
+  const account = connections[0]?.accounts[0];
 
   return (
     <>
-      {/* 1. Hero */}
-      <Section className="pt-12 pb-12 sm:pt-20 sm:pb-16">
-        <Container className="grid gap-12 lg:grid-cols-[1.05fr_1fr] lg:items-center">
-          <div className="grid gap-6">
-            <span className="text-xs font-semibold tracking-[0.1em] text-primary uppercase">One terminal. Every US broker.</span>
-            <h1 className="font-heading text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">Trade every broker you hold from one terminal.</h1>
-            <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
-              Connect Interactive Brokers, Schwab, E*TRADE and more in minutes. Get TradeScope alerts, place verified orders with risk-sized quantities and see
-              every position in one combined account view.
+      {/* Hero: the message on the left, the broker chart on its dot-grid card to the right */}
+      <section className="relative border-b border-border py-16 sm:py-24">
+        <Container className="grid gap-14 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:items-center lg:gap-12">
+          <div className="grid content-center gap-8">
+            <span className="animate-site-rise">
+              <Eyebrow>One terminal · Every US broker</Eyebrow>
+            </span>
+            <h1 className="text-[clamp(3.75rem,8vw,6.5rem)] leading-[0.88] tracking-[-0.015em]">
+              <span className="block animate-site-rise" style={delay(80)}>
+                Every broker.
+              </span>
+              <span className="block animate-site-rise" style={delay(200)}>
+                One <em className="italic">terminal</em>.
+              </span>
+            </h1>
+            <p className="max-w-[34rem] animate-site-rise text-lg leading-relaxed text-pretty text-muted-foreground sm:text-xl" style={delay(320)}>
+              Connect Interactive Brokers, Schwab, E*TRADE and more in minutes. Act on alerts with verified, risk-sized orders, and see every position in one book.
+              Custody stays at your broker.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Button size="lg" render={<Link href="/signup" />}>
+            <div className="flex animate-site-rise flex-wrap items-center gap-x-8 gap-y-4" style={delay(420)}>
+              <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/signup" />}>
                 Start free
+                <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-1" />
               </Button>
-              <Button size="lg" variant="outline" render={<Link href="/app" />}>
+              <Link href="/app" className="site-link text-base">
                 See the terminal
-              </Button>
+                <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
             </div>
-            <ul className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2" aria-label="Trust points">
-              {TRUST.map((t) => (
-                <li key={t} className="flex items-center gap-2">
-                  <Check aria-hidden="true" className="size-4 shrink-0 text-primary" />
-                  {t}
-                </li>
+            <dl className="mt-4 grid animate-site-rise grid-cols-2 border-t border-foreground sm:grid-cols-4" style={delay(520)}>
+              {STATS.map((s, i) => (
+                <div key={s.label} className={statCell(i)}>
+                  <dd className="text-4xl leading-none tracking-[-0.03em] tabular sm:text-5xl">
+                    <CountUp value={s.value} decimals={s.decimals} suffix={s.suffix} />
+                  </dd>
+                  <dt className="mt-2 text-sm text-muted-foreground">{s.label}</dt>
+                </div>
               ))}
-            </ul>
+            </dl>
           </div>
-          <div className="dotgrid rounded-2xl bg-card p-3 ring-1 ring-foreground/10 sm:p-5">
-            <CordDiagram />
-          </div>
-        </Container>
-      </Section>
-      <BrokerStrip />
-
-      {/* 2. Platform */}
-      <Section id="platform">
-        <Container>
-          <SectionHead eyebrow="Platform" title="One place, not four." lede="A broker gateway, a proxy, a terminal and an alert engine used to be four separate installs. Now they are one signup." />
-          <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
-            <NumberedSteps steps={STEPS} />
-            <Card className="h-fit gap-4">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">What used to take four setups</CardTitle>
-                <CardDescription>Each piece still exists. You just never install, configure or restart any of it.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <dl className="divide-y divide-border">
-                  {FOUR_SETUPS.map((row) => (
-                    <div key={row.was} className="grid gap-1 py-3 first:pt-0 last:pb-0 sm:grid-cols-[9rem_1fr] sm:gap-4">
-                      <dt className="font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">{row.was}</dt>
-                      <dd className="text-sm">{row.now}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </CardContent>
-            </Card>
+          <div className="animate-site-rise" style={delay(260)}>
+            <CordCard />
           </div>
         </Container>
-      </Section>
+      </section>
 
-      {/* 3. Features */}
+      <Statement caption="No broker passwords · Orders verified at the broker · Custody stays put">
+        Most trading tools are built around one broker. Nasscord is built around <em>you</em>.
+      </Statement>
+
+      {/* 01 Who it is for */}
       <Section>
         <Container>
-          <SectionHead eyebrow="What you get" title="Alerts, orders and risk in one loop." lede="Every number below comes from the same engine that runs the terminal, so what you read here is what you get." />
+          <SectionHead index={1} eyebrow="Who it's for" title={<>One platform, three ways <em>in</em>.</>} lede="Traders sign up directly. Tenants bring traders and earn on every one. The traders a tenant brings get the same terminal, in the tenant's brand when white-label is on." />
+          <Audiences />
+        </Container>
+      </Section>
+
+      {/* 02 Platform */}
+      <Section id="platform">
+        <Container>
+          <div className="mb-14 grid gap-8 lg:grid-cols-2 lg:items-end">
+            <SectionHead index={2} eyebrow="The platform" title={<>One signup. Four systems. About two <em>minutes</em>.</>} className="mb-0 sm:mb-0" />
+            <div className="grid gap-5 lg:justify-self-end" {...reveal(120)}>
+              <p className="max-w-[30rem] text-lg leading-relaxed text-muted-foreground">
+                A broker gateway, a proxy, a terminal and an alert engine used to be four separate installs. Now they are one account, and Nasscord runs all four.
+              </p>
+              <Link href="/app" className="site-link w-fit">
+                Open the live demo
+                <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
+            </div>
+          </div>
+          <PlatformSetup brokerCount={connections.length} accountCount={connections.reduce((n, c) => n + c.accounts.length, 0)} />
+        </Container>
+      </Section>
+
+      {/* 03 Try it */}
+      {lead && account ? (
+        <Section id="try-it">
+          <Container>
+            <SectionHead index={3} eyebrow="Try it" title={<>What a 1% risk actually <em>buys</em>.</>} lede="The same arithmetic the order ticket runs. Move the account size, the price or the volatility and watch the stop, target and quantity follow." />
+            <div {...reveal(100)}>
+              <RiskCalculator defaults={{ netLiq: account.netLiq, entry: lead.entry, atr: lead.atr, symbol: lead.symbol }} />
+            </div>
+          </Container>
+        </Section>
+      ) : null}
+
+      {/* 04 Features */}
+      <Section>
+        <Container>
+          <div className="mb-12 grid gap-8 sm:mb-16 lg:grid-cols-2 lg:items-end">
+            <SectionHead index={4} eyebrow="Features" title={<>Everything the desk needs, nothing it <em>doesn&apos;t</em>.</>} className="mb-0 sm:mb-0" />
+            <p className="max-w-[34rem] text-lg leading-relaxed text-muted-foreground lg:justify-self-end" {...reveal(120)}>
+              Every number below comes from the same engine that runs the terminal, so what you read here is what you get.
+            </p>
+          </div>
           <FeaturesGrid />
         </Container>
       </Section>
 
-      {/* 4. Product preview */}
-      <Section className="bg-card/40">
-        <Container className="grid gap-8">
-          <SectionHead eyebrow="The terminal" title="This is the screen you trade from." lede="Live alerts with their levels, and every position across every broker in one table." className="mb-0 sm:mb-0" />
+      {/* 05 Principles */}
+      <Section tone="band">
+        <Container>
+          <SectionHead index={5} eyebrow="Why Nasscord" title={<>Trading software, minus the <em>sales pitch</em>.</>} />
+          <Principles />
+        </Container>
+      </Section>
+
+      {/* 06 Terminal */}
+      <Section>
+        <Container className="grid gap-12">
+          <SectionHead index={6} eyebrow="The terminal" title={<>This is the screen you <em>trade</em> from.</>} lede="Live alerts with their levels, and every position across every broker in one table." className="mb-0 sm:mb-0" />
           <TerminalPreview alerts={alerts.open.slice(0, 2)} positions={positions.slice(0, 5)} brokerCount={connections.length} />
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <p className="max-w-xl text-sm text-muted-foreground">
-              Demo data from a three-broker workspace. Stops sit at {ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry; targets at {ENGINE_DEFAULTS.rewardToRisk} times the risk.
-            </p>
-            <Button variant="outline" render={<Link href="/app" />}>
-              Open the live demo
-              <ArrowRight data-icon="inline-end" />
-            </Button>
-          </div>
+          <p className="max-w-xl font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
+            FIG. 2 · Demo data from a three-broker workspace. Stops sit at {ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry; targets at {ENGINE_DEFAULTS.rewardToRisk} times the risk.
+          </p>
         </Container>
       </Section>
 
-      {/* 5. Brokers */}
-      <Section id="brokers">
-        <Container className="grid gap-8">
-          <SectionHead eyebrow="Brokers" title="Every US broker you hold, one connection each." lede="Twelve brokers today. Status tells you exactly what each connection can do." className="mb-0 sm:mb-0" />
+      {/* 07 Brokers */}
+      <Section id="brokers" tone="band">
+        <Container className="grid gap-12">
+          <SectionHead index={7} eyebrow="Brokers" title={<>Every broker you hold, one <em>connection</em> each.</>} lede={`${BROKERS.length} brokers today. The status on each tells you exactly what the connection can do.`} className="mb-0 sm:mb-0" />
           <BrokerGrid brokers={BROKERS} />
-          <BrokerLegend />
-          <Link href="/brokers" className="inline-flex w-fit items-center gap-1 text-sm font-medium text-primary hover:underline">
-            All brokers and capabilities
-            <ArrowRight aria-hidden="true" className="size-3.5" />
-          </Link>
-        </Container>
-      </Section>
-
-      {/* 6. Pricing */}
-      <Section id="pricing" className="bg-card/40">
-        <Container className="grid gap-8">
-          <SectionHead eyebrow="Pricing" title="Simple plans. Your broker bills the commissions." lede="Start free with one broker. Upgrade when you want real-time alerts and the order engine." className="mb-0 sm:mb-0" />
-          <PricingPlans />
-          <Link href="/pricing" className="inline-flex w-fit items-center gap-1 text-sm font-medium text-primary hover:underline">
-            Compare every plan feature
-            <ArrowRight aria-hidden="true" className="size-3.5" />
-          </Link>
-        </Container>
-      </Section>
-
-      {/* 7. Tenants */}
-      <Section id="tenants">
-        <Container className="grid gap-8">
-          <SectionHead
-            eyebrow="Tenants"
-            title="Bring traders. Earn on every one."
-            lede={`Tenants earn ${COMMISSION_PCT}% of the subscriptions of the traders they bring, for as long as those traders stay. Add white-label to run the terminal under your own brand.`}
-            className="mb-0 sm:mb-0"
-          />
-          <TenantOfferCards preview={whiteLabelBranding(acme)} />
-          <div>
-            <Button size="lg" render={<Link href="/tenants#apply" />}>
-              Apply as a tenant
-            </Button>
-          </div>
-        </Container>
-      </Section>
-
-      {/* 8. Security */}
-      <Section id="security" className="bg-card/40">
-        <Container className="grid gap-8">
-          <SectionHead eyebrow="Security" title="Built like infrastructure." lede="Plain statements about how the system behaves. No badges, no vague promises." className="mb-0 sm:mb-0" />
-          <SecurityControlList />
-          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-6">
-            <p className="max-w-xl text-sm font-medium">{SOFTWARE_DISCLAIMER}</p>
-            <Link href="/security" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-              Read the security overview
-              <ArrowRight aria-hidden="true" className="size-3.5" />
+          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end" {...reveal()}>
+            <BrokerLegend />
+            <Link href="/brokers" className="site-link w-fit">
+              All brokers and capabilities
+              <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </div>
         </Container>
       </Section>
 
-      {/* 9. FAQ */}
-      <Section id="faq">
-        <Container className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-16">
-          <SectionHead eyebrow="FAQ" title="Questions traders ask before connecting." className="mb-0 sm:mb-0" />
-          <FaqList items={faq} />
+      {/* 08 Pricing */}
+      <Section id="pricing">
+        <Container className="grid gap-12">
+          <SectionHead index={8} eyebrow="Pricing" title={<>Simple plans. Your broker bills the <em>commissions</em>.</>} lede="Start free with one broker. Upgrade when you want real-time alerts and the order engine." className="mb-0 sm:mb-0" />
+          <PricingPlans />
+          <Link href="/pricing" className="site-link w-fit">
+            Compare every plan feature
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </Link>
         </Container>
       </Section>
 
-      {/* 10. Final CTA */}
+      {/* 09 Tenants */}
+      <Section id="tenants" tone="band">
+        <Container>
+          <div className="mb-14 grid gap-8 lg:grid-cols-2 lg:items-end">
+            <SectionHead index={9} eyebrow="Tenants" title={<>Bring traders. Earn on <em>every one</em>.</>} className="mb-0 sm:mb-0" />
+            <div className="grid gap-6 lg:justify-self-end" {...reveal(120)}>
+              <p className="max-w-[30rem] text-lg leading-relaxed text-muted-foreground">
+                Newsletters, educators, communities and advisory firms earn {COMMISSION_PCT}% of the subscriptions of the traders they bring, for as long as those traders stay. White-label is the add-on.
+              </p>
+              <div className="flex flex-wrap items-center gap-x-7 gap-y-3">
+                <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/tenants#apply" />}>
+                  Apply as a tenant
+                  <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-1" />
+                </Button>
+                <Link href="/tenants" className="site-link">
+                  The tenant program
+                  <ArrowRight aria-hidden="true" className="size-4" />
+                </Link>
+              </div>
+            </div>
+          </div>
+          <TenantProgram preview={whiteLabelBranding(acme)} funnel={acme ? programFor(acme, []).funnel : undefined} tenantName={acme?.name} />
+        </Container>
+      </Section>
+
+      {/* 10 Security */}
+      <Section id="security">
+        <Container className="grid gap-12">
+          <SectionHead index={10} eyebrow="Security" title={<>Built like <em>infrastructure</em>.</>} lede="Plain statements about how the system behaves. No badges, no vague promises." className="mb-0 sm:mb-0" />
+          <SecurityControlList />
+          <div className="flex flex-wrap items-center justify-between gap-4" {...reveal()}>
+            <p className="max-w-xl font-medium">{SOFTWARE_DISCLAIMER}</p>
+            <Link href="/security" className="site-link">
+              Read the security overview
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </div>
+        </Container>
+      </Section>
+
+      {/* 11 Questions */}
+      <Section id="faq">
+        <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
+          <SectionHead index={11} eyebrow="Questions" title={<>The things traders ask <em>first</em>.</>} lede="If something is still unclear, the brokers, pricing and security pages go a level deeper." className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
+          <div {...reveal(100)}>
+            <FaqList items={faq} />
+          </div>
+        </Container>
+      </Section>
+
       <CtaBand />
     </>
   );

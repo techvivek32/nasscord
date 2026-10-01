@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { fetchTenant } from "@/lib/api";
 import { COMMISSION_PCT, TENANT_OFFERS, WHITE_LABEL_FEE } from "@/lib/plans";
 import { whiteLabelBranding } from "@/lib/tenant";
 import type { TenantOfferId } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Container, Section, SectionHead } from "@/components/marketing/container";
+import { Container, PageHero, PaperCard, Section, SectionHead } from "@/components/marketing/container";
 import { CtaBand } from "@/components/marketing/cta-band";
+import { reveal } from "@/components/marketing/motion";
+import { CommissionCard } from "@/components/marketing/page-visuals";
 import { TENANT_ANCHOR, TENANT_OFFER_BADGE, WhiteLabelPreview } from "@/components/marketing/tenant-offers";
 import { TenantApplyForm } from "@/components/marketing/tenant-apply-form";
 import { RevenueCalculator } from "@/components/marketing/revenue-calculator";
@@ -28,7 +28,7 @@ const DETAILS: Record<TenantOfferId, { bestFor: string; paragraphs: string[]; yo
       "Traders who join through you trade from the same terminal as everyone else and show up in your tenant portal. Attribution is tracked from first visit through trial to paid plan with a 90-day window.",
       "Payouts run monthly by ACH once your balance reaches $100. No fee to join, no minimum volume.",
     ],
-    youGet: ["Personal referral link and up to 10 codes", "Clicks, trials and conversions in the tenant portal", "Monthly ACH payouts, $100 minimum", `${COMMISSION_PCT}% for as long as the trader stays`],
+    youGet: ["A referral link, and a code for every channel", "Clicks, trials and conversions in the tenant portal", "Monthly ACH payouts, $100 minimum", `${COMMISSION_PCT}% for as long as the trader stays`],
     apply: "Apply as a tenant",
   },
   white_label: {
@@ -57,120 +57,125 @@ export default async function TenantProgramPage() {
 
   return (
     <>
-      <Section className="pt-12 sm:pt-20">
-        <Container className="grid gap-8">
-          <SectionHead
-            as="h1"
-            eyebrow="Tenant program"
-            title="Bring traders. Earn on every one."
-            lede={`Every tenant earns ${COMMISSION_PCT}% commission, for life, on the traders they bring. Add white-label to put your own brand on the terminal they trade from. One application.`}
-            className="mb-0 sm:mb-0"
-          />
-          <div className="flex flex-wrap gap-3">
-            <Button size="lg" render={<Link href="#apply" />}>
+      <PageHero
+        eyebrow="Tenant program"
+        title={
+          <>
+            Bring traders. Earn on <em>every one</em>.
+          </>
+        }
+        lede={`Every tenant earns ${COMMISSION_PCT}% commission, for life, on the traders they bring. Add white-label to put your own brand on the terminal they trade from. One application.`}
+        actions={
+          <>
+            <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="#apply" />}>
               Apply as a tenant
+              <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-1" />
             </Button>
-            <Button size="lg" variant="outline" render={<Link href="#calculator" />}>
+            <Link href="#calculator" className="site-link text-base">
               Estimate your commission
-            </Button>
-          </div>
-          <nav aria-label="What a tenant gets" className="flex flex-wrap gap-2">
-            {TENANT_OFFERS.map((m) => (
-              <Link key={m.id} href={`#${TENANT_ANCHOR[m.id]}`} className="rounded-full border border-input px-3 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground hover:no-underline">
-                {m.name}
-              </Link>
-            ))}
-          </nav>
-        </Container>
-      </Section>
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </>
+        }
+        aside={<CommissionCard pct={COMMISSION_PCT} notes={["Paid monthly by ACH, $100 minimum", "90-day attribution from first visit", "White-label available on approval"]} />}
+      >
+        <nav aria-label="What a tenant gets" className="flex flex-wrap gap-2 pt-2">
+          {TENANT_OFFERS.map((m) => (
+            <Link key={m.id} href={`#${TENANT_ANCHOR[m.id]}`} className="site-caption border border-foreground px-3 py-1.5 transition-colors hover:bg-foreground hover:text-background hover:no-underline">
+              {m.name}
+            </Link>
+          ))}
+        </nav>
+      </PageHero>
 
       {TENANT_OFFERS.map((m, i) => {
         const d = DETAILS[m.id];
         return (
-          <Section key={m.id} id={TENANT_ANCHOR[m.id]} className={i % 2 === 0 ? "bg-card/40" : undefined}>
-            <Container className="grid gap-10 lg:grid-cols-[1fr_minmax(0,24rem)] lg:gap-16">
-              <div className="grid gap-6">
-                <div className="grid gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{m.name}</h2>
-                    <Badge variant="secondary" className="bg-brand-soft text-primary">
-                      {TENANT_OFFER_BADGE[m.id]}
-                    </Badge>
-                  </div>
-                  <p className="max-w-2xl text-lg leading-relaxed text-muted-foreground">{m.summary}</p>
+          <Section key={m.id} id={TENANT_ANCHOR[m.id]} tone={i % 2 === 1 ? "band" : "plain"}>
+            <Container className="grid gap-14 lg:grid-cols-[1fr_minmax(0,26rem)] lg:gap-20">
+              <div className="grid gap-8">
+                <div className="grid gap-5" {...reveal()}>
+                  <span className="site-label">
+                    <span className="mr-3 font-mono tracking-normal text-site-accent-ink">{String(i + 1).padStart(2, "0")}</span>
+                    {TENANT_OFFER_BADGE[m.id]}
+                  </span>
+                  <h2 className="text-6xl leading-none sm:text-7xl">{m.id === "white_label" ? <em className="italic">{m.name}</em> : m.name}</h2>
+                  <p className="max-w-2xl text-xl leading-relaxed text-muted-foreground">{m.summary}</p>
                 </div>
-                <div className="grid gap-4 text-sm leading-relaxed text-muted-foreground">
+                <div className="grid max-w-[40rem] gap-4 leading-relaxed text-muted-foreground" {...reveal(100)}>
                   {d.paragraphs.map((p) => (
                     <p key={p}>{p}</p>
                   ))}
                 </div>
-                <p className="text-sm">
-                  <span className="font-semibold">Best for: </span>
+                <p className="border-t border-border pt-4" {...reveal(150)}>
+                  <span className="site-label mr-2">Best for</span>
                   <span className="text-muted-foreground">{d.bestFor}</span>
                 </p>
                 {m.id === "white_label" && preview ? (
-                  <div className="grid gap-2">
-                    <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Example: {preview.name}</span>
-                    <WhiteLabelPreview branding={preview} className="max-w-md" />
-                    <p className="text-xs text-muted-foreground">The same components, re-themed through a single accent token. Light and dark accents are set separately.</p>
+                  <div className="grid gap-3" {...reveal(200, "scale")}>
+                    <span className="site-caption text-muted-foreground">Fig. Example tenant: {preview.name}</span>
+                    <WhiteLabelPreview branding={preview} className="max-w-md transition-transform duration-700 hover:-rotate-1" />
+                    <p className="font-mono text-[0.7rem] text-muted-foreground">The same components, re-themed through a single accent token. Light and dark accents are set separately.</p>
                   </div>
                 ) : null}
               </div>
-              <Card className="h-fit gap-4">
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">What you get</CardTitle>
-                  <CardDescription>{m.pricing}</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <ul className="grid gap-2 text-sm">
-                    {d.youGet.map((b) => (
-                      <li key={b} className="flex gap-2">
-                        <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-                        <span>{b}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <Button variant="outline" className="w-full" render={<Link href="#apply" />}>
-                    {d.apply}
-                  </Button>
-                </CardContent>
-              </Card>
+              <PaperCard className="h-fit p-6 lg:sticky lg:top-28" {...reveal(150, "scale")}>
+                <h3 className="text-3xl">What you get</h3>
+                <p className="mt-2 font-mono text-sm">{m.pricing}</p>
+                <ul className="mt-5 border-t border-foreground">
+                  {d.youGet.map((b) => (
+                    <li key={b} className="flex gap-3 border-b border-border py-3 text-sm">
+                      <span aria-hidden="true" className="mt-[0.45rem] size-1.5 shrink-0 bg-site-accent" />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button className="mt-6 h-11 w-full rounded-[2px]" render={<Link href="#apply" />}>
+                  {d.apply}
+                </Button>
+              </PaperCard>
             </Container>
           </Section>
         );
       })}
 
       <Section>
-        <Container className="grid gap-10 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-16">
-          <SectionHead eyebrow="How it works" title="From application to first payout." className="mb-0 sm:mb-0" />
+        <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
+          <SectionHead index={3} eyebrow="How it works" title={<>From application to first <em>payout</em>.</>} className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
           <NumberedSteps steps={HOW_IT_WORKS} />
         </Container>
       </Section>
 
-      <Section id="calculator" className="bg-card/40">
-        <Container className="grid gap-8">
+      <Section id="calculator" tone="band">
+        <Container className="grid gap-12">
           <SectionHead
+            index={4}
             eyebrow="Commission calculator"
-            title="What your traders earn you."
+            title={<>What your traders <em>earn</em> you.</>}
             lede={`${COMMISSION_PCT}% of subscription revenue, every month, for as long as the traders you brought keep paying.`}
             className="mb-0 sm:mb-0"
           />
-          <RevenueCalculator />
+          <div {...reveal(100, "scale")}>
+            <RevenueCalculator />
+          </div>
         </Container>
       </Section>
 
       <Section id="apply">
-        <Container className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-16">
-          <SectionHead eyebrow="Apply" title="Tell us about your audience." lede="One form for the tenant program, with a box to tick if you also want white-label. We reply within two business days." className="mb-0 sm:mb-0" />
-          <TenantApplyForm />
+        <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
+          <SectionHead index={5} eyebrow="Apply" title={<>Tell us about your <em>audience</em>.</>} lede="One form for the tenant program, with a box to tick if you also want white-label. We reply within two business days." className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
+          <div {...reveal(100)}>
+            <TenantApplyForm />
+          </div>
         </Container>
       </Section>
 
       <CtaBand
-        title="Already a tenant?"
+        title={<>Already a <em>tenant</em>?</>}
         lede="The tenant portal has your referrals, traders, payouts and, with white-label, your branding."
         primary={{ label: "Open the tenant portal", href: "/tenant" }}
         secondary={{ label: "Apply as a tenant", href: "#apply" }}
+        note="Referrals · Traders · Payouts · Branding"
       />
     </>
   );

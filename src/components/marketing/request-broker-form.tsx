@@ -35,9 +35,9 @@ export function RequestBrokerForm({ className }: { className?: string }) {
   }
 
   return (
-    <Card className={cn("gap-4", className)}>
+    <Card className={cn("gap-4 rounded-[2px] py-7 ring-foreground", className)}>
       <CardHeader>
-        <CardTitle>Request a broker</CardTitle>
+        <CardTitle className="font-serif text-4xl font-normal">Request a broker</CardTitle>
         <CardDescription>Missing one you hold? Tell us and we will prioritize by demand and by whether the broker publishes an API.</CardDescription>
       </CardHeader>
       <CardContent>

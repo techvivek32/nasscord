@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getPlan } from "@/lib/plans";
-import { Container, Section, SectionHead } from "@/components/marketing/container";
+import { COMMISSION_PCT, getPlan } from "@/lib/plans";
+import { Container, PageHero, Section, SectionHead } from "@/components/marketing/container";
 import { ComparisonTable } from "@/components/marketing/comparison-table";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { FaqList, type FaqItem } from "@/components/marketing/faq";
+import { reveal } from "@/components/marketing/motion";
 import { PricingPlans } from "@/components/marketing/pricing-plans";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Starter is free. Pro is $49/mo, Desk is $149/mo, both cheaper billed yearly. Enterprise is white-label with custom pricing. Broker commissions are never marked up.",
+  description: "Starter is free. Pro is $49/mo, Desk is $149/mo, both cheaper billed yearly. Enterprise is a custom contract with SSO, a dedicated gateway pool and an SLA. Broker commissions are never marked up.",
 };
 
 function buildFaq(): FaqItem[] {
@@ -34,6 +35,10 @@ function buildFaq(): FaqItem[] {
       a: `If you added a card, the plan you chose starts billing. If you did not, the workspace drops to ${starter.name}: your connections, history and settings stay, alerts return to a ${starter.limits.alertDelayMin}-minute delay, and only the first connected broker remains active until you pick a plan.`,
     },
     {
+      q: "Can I put my own brand on the terminal?",
+      a: `Not through a plan. Your own name, domain and accent color is white-label, which is part of the tenant program: tenants bring traders, earn ${COMMISSION_PCT}% of their subscriptions, and can apply for white-label on top. Nasscord turns it on after reviewing the application.`,
+    },
+    {
       q: "Do you take a cut of trades?",
       a: "Never. Nasscord is a flat subscription. Commissions, exchange fees and regulatory fees are set and charged by your broker, and Nasscord neither adds to them nor receives any part of them.",
     },
@@ -43,20 +48,31 @@ function buildFaq(): FaqItem[] {
 export default function PricingPage() {
   return (
     <>
-      <Section className="pt-12 sm:pt-20">
-        <Container className="grid gap-10">
-          <SectionHead as="h1" eyebrow="Pricing" title="Simple plans. Your broker bills the commissions." lede="Start free with one broker connection. Upgrade when you want real-time alerts and the verified order engine. Cancel any time." className="mb-0 sm:mb-0" />
+      <PageHero
+        eyebrow="Pricing"
+        title={
+          <>
+            Simple plans. Your broker bills the <em>commissions</em>.
+          </>
+        }
+        lede="Start free with one broker connection. Upgrade when you want real-time alerts and the verified order engine. Cancel any time."
+      />
+
+      <section className="py-16 sm:py-20">
+        <Container>
           <PricingPlans />
         </Container>
-      </Section>
+      </section>
 
-      <Section className="bg-card/40">
-        <Container className="grid gap-8">
-          <SectionHead eyebrow="Compare" title="Every feature, every plan." lede="Limits come straight from the plan definitions the billing system uses." className="mb-0 sm:mb-0" />
-          <ComparisonTable />
-          <p className="text-xs text-muted-foreground">
+      <Section tone="band">
+        <Container className="grid gap-12">
+          <SectionHead index={1} eyebrow="Compare" title={<>Every feature, every <em>plan</em>.</>} lede="Limits come straight from the plan definitions the billing system uses." className="mb-0 sm:mb-0" />
+          <div {...reveal(100)}>
+            <ComparisonTable />
+          </div>
+          <p className="font-mono text-[0.7rem] text-muted-foreground">
             Enterprise limits are set per contract. White-label pricing is in the{" "}
-            <Link href="/tenants#white-label" className="text-primary hover:underline">
+            <Link href="/tenants#white-label" className="site-link">
               tenant program
             </Link>
             .
@@ -65,13 +81,15 @@ export default function PricingPage() {
       </Section>
 
       <Section>
-        <Container className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-16">
-          <SectionHead eyebrow="Pricing FAQ" title="Billing, seats and trials." className="mb-0 sm:mb-0" />
-          <FaqList items={buildFaq()} />
+        <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
+          <SectionHead index={2} eyebrow="Pricing questions" title={<>Billing, seats and <em>trials</em>.</>} className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
+          <div {...reveal(100)}>
+            <FaqList items={buildFaq()} />
+          </div>
         </Container>
       </Section>
 
-      <CtaBand title="Start on Starter. Upgrade when the alerts earn it." lede="No card for the free plan. Paid plans include a 14-day trial." />
+      <CtaBand title={<>Start on Starter. Upgrade when the alerts <em>earn it</em>.</>} lede="No card for the free plan. Paid plans include a 14-day trial." />
     </>
   );
 }

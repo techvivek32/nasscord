@@ -39,11 +39,11 @@ export function RevenueCalculator({ className }: { className?: string }) {
   const commission = (subscriptionRevenue * COMMISSION_PCT) / 100;
 
   return (
-    <Card className={cn("gap-0 py-0", className)}>
+    <Card className={cn("gap-0 rounded-[2px] py-0 ring-foreground", className)}>
       <div className="grid lg:grid-cols-[1fr_minmax(0,20rem)]">
         <div className="grid gap-6 p-5 sm:p-6">
           <CardHeader className="px-0">
-            <CardTitle className="text-lg font-semibold">Estimate your commission</CardTitle>
+            <CardTitle className="font-serif text-4xl font-normal">Estimate your commission</CardTitle>
             <CardDescription>Paid accounts you bring, the plan they land on, and how they bill. Starter accounts are free and earn no commission until they upgrade.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 px-0">
@@ -128,10 +128,10 @@ export function RevenueCalculator({ className }: { className?: string }) {
           </CardContent>
         </div>
 
-        <aside className="grid content-start gap-5 border-t border-border bg-muted/40 p-5 sm:p-6 lg:border-t-0 lg:border-l" aria-live="polite">
+        <aside className="grid content-start gap-5 border-t border-border bg-site-band p-5 sm:p-8 lg:border-t-0 lg:border-l" aria-live="polite">
           <div className="grid gap-1">
             <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Monthly commission</span>
-            <span className="font-heading text-4xl font-semibold tracking-tight tabular">{fmtMoney(commission, { digits: 0 })}</span>
+            <span key={commission} className="inline-block animate-site-rise text-6xl leading-none tracking-[-0.04em] tabular">{fmtMoney(commission, { digits: 0 })}</span>
             <span className="text-xs text-muted-foreground">{COMMISSION_PCT}% of {fmtMoney(subscriptionRevenue, { digits: 0 })} in subscriptions</span>
           </div>
           <dl className="grid gap-2 text-sm">
@@ -153,7 +153,7 @@ export function RevenueCalculator({ className }: { className?: string }) {
             </div>
           </dl>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Estimate only. Commission follows collected revenue after refunds and are paid monthly by ACH once the balance reaches $100.
+            Estimate only. Commission is worked out on collected revenue after refunds and paid monthly by ACH once the balance reaches $100.
           </p>
         </aside>
       </div>

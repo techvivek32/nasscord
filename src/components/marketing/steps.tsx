@@ -1,3 +1,4 @@
+import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
 
 export interface Step {
@@ -5,19 +6,18 @@ export interface Step {
   body: React.ReactNode;
 }
 
-/** Numbered steps list with a hairline rail. Used for onboarding and "how it works" blocks. */
+/** Steps as a ruled list: accent mono number, serif title, body. Used for "how it works" blocks. */
 export function NumberedSteps({ steps, className }: { steps: Step[]; className?: string }) {
   return (
-    <ol className={cn("grid gap-6", className)}>
+    <ol className={cn("border-t border-foreground", className)}>
       {steps.map((s, i) => (
-        <li key={s.title} className="relative flex gap-4">
-          <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft font-heading text-sm font-semibold text-primary tabular">
-            {i + 1}
+        <li key={s.title} className="group/step grid gap-2 border-b border-border py-6 sm:grid-cols-[4rem_1fr] sm:gap-6" {...reveal(i * 90)}>
+          <span aria-hidden="true" className="font-mono text-sm text-site-accent-ink tabular">
+            {String(i + 1).padStart(2, "0")}
           </span>
-          {i < steps.length - 1 ? <span aria-hidden="true" className="absolute top-9 left-4 h-[calc(100%-1.25rem)] w-px bg-border" /> : null}
-          <div className="grid gap-1 pt-1">
-            <h3 className="text-base font-semibold">{s.title}</h3>
-            <p className="text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+          <div className="grid gap-1.5">
+            <h3 className="text-3xl leading-tight transition-colors group-hover/step:text-site-accent-ink">{s.title}</h3>
+            <p className="max-w-[40rem] leading-relaxed text-muted-foreground">{s.body}</p>
           </div>
         </li>
       ))}

@@ -15,7 +15,7 @@ const CAPS: Array<{ key: keyof Broker["capabilities"]; label: string }> = [
 function Mark({ on, broker, cap }: { on: boolean; broker: string; cap: string }) {
   return (
     <span className="inline-flex items-center justify-center">
-      {on ? <Check aria-hidden="true" className="size-4 text-primary" /> : <Minus aria-hidden="true" className="size-4 text-muted-foreground/60" />}
+      {on ? <Check aria-hidden="true" className="size-4 text-site-accent-ink" /> : <Minus aria-hidden="true" className="size-4 text-muted-foreground/60" />}
       <span className="sr-only">
         {cap} {on ? "supported" : "not supported"} at {broker}
       </span>
@@ -26,14 +26,14 @@ function Mark({ on, broker, cap }: { on: boolean; broker: string; cap: string })
 /** Capability matrix straight from the registry. */
 export function CapabilityMatrix({ brokers = BROKERS, className }: { brokers?: Broker[]; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-xl bg-card ring-1 ring-foreground/10", className)}>
+    <div className={cn("overflow-x-auto border-t border-b border-foreground", className)}>
       <Table className="min-w-[40rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Broker</TableHead>
-            <TableHead className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Status</TableHead>
+            <TableHead className="site-caption text-muted-foreground">Broker</TableHead>
+            <TableHead className="site-caption text-muted-foreground">Status</TableHead>
             {CAPS.map((c) => (
-              <TableHead key={c.key} className="text-center text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              <TableHead key={c.key} className="text-center site-caption text-muted-foreground">
                 {c.label}
               </TableHead>
             ))}
@@ -41,7 +41,7 @@ export function CapabilityMatrix({ brokers = BROKERS, className }: { brokers?: B
         </TableHeader>
         <TableBody>
           {brokers.map((b) => (
-            <TableRow key={b.id}>
+            <TableRow key={b.id} className="transition-colors hover:bg-site-band/60">
               <TableCell>
                 <span className="inline-flex items-center gap-2.5">
                   <BrokerMark id={b.id} size="sm" />
