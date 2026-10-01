@@ -1,0 +1,168 @@
+import type { Broker, BrokerId, BrokerStatus } from "@/lib/types";
+
+/** The single broker registry. Every page renders brokers from here. */
+export const BROKERS: Broker[] = [
+  {
+    id: "ibkr",
+    site: "www.interactivebrokers.com",
+    name: "Interactive Brokers",
+    short: "IBKR",
+    monogram: "IB",
+    color: "#C8102E",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: true },
+    blurb: "Full trading through the Client Portal API. One dedicated gateway session per login.",
+  },
+  {
+    id: "schwab",
+    site: "www.schwab.com",
+    name: "Charles Schwab",
+    short: "Schwab",
+    monogram: "CS",
+    color: "#0A6ED1",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: false },
+    blurb: "Trader API with OAuth. Equities and options, brackets and extended hours.",
+  },
+  {
+    id: "etrade",
+    site: "us.etrade.com",
+    name: "E*TRADE",
+    short: "E*TRADE",
+    monogram: "ET",
+    color: "#5D2E8C",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: false },
+    blurb: "Morgan Stanley E*TRADE API. Equities, options and account balances.",
+  },
+  {
+    id: "tastytrade",
+    site: "tastytrade.com",
+    name: "tastytrade",
+    short: "tastytrade",
+    monogram: "TT",
+    color: "#E4572E",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: false, paper: true },
+    blurb: "Open API with streaming quotes. Strong options support.",
+  },
+  {
+    id: "tradier",
+    site: "tradier.com",
+    name: "Tradier",
+    short: "Tradier",
+    monogram: "TR",
+    color: "#1F7A5C",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: true },
+    blurb: "Brokerage API built for platforms. Sandbox accounts for paper trading.",
+  },
+  {
+    id: "alpaca",
+    site: "app.alpaca.markets",
+    name: "Alpaca",
+    short: "Alpaca",
+    monogram: "AL",
+    color: "#B58900",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: true },
+    blurb: "API-first broker. Paper accounts are first class.",
+  },
+  {
+    id: "tradestation",
+    site: "www.tradestation.com",
+    name: "TradeStation",
+    short: "TradeStation",
+    monogram: "TS",
+    color: "#0B4F9C",
+    status: "live",
+    mode: "direct",
+    capabilities: { trading: true, options: true, extendedHours: true, paper: true },
+    blurb: "WebAPI with OAuth. Equities, options and futures accounts.",
+  },
+  {
+    id: "webull",
+    site: "www.webull.com",
+    name: "Webull",
+    short: "Webull",
+    monogram: "WB",
+    color: "#F26B1D",
+    status: "beta",
+    mode: "direct",
+    capabilities: { trading: true, options: false, extendedHours: true, paper: true },
+    blurb: "OpenAPI in beta. Limit and market orders; options coming.",
+  },
+  {
+    id: "fidelity",
+    site: "www.fidelity.com",
+    name: "Fidelity",
+    short: "Fidelity",
+    monogram: "FI",
+    color: "#3F7D3A",
+    status: "sync",
+    mode: "aggregator",
+    capabilities: { trading: false, options: false, extendedHours: false, paper: false },
+    blurb: "No public trading API. Positions and balances sync read-only through a licensed aggregator.",
+  },
+  {
+    id: "robinhood",
+    site: "robinhood.com",
+    name: "Robinhood",
+    short: "Robinhood",
+    monogram: "RH",
+    color: "#159A3A",
+    status: "sync",
+    mode: "aggregator",
+    capabilities: { trading: false, options: false, extendedHours: false, paper: false },
+    blurb: "No public trading API. Positions and balances sync read-only through a licensed aggregator.",
+  },
+  {
+    id: "moomoo",
+    site: "www.moomoo.com",
+    name: "Moomoo",
+    short: "Moomoo",
+    monogram: "MM",
+    color: "#E8590C",
+    status: "soon",
+    mode: "planned",
+    capabilities: { trading: false, options: false, extendedHours: false, paper: false },
+    blurb: "OpenAPI integration planned.",
+  },
+  {
+    id: "public",
+    site: "public.com",
+    name: "Public",
+    short: "Public",
+    monogram: "PB",
+    color: "#2B2D42",
+    status: "soon",
+    mode: "planned",
+    capabilities: { trading: false, options: false, extendedHours: false, paper: false },
+    blurb: "Integration planned.",
+  },
+];
+
+const BY_ID = new Map(BROKERS.map((b) => [b.id, b] as const));
+
+export function getBroker(id: BrokerId): Broker {
+  const b = BY_ID.get(id);
+  if (!b) throw new Error(`Unknown broker: ${id}`);
+  return b;
+}
+
+export const BROKER_STATUS: Record<BrokerStatus, { label: string; description: string }> = {
+  live: { label: "Live", description: "Trading through the broker's API." },
+  beta: { label: "Beta", description: "Limited order types while the integration matures." },
+  sync: { label: "Portfolio sync", description: "Read-only positions and balances through a licensed aggregator." },
+  soon: { label: "Coming soon", description: "Integration planned." },
+};
+
+export const TRADING_BROKERS = BROKERS.filter((b) => b.status === "live" || b.status === "beta");
+export const SYNC_BROKERS = BROKERS.filter((b) => b.status === "sync");
+export const PLANNED_BROKERS = BROKERS.filter((b) => b.status === "soon");
