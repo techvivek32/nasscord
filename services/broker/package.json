@@ -1,0 +1,15 @@
+{
+  "name": "nasscord-broker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nasscord broker service: IBKR Client Portal Gateway sessions and E*TRADE OAuth 1.0a, read-only.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.mjs",
+    "test": "node --test --test-timeout=120000 test/*.test.mjs",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p jsconfig.json"
+  }
+}

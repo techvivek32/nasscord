@@ -1,0 +1,35 @@
+# /etc/caddy/Caddyfile for the broker VPS. Caddy gets and renews the TLS certificates itself.
+# Point two DNS A records at the VPS first:
+#   broker.<domain>      -> the JSON API (API_PORT 8710), called only by the Nasscord app (service JWT)
+#   ibkr-login.<domain>  -> the IBKR login host (LOGIN_PORT 8711), opened in the user's browser
+# Set NASSCORD_DOMAIN in Caddy's environment (systemctl edit caddy -> Environment=NASSCORD_DOMAIN=...)
+# or replace the placeholders below with the real names.
+
+broker.{$NASSCORD_DOMAIN:nasscord.com} {
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy 127.0.0.1:8710
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+	}
+}
+
+ibkr-login.{$NASSCORD_DOMAIN:nasscord.com} {
+	request_body {
+		max_size 64KB
+	}
+	# Caddy adds X-Forwarded-For; the broker service strips every forwarding header before a
+	# request reaches a gateway, so the gateway always sees one client (see login-proxy.mjs).
+	# Caddy passes the browser's Host header on unchanged: POST /start compares it with Origin.
+	# Do not rewrite Host here.
+	reverse_proxy 127.0.0.1:8711 {
+		flush_interval -1
+	}
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+}

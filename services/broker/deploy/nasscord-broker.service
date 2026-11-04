@@ -1,0 +1,59 @@
+# /etc/systemd/system/nasscord-broker.service
+# Nasscord broker service: one Node 24 process, IBKR gateway JVMs as its children.
+#
+#   sudo cp deploy/nasscord-broker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now nasscord-broker
+#   journalctl -u nasscord-broker -f
+
+[Unit]
+Description=Nasscord broker service (IBKR gateways, E*TRADE)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nasscord
+Group=nasscord
+WorkingDirectory=/opt/nasscord-broker
+# KEY=value lines, no quotes, no "export". Readable by root only (chmod 600).
+EnvironmentFile=/etc/nasscord-broker.env
+Environment=NODE_ENV=production
+Environment=IBKR_GATEWAY_RUNTIME=/var/lib/nasscord-broker/runtime
+ExecStart=/usr/bin/node src/server.mjs
+# A crash (uncaught exception) shuts the gateways down and exits 1, so it is restarted.
+# A stop (SIGTERM from systemctl, SIGINT) exits 0 and stays stopped.
+Restart=on-failure
+RestartSec=5
+# 78 = bad configuration: do not restart in a loop, fix /etc/nasscord-broker.env first.
+RestartPreventExitStatus=78
+
+# The gateway JVMs are children of this process. Stopping, restarting or a crash of the service
+# takes every one of them down with it (no orphaned Java holding a slot port).
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# /var/lib/nasscord-broker, owned by the service user, for the per-slot gateway config and logs.
+StateDirectory=nasscord-broker
+StateDirectoryMode=0700
+UMask=0077
+
+# Hardening. Java needs writable+executable memory for its JIT, so MemoryDenyWriteExecute stays off.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
