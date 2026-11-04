@@ -1,82 +1,70 @@
 "use client";
 
 import * as React from "react";
-import { ArchiveIcon } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useExecutions } from "@/hooks/queries";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/page-header";
 import { Pnl } from "@/components/pnl";
 import { StatCard } from "@/components/stat-card";
 import { TONE_BADGE } from "@/components/status-dot";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { getBroker } from "@/lib/brokers";
-import { DEMO_NOW } from "@/lib/demo-clock";
 import { clsxNum, etDayKey, fmtMoney, fmtNum, fmtPrice, fmtTimeET } from "@/lib/format";
 import type { Execution } from "@/lib/types";
-import { useAccountScope } from "@/components/terminal/hooks";
+import { SideBadge } from "@/components/terminal/badges";
+import { BrokerErrors, brokerGate, BrokerGateState } from "@/components/terminal/broker-health";
+import { useAccountScope, useMinuteClock, useScopedExecutions } from "@/components/terminal/hooks";
 import { StatRowSkeleton, TableSkeleton } from "@/components/terminal/skeletons";
 
-type Range = "today" | "7d" | "30d" | "all";
+type Range = "today" | "7d" | "all";
 
 function etDayLabel(key: string) {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+/** /app/history: executions the brokers report for the included accounts in scope, by US Eastern trading day. */
 export function HistoryTable() {
-  const { data, isLoading } = useExecutions();
   const scope = useAccountScope();
+  const { rows: executions, errors, error, stale, coverage, isLoading } = useScopedExecutions();
   const [range, setRange] = React.useState<Range>("7d");
 
+  // The real clock, once a minute (null on the server; the data only arrives in the browser anyway).
+  const clock = useMinuteClock();
+
   const rows = React.useMemo(() => {
-    // Ranges are measured from the demo clock: the executions are pinned to it, so the wall clock would empty "Today" and "7d" a day later.
-    const todayKey = etDayKey(DEMO_NOW.toISOString());
-    const cutoff = range === "7d" ? DEMO_NOW.getTime() - 7 * 86_400_000 : range === "30d" ? DEMO_NOW.getTime() - 30 * 86_400_000 : 0;
-    return (data ?? [])
-      .filter((e) => scope.inScope(e.accountId))
-      .filter((e) => (range === "today" ? etDayKey(e.tradedAt) === todayKey : range === "all" ? true : new Date(e.tradedAt).getTime() >= cutoff))
+    const now = clock?.getTime() ?? null;
+    const todayKey = now === null ? null : etDayKey(new Date(now).toISOString());
+    const cutoff = now === null ? 0 : now - 7 * 86_400_000;
+    return executions
+      .filter((e) => (range === "today" ? etDayKey(e.tradedAt) === todayKey : range === "7d" ? new Date(e.tradedAt).getTime() >= cutoff : true))
       .sort((a, b) => b.tradedAt.localeCompare(a.tradedAt));
-  }, [data, scope, range]);
+  }, [executions, range, clock]);
 
   const totals = rows.reduce((t, e) => ({ net: t.net + e.net, comm: t.comm + e.commission, prov: t.prov + (e.provisional ? 1 : 0) }), { net: 0, comm: 0, prov: 0 });
 
   const columns = React.useMemo<ColumnDef<Execution>[]>(
     () => [
-      {
-        id: "day",
-        header: "ET day",
-        accessorFn: (e) => etDayKey(e.tradedAt),
-        cell: ({ getValue }) => <span className="text-xs">{etDayLabel(getValue<string>())}</span>,
-      },
+      { id: "day", header: "ET day", accessorFn: (e) => etDayKey(e.tradedAt), cell: ({ getValue }) => <span className="text-xs whitespace-nowrap">{etDayLabel(getValue<string>())}</span> },
       { accessorKey: "tradedAt", header: "Time", cell: ({ getValue }) => <span className="font-mono text-xs">{fmtTimeET(getValue<string>(), { second: "2-digit" })}</span> },
       {
         id: "broker",
-        header: "Broker",
-        accessorFn: (e) => getBroker(e.brokerId).short,
+        header: "Account",
+        accessorFn: (e) => `${getBroker(e.brokerId).short} ${scope.accounts.find((a) => a.id === e.accountId)?.masked ?? ""}`,
         cell: ({ row }) => (
           <span className="flex items-center gap-2">
             <BrokerMark id={row.original.brokerId} size="sm" />
-            <span className="text-xs">{getBroker(row.original.brokerId).short}</span>
+            <span className="flex flex-col leading-tight">
+              <span className="text-xs font-medium">{getBroker(row.original.brokerId).short}</span>
+              <span className="font-mono text-[11px] text-muted-foreground tabular">{scope.accounts.find((a) => a.id === row.original.accountId)?.masked ?? ""}</span>
+            </span>
           </span>
         ),
       },
       { accessorKey: "symbol", header: "Symbol", cell: ({ getValue }) => <span className="font-mono font-semibold">{getValue<string>()}</span> },
-      {
-        accessorKey: "side",
-        header: "Side",
-        cell: ({ getValue }) => {
-          const side = getValue<Execution["side"]>();
-          return (
-            <Badge variant="secondary" className={`font-mono tracking-wide ${side === "BUY" ? TONE_BADGE.good : TONE_BADGE.bad}`}>
-              {side}
-            </Badge>
-          );
-        },
-      },
+      { accessorKey: "side", header: "Side", cell: ({ getValue }) => <SideBadge side={getValue<Execution["side"]>()} /> },
       { accessorKey: "qty", header: "Qty", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono">{fmtNum(getValue<number>())}</span> },
       { accessorKey: "price", header: "Price", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono">{fmtPrice(getValue<number>())}</span> },
       { accessorKey: "commission", header: "Commission", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono text-muted-foreground">{fmtMoney(getValue<number>())}</span> },
@@ -88,16 +76,17 @@ export function HistoryTable() {
         accessorFn: (e) => (e.provisional ? "provisional" : ""),
         cell: ({ row }) =>
           row.original.provisional ? (
-            <Badge variant="secondary" className={TONE_BADGE.warn} title="Reported by the terminal; the broker statement has not confirmed it yet">
+            <Badge variant="secondary" className={TONE_BADGE.warn} title="The commission is the broker's estimate until its statement confirms it">
               Provisional
             </Badge>
           ) : null,
       },
     ],
-    [],
+    [scope.accounts],
   );
 
-  if (isLoading || scope.isLoading) {
+  const gate = brokerGate(scope);
+  if (gate === "loading" || (isLoading && executions.length === 0)) {
     return (
       <>
         <StatRowSkeleton count={3} />
@@ -105,38 +94,65 @@ export function HistoryTable() {
       </>
     );
   }
+  if (gate) return <BrokerGateState gate={gate} scope={scope} />;
+
+  const footnote = (
+    <p className="text-xs text-muted-foreground">
+      Nasscord reads executions from the broker each time and does not keep its own archive yet. IBKR returns the last 7 days. E*TRADE executions come from filled orders and are marked Provisional, because their commission is E*TRADE&apos;s estimate.
+    </p>
+  );
+  const alerts = <BrokerErrors errors={errors} error={error} stale={stale} connections={scope.connections} />;
+  // Nothing was read: no counts, no sums and no "no fills", only the reasons.
+  if (coverage === "none") {
+    return (
+      <>
+        {alerts}
+        {footnote}
+      </>
+    );
+  }
+
+  const partial = coverage === "partial";
+  const answered = partial ? "accounts that answered" : null;
 
   return (
     <>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Executions" value={rows.length} delta={totals.prov > 0 ? `${totals.prov} provisional` : "all confirmed"} />
-        <StatCard label="Net cash flow" value={<span className={clsxNum(totals.net)}>{fmtMoney(totals.net, { sign: true })}</span>} delta="buys negative, sells positive" />
-        <StatCard label="Commissions" value={fmtMoney(totals.comm)} delta={rows.length ? `${fmtMoney(totals.comm / rows.length)} per fill` : "no fills"} />
+        <StatCard
+          label="Executions"
+          value={rows.length}
+          delta={answered ?? (totals.prov > 0 ? `${totals.prov} provisional` : rows.length ? "all confirmed by the broker" : "none in this range")}
+        />
+        <StatCard
+          label="Net cash flow"
+          value={rows.length ? <span className={clsxNum(totals.net)}>{fmtMoney(totals.net, { sign: true })}</span> : "No fills"}
+          delta={answered ?? (rows.length ? "buys negative, sells positive" : undefined)}
+        />
+        <StatCard
+          label="Commissions"
+          value={rows.length ? fmtMoney(totals.comm) : "No fills"}
+          delta={answered ?? (rows.length ? `${fmtMoney(totals.comm / rows.length)} per fill` : undefined)}
+        />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <ToggleGroup value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} variant="outline" size="sm" spacing={0} aria-label="Date range">
-          <ToggleGroupItem value="today">Today</ToggleGroupItem>
-          <ToggleGroupItem value="7d">7d</ToggleGroupItem>
-          <ToggleGroupItem value="30d">30d</ToggleGroupItem>
-          <ToggleGroupItem value="all">All</ToggleGroupItem>
-        </ToggleGroup>
-      </div>
+      {alerts}
+
+      <ToggleGroup value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} variant="outline" size="sm" spacing={0} aria-label="Date range" className="self-start">
+        <ToggleGroupItem value="today">Today</ToggleGroupItem>
+        <ToggleGroupItem value="7d">7 days</ToggleGroupItem>
+        <ToggleGroupItem value="all">All returned</ToggleGroupItem>
+      </ToggleGroup>
 
       {rows.length === 0 ? (
-        <EmptyState title={range === "today" ? "No fills today" : "No executions in this range"} description="Fills arrive here seconds after the broker reports them and are reconciled against the statement overnight." />
+        <EmptyState
+          title={`${range === "today" ? "No fills today" : "No executions in this range"}${partial ? " in the accounts that answered" : ""}`}
+          description={partial ? "The connections listed above could not be read, so they may still have fills." : "Fills show up here once the broker reports them, on the next refresh."}
+        />
       ) : (
         <DataTable columns={columns} data={rows} searchPlaceholder="Search symbol or broker" pageSize={15} />
       )}
 
-      <Alert>
-        <ArchiveIcon />
-        <AlertTitle>Archive and provisional fills</AlertTitle>
-        <AlertDescription>
-          Brokers keep 30 to 90 days of executions in their APIs. Nasscord stores every fill it sees, so this history keeps growing past the broker window. A fill is Provisional until the overnight statement reconciliation
-          confirms quantity, price and commission; a mismatch shows up as a correction, never a silent edit.
-        </AlertDescription>
-      </Alert>
+      {footnote}
     </>
   );
 }

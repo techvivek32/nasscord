@@ -1,106 +1,80 @@
 "use client";
 
-import { ArrowLeftIcon } from "lucide-react";
-import { BrokerMark } from "@/components/brokers/broker-mark";
-import { EmptyState } from "@/components/page-header";
+import * as React from "react";
+import { toast } from "sonner";
+import { ArrowLeftIcon, LoaderCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { getBroker } from "@/lib/brokers";
+import { saveUserSettings } from "@/lib/auth-actions";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
-import { fmtMoney } from "@/lib/format";
 import { RISK_OPTIONS, type RiskPct } from "@/components/onboarding/data";
 import type { PreferencesValues } from "@/components/onboarding/schemas";
 import { FieldHint, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
-import { riskDollars, selectAllAccounts, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
+import { useSignupStore } from "@/components/onboarding/store";
 
-type SwitchKey = Exclude<keyof PreferencesValues, "defaultAccountId" | "riskPct">;
+type SwitchKey = Exclude<keyof PreferencesValues, "riskPct">;
 
 const SWITCHES: ReadonlyArray<{ key: SwitchKey; label: string; help: string }> = [
-  { key: "emailAlerts", label: "Email alerts", help: "Every new TradeScope alert and every fill, to the address on your account." },
-  { key: "push", label: "Push notifications", help: "Mobile and desktop push for alerts, fills and stop moves." },
-  { key: "sms", label: "SMS", help: "Text messages for fills and rejected orders only. Carrier rates apply." },
-  { key: "extendedHours", label: "Extended hours", help: "Limit orders only outside 09:30 to 16:00 ET. Brackets wait for the regular session." },
-  { key: "paperMode", label: "Start in paper mode", help: "Orders route to a simulated book until you switch the terminal to live. Recommended for the first week." },
+  { key: "emailAlerts", label: "Email alerts", help: "To the address on your account. Saved for later: Nasscord sends no alerts in this release." },
+  { key: "pushAlerts", label: "Push notifications", help: "In your browser. Saved for later: nothing is sent in this release." },
+  { key: "smsAlerts", label: "SMS", help: "Text messages. Saved for later: Nasscord does not ask for a mobile number or send texts yet." },
+  { key: "extendedHours", label: "Extended hours", help: "When order entry opens: allow limit orders outside 09:30 to 16:00 ET." },
+  { key: "paperMode", label: "Start in paper mode", help: "When order entry opens: orders go to paper accounts until you switch the terminal to live." },
 ];
 
-/** Step 4: default account, risk per trade and notification switches. */
+/** Step 4: risk per trade and notification switches, saved to user_settings. */
 export function StepPreferences() {
-  const connections = useSignupStore((s) => s.connections);
   const prefs = useSignupStore((s) => s.prefs);
   const navigated = useSignupStore((s) => s.navigated);
   const setPrefs = useSignupStore((s) => s.setPrefs);
   const finishPreferences = useSignupStore((s) => s.finishPreferences);
   const back = useSignupStore((s) => s.back);
-  const goTo = useSignupStore((s) => s.goTo);
+  const [saving, setSaving] = React.useState(false);
 
-  const accounts = selectAllAccounts({ connections });
-  const defaultAccount = selectDefaultAccount({ connections, prefs });
+  useFocusOnMount("signup-risk-0.5", navigated);
 
-  const items = accounts.map((a) => ({ value: a.id, label: `${getBroker(a.brokerId).short} ${a.label} ${a.masked}` }));
   const setSwitch = (key: SwitchKey, checked: boolean) => setPrefs({ [key]: checked } as Partial<PreferencesValues>);
 
-  useFocusOnMount(accounts.length ? "signup-default-account" : "signup-risk-0.5", navigated);
-
-  const atRisk = defaultAccount ? riskDollars(defaultAccount.netLiq, prefs.riskPct) : null;
+  const finish = () => {
+    setSaving(true);
+    React.startTransition(async () => {
+      const res = await saveUserSettings({
+        riskPct: prefs.riskPct,
+        paperMode: prefs.paperMode,
+        extendedHours: prefs.extendedHours,
+        emailAlerts: prefs.emailAlerts,
+        pushAlerts: prefs.pushAlerts,
+        smsAlerts: prefs.smsAlerts,
+      });
+      setSaving(false);
+      if (!res.ok) {
+        toast.error("Could not save your preferences", { description: res.error });
+        return;
+      }
+      finishPreferences();
+    });
+  };
 
   return (
     <StepShell
       step={4}
       title="Trading preferences"
-      description="These become the defaults in the order ticket and the alert feed. Everything here is editable in Settings."
+      description="Defaults for your account. Everything here is editable in Settings."
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={back}>
+          <Button type="button" variant="ghost" onClick={back} disabled={saving}>
             <ArrowLeftIcon />
             Back
           </Button>
-          <Button type="button" size="lg" onClick={finishPreferences}>
-            Finish setup
+          <Button type="button" size="lg" onClick={finish} disabled={saving}>
+            {saving ? <LoaderCircleIcon className="animate-spin" /> : null}
+            {saving ? "Saving" : "Finish setup"}
           </Button>
         </>
       }
     >
-      <div className="grid gap-2">
-        <Label htmlFor="signup-default-account">Default trading account</Label>
-        {accounts.length === 0 ? (
-          <EmptyState
-            title="No accounts connected yet"
-            description="Connect a broker to pick a default account. You can also do this later; the terminal starts in paper mode."
-            action={
-              <Button type="button" variant="outline" size="sm" onClick={() => goTo(3)}>
-                Connect a broker
-              </Button>
-            }
-          />
-        ) : (
-          <>
-            <Select items={items} value={prefs.defaultAccountId} onValueChange={(v) => v && setPrefs({ defaultAccountId: v })}>
-              <SelectTrigger id="signup-default-account" className="w-full sm:max-w-md" aria-describedby="signup-default-account-hint">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    <span className="flex items-center gap-2">
-                      <BrokerMark id={a.brokerId} size="xs" />
-                      <span>
-                        {getBroker(a.brokerId).short} {a.label}
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground tabular">{a.masked}</span>
-                      <span className="font-mono text-xs tabular">{fmtMoney(a.netLiq)}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldHint id="signup-default-account-hint">New orders start in this account. Alerts still size against whichever account you pick in the ticket.</FieldHint>
-          </>
-        )}
-      </div>
-
       <div className="grid gap-2">
         <Label id="signup-risk-label">Risk per trade</Label>
         <ToggleGroup
@@ -121,14 +95,7 @@ export function StepPreferences() {
           ))}
         </ToggleGroup>
         <FieldHint id="signup-risk-hint">
-          {defaultAccount && atRisk !== null ? (
-            <>
-              {prefs.riskPct}% of {fmtMoney(defaultAccount.netLiq)} in {getBroker(defaultAccount.brokerId).short} {defaultAccount.label} puts{" "}
-              <span className="font-medium text-foreground tabular">{fmtMoney(atRisk)}</span> at risk per trade. Position size is worked back from the stop at {ENGINE_DEFAULTS.atrStopMultiple}x ATR, capped at 95% of cash.
-            </>
-          ) : (
-            <>Position size is worked back from the stop at {ENGINE_DEFAULTS.atrStopMultiple}x ATR so a stop-out costs this share of net liquidation. Connect an account to see the dollar amount.</>
-          )}
+          Share of net liquidation a stop-out may cost. Position size is worked back from the stop at {ENGINE_DEFAULTS.atrStopMultiple}x ATR, capped at 95% of cash.
         </FieldHint>
       </div>
 

@@ -41,30 +41,6 @@ export function TableSkeleton({ rows = 6, className }: { rows?: number; classNam
   );
 }
 
-export function AlertCardSkeleton() {
-  return (
-    <Card className="gap-3">
-      <div className="flex items-start gap-3 px-4">
-        <Skeleton className="size-12 rounded-lg" />
-        <div className="flex-1 space-y-2">
-          <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-3 w-64" />
-        </div>
-        <Skeleton className="h-7 w-24" />
-      </div>
-      <div className="grid grid-cols-3 gap-3 px-4">
-        <Skeleton className="h-10" />
-        <Skeleton className="h-10" />
-        <Skeleton className="h-10" />
-      </div>
-      <div className="flex items-center justify-between px-4">
-        <Skeleton className="h-3 w-48" />
-        <Skeleton className="h-7 w-24" />
-      </div>
-    </Card>
-  );
-}
-
 export function CardSkeleton({ lines = 4, className }: { lines?: number; className?: string }) {
   return (
     <Card className={cn("gap-3", className)}>
@@ -72,15 +48,6 @@ export function CardSkeleton({ lines = 4, className }: { lines?: number; classNa
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton key={i} className="mx-4 h-8" />
       ))}
-    </Card>
-  );
-}
-
-export function ChartSkeleton({ className }: { className?: string }) {
-  return (
-    <Card className={cn("gap-3", className)}>
-      <Skeleton className="mx-4 h-4 w-40" />
-      <Skeleton className="mx-4 h-56" />
     </Card>
   );
 }

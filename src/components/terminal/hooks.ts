@@ -1,91 +1,181 @@
 "use client";
 
 import * as React from "react";
-import { useConnections, useOrders, usePositions } from "@/hooks/queries";
-import type { BrokerAccount, BrokerConnection, Order, Position } from "@/lib/types";
+import { useConnectionsResult } from "@/hooks/queries";
+import type { PartialError } from "@/lib/api";
+import type { BrokerAccount, BrokerConnection, ConnectionStatus, Execution, Order, Position } from "@/lib/types";
+import { useExecutionsResult, useOrdersResult, usePositionsResult } from "@/components/terminal/broker-queries";
 import { useTerminalStore } from "@/components/terminal/store";
 
-/** Included flag with the local override from /app/brokers applied. */
-export function isIncluded(account: BrokerAccount, overrides: Record<string, boolean>) {
-  return overrides[account.id] ?? account.included;
+/** Statuses whose session answers reads. */
+export const LIVE_STATUSES: ReadonlySet<ConnectionStatus> = new Set(["connected", "expiring"]);
+
+/** A total over the accounts that reported the value. `null` when none did. */
+export interface ReportedTotal {
+  value: number | null;
+  /** Accounts in scope that reported this value. */
+  reported: number;
+}
+
+export interface ScopeTotals {
+  netLiq: ReportedTotal;
+  buyingPower: ReportedTotal;
+  cash: ReportedTotal;
+  dayPnl: ReportedTotal;
+  /** Day P&L against the start-of-day value, over accounts that reported both. */
+  dayPnlPct: number | null;
+  /** The accounts in scope report balances in more than one currency, so no total is added up. */
+  mixedCurrency: boolean;
+  /** The one currency the totals are in (ISO code), when they are added up. */
+  currency: string;
 }
 
 export interface AccountScopeInfo {
   connections: BrokerConnection[];
-  /** Every account across every connection, overrides applied to `included`. */
+  /** Connections whose session is live (connected or expiring). */
+  live: BrokerConnection[];
+  /** Every account across every connection. */
   accounts: BrokerAccount[];
-  /** Accounts that count toward totals and sizing (included, and matching the selected account when one is chosen). */
-  scoped: BrokerAccount[];
+  /** Accounts that count toward totals and feed positions, orders and executions. */
   included: BrokerAccount[];
+  /** The account picked in the header, when it is still an included account. */
   selected: BrokerAccount | null;
+  /** The selected account, or every included account. */
+  scoped: BrokerAccount[];
   inScope: (accountId: string) => boolean;
-  totals: { netLiq: number; buyingPower: number; cash: number; dayPnl: number; dayPnlPct: number };
+  totals: ScopeTotals;
+  /** Why balances are missing when the broker service could not answer. */
+  portfolioError?: string;
+  /** The connections route itself failed. */
+  error: Error | null;
+  isLoading: boolean;
+  refetch: () => void;
+}
+
+function total(accounts: BrokerAccount[], pick: (a: BrokerAccount) => number | undefined, mixed: boolean): ReportedTotal {
+  const values = accounts.map(pick).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (mixed) return { value: null, reported: values.length };
+  return { value: values.length ? Math.round(values.reduce((s, v) => s + v, 0) * 100) / 100 : null, reported: values.length };
+}
+
+export function scopeTotals(accounts: BrokerAccount[]): ScopeTotals {
+  const currencies = new Set(
+    accounts.filter((a) => a.netLiq !== undefined || a.dayPnl !== undefined || a.buyingPower !== undefined || a.cash !== undefined).map((a) => (a.currency || "USD").toUpperCase()),
+  );
+  const mixed = currencies.size > 1;
+  const both = accounts.filter((a) => typeof a.netLiq === "number" && typeof a.dayPnl === "number");
+  const end = both.reduce((s, a) => s + (a.netLiq ?? 0), 0);
+  const day = both.reduce((s, a) => s + (a.dayPnl ?? 0), 0);
+  const start = end - day;
+  return {
+    netLiq: total(accounts, (a) => a.netLiq, mixed),
+    buyingPower: total(accounts, (a) => a.buyingPower, mixed),
+    cash: total(accounts, (a) => a.cash, mixed),
+    dayPnl: total(accounts, (a) => a.dayPnl, mixed),
+    dayPnlPct: !mixed && both.length > 0 && start > 0 ? Math.round((day / start) * 10000) / 100 : null,
+    mixedCurrency: mixed,
+    currency: currencies.size === 1 ? [...currencies][0] : "USD",
+  };
+}
+
+/** Connections + the header's account choice, resolved into one object every page filters by. */
+export function useAccountScope(): AccountScopeInfo {
+  const { data, isLoading, error, refetch } = useConnectionsResult();
+  const selectedAccountId = useTerminalStore((s) => s.selectedAccountId);
+
+  return React.useMemo(() => {
+    const connections = data?.connections ?? [];
+    const live = connections.filter((c) => LIVE_STATUSES.has(c.status));
+    const accounts = connections.flatMap((c) => c.accounts.map((a) => ({ ...a, connectionId: a.connectionId ?? c.id })));
+    const included = accounts.filter((a) => a.included);
+    const selected = selectedAccountId === "all" ? null : (included.find((a) => a.id === selectedAccountId) ?? null);
+    const scoped = selected ? [selected] : included;
+    const ids = new Set(scoped.map((a) => a.id));
+    return {
+      connections,
+      live,
+      accounts,
+      included,
+      selected,
+      scoped,
+      inScope: (accountId: string) => ids.has(accountId),
+      totals: scopeTotals(scoped),
+      ...(data?.portfolioError ? { portfolioError: data.portfolioError } : {}),
+      error: error ?? null,
+      isLoading,
+      refetch: () => void refetch(),
+    };
+  }, [data, error, isLoading, refetch, selectedAccountId]);
+}
+
+/**
+ * What a read covers for the accounts in scope:
+ * - "full": every live connection in scope answered,
+ * - "partial": some answered and some are listed in `errors`,
+ * - "none": nothing was read (the route failed, or every live connection in scope failed).
+ * An empty list only means "nothing there" when the read is "full"; with "partial" it means
+ * "nothing in the accounts that answered", and with "none" it means nothing at all.
+ */
+export type ReadCoverage = "full" | "partial" | "none";
+
+export interface ScopedResult<T> {
+  rows: T[];
+  /** Connections that could not be read on this call. */
+  errors: PartialError[];
+  /** The route itself failed on the latest refresh. */
+  error: Error | null;
+  /** The latest refresh failed and `rows` are from the last read that worked. */
+  stale: boolean;
+  coverage: ReadCoverage;
   isLoading: boolean;
 }
 
-/** Connections + the account switcher, resolved into one object every page can filter by. */
-export function useAccountScope(): AccountScopeInfo {
-  const { data, isLoading } = useConnections();
-  const selectedAccountId = useTerminalStore((s) => s.selectedAccountId);
-  const overrides = useTerminalStore((s) => s.includedOverrides);
-  const sessionConnections = useTerminalStore((s) => s.sessionConnections);
-
-  return React.useMemo(() => {
-    const connections = [...(data ?? []), ...sessionConnections];
-    const accounts = connections.flatMap((c) => c.accounts.map((a) => ({ ...a, included: isIncluded(a, overrides) })));
-    const included = accounts.filter((a) => a.included);
-    const selected = selectedAccountId === "all" ? null : (accounts.find((a) => a.id === selectedAccountId) ?? null);
-    const scoped = selected ? [selected] : included;
-    const ids = new Set(scoped.map((a) => a.id));
-    const netLiq = scoped.reduce((s, a) => s + a.netLiq, 0);
-    const dayPnl = scoped.reduce((s, a) => s + a.dayPnl, 0);
-    const base = netLiq - dayPnl;
-    return {
-      connections,
-      accounts,
-      scoped,
-      included,
-      selected,
-      inScope: (accountId: string) => ids.has(accountId),
-      totals: {
-        netLiq,
-        buyingPower: scoped.reduce((s, a) => s + a.buyingPower, 0),
-        cash: scoped.reduce((s, a) => s + a.cash, 0),
-        dayPnl,
-        dayPnlPct: base > 0 ? Math.round((dayPnl / base) * 10000) / 100 : 0,
-      },
-      isLoading,
-    };
-  }, [data, sessionConnections, selectedAccountId, overrides, isLoading]);
+function coverageOf(scope: AccountScopeInfo, hasData: boolean, rows: Array<{ accountId: string }>, errors: PartialError[], error: Error | null): ReadCoverage {
+  if (!hasData) return error ? "none" : "full";
+  const inScope = new Set(scope.scoped.map((a) => a.connectionId));
+  const expected = scope.live.filter((c) => inScope.has(c.id));
+  const failed = new Set(errors.map((e) => e.connectionId));
+  if (failed.size === 0) return "full";
+  const connectionOf = new Map(scope.accounts.map((a) => [a.id, a.connectionId]));
+  // A connection that returned rows answered, even when one of its accounts is in `errors` (IBKR reports per account).
+  const withRows = new Set(rows.map((r) => connectionOf.get(r.accountId)));
+  const answered = expected.filter((c) => !failed.has(c.id) || withRows.has(c.id));
+  if (expected.length > 0 && answered.length === 0) return "none";
+  return expected.some((c) => failed.has(c.id)) ? "partial" : "full";
 }
 
-/** Open positions in scope, minus the ones closed in this session. */
-export function useScopedPositions(): { positions: Position[]; isLoading: boolean } {
-  const { data, isLoading } = usePositions();
+function scopedResult<T extends { accountId: string }>(rows: T[] | undefined, errors: PartialError[] | undefined, error: Error | null, isLoading: boolean, scope: AccountScopeInfo): ScopedResult<T> {
+  const list = (rows ?? []).filter((r) => scope.inScope(r.accountId));
+  const errs = errors ?? [];
+  return {
+    rows: list,
+    errors: errs,
+    error,
+    stale: !!error && rows !== undefined,
+    coverage: coverageOf(scope, rows !== undefined, list, errs, error),
+    isLoading: isLoading || scope.isLoading,
+  };
+}
+
+/** Open positions of the accounts in scope, with the per-connection errors of the read. */
+export function useScopedPositions(): ScopedResult<Position> {
   const scope = useAccountScope();
-  const closed = useTerminalStore((s) => s.closedPositionIds);
-  const positions = React.useMemo(() => (data ?? []).filter((p) => scope.inScope(p.accountId) && !closed.includes(p.id)), [data, scope, closed]);
-  return { positions, isLoading: isLoading || scope.isLoading };
+  const { data, error, isLoading } = usePositionsResult();
+  return React.useMemo(() => scopedResult(data?.positions, data?.errors, error, isLoading, scope), [data, error, isLoading, scope]);
 }
 
-/** Server orders merged with the ones placed in this session, cancellations applied, newest first. */
-export function useMergedOrders(): { orders: Order[]; isLoading: boolean } {
-  const { data, isLoading } = useOrders();
+/** Orders of the accounts in scope, newest first (the service sorts them). */
+export function useScopedOrders(): ScopedResult<Order> {
   const scope = useAccountScope();
-  const localOrders = useTerminalStore((s) => s.localOrders);
-  const cancelled = useTerminalStore((s) => s.cancelledOrderIds);
-  const orders = React.useMemo(() => {
-    const server = (data ?? []).map((o) => (cancelled.includes(o.id) ? { ...o, status: "cancelled" as const } : o));
-    return [...localOrders, ...server].filter((o) => scope.inScope(o.accountId)).sort((a, b) => b.placedAt.localeCompare(a.placedAt));
-  }, [data, localOrders, cancelled, scope]);
-  return { orders, isLoading: isLoading || scope.isLoading };
+  const { data, error, isLoading } = useOrdersResult();
+  return React.useMemo(() => scopedResult(data?.orders, data?.errors, error, isLoading, scope), [data, error, isLoading, scope]);
 }
 
-/** Effective paper mode (false until the store has hydrated). */
-export function usePaperMode() {
-  const paperMode = useTerminalStore((s) => s.paperMode);
-  const hydrated = useTerminalStore((s) => s.hydrated);
-  return { paperMode: paperMode ?? false, hydrated };
+/** Executions of the accounts in scope, newest first. */
+export function useScopedExecutions(): ScopedResult<Execution> {
+  const scope = useAccountScope();
+  const { data, error, isLoading } = useExecutionsResult();
+  return React.useMemo(() => scopedResult(data?.executions, data?.errors, error, isLoading, scope), [data, error, isLoading, scope]);
 }
 
 /* Minute-bucketed clock as an external store: no setState in effects, and the server snapshot is null so

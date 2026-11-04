@@ -1,21 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { toast } from "sonner";
 import type { ColumnDef } from "@tanstack/react-table";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getBroker } from "@/lib/brokers";
-import { fmtNum, fmtPrice, fmtTimeET } from "@/lib/format";
+import { fmtDateTime, fmtNum, fmtPrice, fmtTimeET, etDayKey } from "@/lib/format";
 import type { Order } from "@/lib/types";
 import { OrderStatusBadge, SideBadge } from "@/components/terminal/badges";
-import { useMergedOrders } from "@/components/terminal/hooks";
+import { BrokerErrors, brokerGate, BrokerGateState } from "@/components/terminal/broker-health";
+import { useAccountScope, useMinuteClock, useScopedOrders } from "@/components/terminal/hooks";
 import { TableSkeleton } from "@/components/terminal/skeletons";
-import { useTerminalStore } from "@/components/terminal/store";
 
 type Tab = "working" | "filled" | "all";
 
@@ -27,26 +24,36 @@ function priceLabel(o: Order) {
   return o.price !== undefined ? fmtPrice(o.price) : "";
 }
 
+/** Time today, date and time on earlier days (Eastern). */
+function placedLabel(iso: string, todayKey: string | null) {
+  return todayKey !== null && etDayKey(iso) === todayKey ? fmtTimeET(iso) : fmtDateTime(iso);
+}
+
+/** /app/orders: the brokers' order books for the included accounts in scope. Read only: no cancel in this release. */
 export function OrdersTable() {
-  const { orders, isLoading } = useMergedOrders();
-  const cancelOrder = useTerminalStore((s) => s.cancelOrder);
+  const scope = useAccountScope();
+  const { rows: orders, errors, error, stale, coverage, isLoading } = useScopedOrders();
   const [tab, setTab] = React.useState<Tab>("working");
-  const [cancelling, setCancelling] = React.useState<Order | null>(null);
+  const clock = useMinuteClock();
+  const todayKey = clock ? etDayKey(clock.toISOString()) : null;
 
   const working = orders.filter((o) => WORKING.has(o.status));
   const filled = orders.filter((o) => o.status === "filled");
 
   const columns = React.useMemo<ColumnDef<Order>[]>(
     () => [
-      { accessorKey: "placedAt", header: "Time", cell: ({ getValue }) => <span className="font-mono text-xs">{fmtTimeET(getValue<string>())}</span> },
+      { accessorKey: "placedAt", header: "Placed", cell: ({ getValue }) => <span className="font-mono text-xs whitespace-nowrap">{placedLabel(getValue<string>(), todayKey)}</span> },
       {
         id: "broker",
-        header: "Broker",
-        accessorFn: (o) => getBroker(o.brokerId).short,
+        header: "Account",
+        accessorFn: (o) => `${getBroker(o.brokerId).short} ${scope.accounts.find((a) => a.id === o.accountId)?.masked ?? ""}`,
         cell: ({ row }) => (
           <span className="flex items-center gap-2">
             <BrokerMark id={row.original.brokerId} size="sm" />
-            <span className="text-xs">{getBroker(row.original.brokerId).short}</span>
+            <span className="flex flex-col leading-tight">
+              <span className="text-xs font-medium">{getBroker(row.original.brokerId).short}</span>
+              <span className="font-mono text-[11px] text-muted-foreground tabular">{scope.accounts.find((a) => a.id === row.original.accountId)?.masked ?? ""}</span>
+            </span>
           </span>
         ),
       },
@@ -68,7 +75,7 @@ export function OrdersTable() {
         meta: { align: "right" },
         cell: ({ row }) => (
           <span className="font-mono">
-            {row.original.filledQty !== undefined && row.original.filledQty !== row.original.qty ? `${row.original.filledQty}/` : ""}
+            {row.original.filledQty !== undefined && row.original.filledQty !== row.original.qty ? `${fmtNum(row.original.filledQty)}/` : ""}
             {fmtNum(row.original.qty)}
           </span>
         ),
@@ -88,42 +95,41 @@ export function OrdersTable() {
       },
       { accessorKey: "tif", header: "TIF", cell: ({ getValue }) => <span className="font-mono text-xs">{getValue<string>()}</span> },
       { accessorKey: "status", header: "Status", cell: ({ getValue }) => <OrderStatusBadge status={getValue<Order["status"]>()} /> },
-      { accessorKey: "brokerRef", header: "Broker ref", cell: ({ getValue }) => <span className="font-mono text-xs text-muted-foreground">{getValue<string | undefined>() ?? "pending"}</span> },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        meta: { align: "right" },
-        cell: ({ row }) =>
-          WORKING.has(row.original.status) && row.original.status !== "submitted" && row.original.status !== "verifying" ? (
-            <Button variant="ghost" size="sm" onClick={() => setCancelling(row.original)}>
-              Cancel
-            </Button>
-          ) : null,
-      },
+      { accessorKey: "brokerRef", header: "Broker ref", cell: ({ getValue }) => <span className="font-mono text-xs text-muted-foreground">{getValue<string | undefined>() ?? ""}</span> },
     ],
-    [],
+    [scope.accounts, todayKey],
   );
 
-  const confirmCancel = () => {
-    if (!cancelling) return;
-    // A parent takes its working bracket legs with it; a single leg leaves the other one working.
-    const legs = orders.filter((o) => o.parentId === cancelling.id && WORKING.has(o.status));
-    cancelOrder(cancelling.id);
-    legs.forEach((o) => cancelOrder(o.id));
-    toast.success(`Cancelled ${cancelling.side} ${cancelling.qty} ${cancelling.symbol}`, {
-      description: `${getBroker(cancelling.brokerId).short} confirmed the cancel${cancelling.brokerRef ? ` for #${cancelling.brokerRef}` : ""}${legs.length ? ` and ${legs.length} bracket ${legs.length === 1 ? "leg" : "legs"}` : ""}.`,
-    });
-    setCancelling(null);
-  };
+  const gate = brokerGate(scope);
+  if (gate === "loading" || (isLoading && orders.length === 0)) return <TableSkeleton rows={8} />;
+  if (gate) return <BrokerGateState gate={gate} scope={scope} />;
 
-  if (isLoading) return <TableSkeleton rows={8} />;
+  const footnote = <p className="text-xs text-muted-foreground">Order entry is switched off in this release, so orders cannot be placed or cancelled from Nasscord. Use your broker&apos;s app for now.</p>;
+  const alerts = <BrokerErrors errors={errors} error={error} stale={stale} connections={scope.connections} />;
+  // Nothing was read: no counts and no "no orders", only the reasons.
+  if (coverage === "none") {
+    return (
+      <>
+        {alerts}
+        {footnote}
+      </>
+    );
+  }
 
+  const partial = coverage === "partial";
   const table = (rows: Order[], empty: string) =>
-    rows.length === 0 ? <EmptyState title={empty} description="Orders you place from the ticket appear here the moment they are sent, then move to Verified once the broker order book confirms them." /> : <DataTable columns={columns} data={rows} searchPlaceholder="Search symbol, ref or status" pageSize={12} />;
+    rows.length === 0 ? (
+      <EmptyState
+        title={partial ? `${empty} in the accounts that answered` : empty}
+        description={partial ? "The connections listed above could not be read, so they may still have orders." : "Orders you place in your broker's app show up here on the next refresh, every 10 seconds."}
+      />
+    ) : (
+      <DataTable columns={columns} data={rows} searchPlaceholder="Search symbol, ref or status" pageSize={15} />
+    );
 
   return (
     <>
+      {alerts}
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
         <TabsList>
           <TabsTrigger value="working">Working ({working.length})</TabsTrigger>
@@ -131,35 +137,11 @@ export function OrdersTable() {
           <TabsTrigger value="all">All ({orders.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="working">{table(working, "No working orders")}</TabsContent>
-        <TabsContent value="filled">{table(filled, "No fills yet today")}</TabsContent>
-        <TabsContent value="all">{table(orders, "No orders in scope")}</TabsContent>
+        <TabsContent value="filled">{table(filled, "No filled orders")}</TabsContent>
+        <TabsContent value="all">{table(orders, "No orders")}</TabsContent>
       </Tabs>
-
-      <Dialog open={cancelling !== null} onOpenChange={(o) => !o && setCancelling(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancel this order?</DialogTitle>
-            <DialogDescription>
-              {cancelling ? (
-                <>
-                  <span className="font-mono text-foreground">
-                    {cancelling.side} {cancelling.qty} {cancelling.symbol} {cancelling.type} {priceLabel(cancelling)}
-                  </span>{" "}
-                  at {getBroker(cancelling.brokerId).short}. {cancelling.parentId ? "The other leg of the bracket stays working." : "Attached bracket legs are cancelled with it."}
-                </>
-              ) : null}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelling(null)}>
-              Keep order
-            </Button>
-            <Button variant="destructive" onClick={confirmCancel}>
-              Cancel order
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {partial ? <p className="text-xs text-muted-foreground">The counts cover the accounts that answered.</p> : null}
+      {footnote}
     </>
   );
 }

@@ -2,91 +2,125 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { ChevronDownIcon, EyeIcon, EyeOffIcon, HandshakeIcon } from "lucide-react";
+import { ChevronDownIcon, EyeIcon, EyeOffIcon, HandshakeIcon, LoaderCircleIcon, MailCheckIcon, TriangleAlertIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { SSO_IDENTITIES, TENANT_CODE, type SsoProvider } from "@/components/onboarding/data";
+import { lookupTenantCode, resendConfirmation, signUpAccount } from "@/lib/auth-actions";
+import { maskEmail } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { PasswordStrength } from "@/components/onboarding/password-strength";
 import { accountSchema, type AccountValues } from "@/components/onboarding/schemas";
 import { FieldError, FieldHint, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
-import { isTenantCode, useSignupStore } from "@/components/onboarding/store";
-import { cn } from "@/lib/utils";
+import { useSignupStore } from "@/components/onboarding/store";
 
-const SSO_LABEL: Record<SsoProvider, string> = { google: "Google", apple: "Apple" };
+/**
+ * Step 1: create the Supabase account. Supabase emails a confirmation link; opening it signs the
+ * user in and brings them back to /signup at step 2. Until then this step shows "check your email"
+ * with a resend button. A tenant code is checked against the database as it is typed.
+ */
+export function StepAccount() {
+  const awaitingEmail = useSignupStore((s) => s.awaitingEmail);
+  return awaitingEmail ? <CheckEmail email={awaitingEmail} /> : <AccountForm />;
+}
 
-/** Step 1: who you are. SSO fills a demo identity; the form path validates with zod. `whiteLabel`: the code's tenant has its own brand. */
-export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; whiteLabel: boolean }) {
+function AccountForm() {
+  const router = useRouter();
   const account = useSignupStore((s) => s.account);
+  const tenant = useSignupStore((s) => s.tenant);
   const navigated = useSignupStore((s) => s.navigated);
-  const submitAccount = useSignupStore((s) => s.submitAccount);
+  const accountCreated = useSignupStore((s) => s.accountCreated);
   const setTenantCode = useSignupStore((s) => s.setTenantCode);
+  const setTenant = useSignupStore((s) => s.setTenant);
   const markStarted = useSignupStore((s) => s.markStarted);
 
   const [showPassword, setShowPassword] = React.useState(false);
   const [codeOpen, setCodeOpen] = React.useState(account.tenantCode.length > 0);
+  const [formError, setFormError] = React.useState<string | null>(null);
+  const [checkingCode, setCheckingCode] = React.useState(false);
 
   const form = useForm<AccountValues>({
     resolver: zodResolver(accountSchema),
     mode: "onTouched",
-    defaultValues: {
-      fullName: account.fullName,
-      email: account.email,
-      password: "",
-      tenantCode: account.tenantCode,
-    },
+    defaultValues: { fullName: account.fullName, email: account.email, password: "", tenantCode: account.tenantCode },
   });
-  const { register, handleSubmit, control, getValues, formState } = form;
+  const { register, handleSubmit, control, setError, formState } = form;
   const { errors, isSubmitting } = formState;
 
   const password = useWatch({ control, name: "password" }) ?? "";
   const tenantCode = useWatch({ control, name: "tenantCode" }) ?? "";
-  const tenantMatch = isTenantCode(tenantCode);
+  const cleanCode = tenantCode.trim().toUpperCase();
+  const tenantMatch = tenant !== null && tenant.code === cleanCode;
 
-  // The tenant code drives the live white-label preview around this card, so it goes to the store as typed.
+  // The code drives the "Applied" badge and the white-label preview: look it up as it is typed.
   React.useEffect(() => {
     setTenantCode(tenantCode);
-  }, [tenantCode, setTenantCode]);
+    if (!/^[A-Z0-9-]{3,24}$/.test(cleanCode)) {
+      if (tenant) setTenant(null);
+      return;
+    }
+    if (tenant?.code === cleanCode) return;
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      setCheckingCode(true);
+      const res = await lookupTenantCode(cleanCode).catch(() => null);
+      if (cancelled) return;
+      setCheckingCode(false);
+      setTenant(res?.ok && res.tenant ? { code: cleanCode, name: res.tenant.name, branding: res.tenant.branding } : null);
+    }, 450);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [tenantCode, cleanCode, tenant, setTenant, setTenantCode]);
 
   useFocusOnMount("signup-fullName", navigated);
 
-  const onSubmit = (values: AccountValues) => {
-    submitAccount({ fullName: values.fullName, email: values.email, password: values.password, tenantCode: values.tenantCode.trim() });
-  };
-
-  const onSso = (provider: SsoProvider) => {
-    const identity = SSO_IDENTITIES[provider];
-    markStarted();
-    toast.success(`Signed in with ${SSO_LABEL[provider]}`, { description: `${identity.fullName} · ${identity.email}. Demo identity, nothing was sent to ${SSO_LABEL[provider]}.` });
-    submitAccount({ fullName: identity.fullName, email: identity.email, password: "", tenantCode: getValues("tenantCode").trim() }, provider);
+  const onSubmit = async (values: AccountValues) => {
+    setFormError(null);
+    const res = await signUpAccount({ fullName: values.fullName, email: values.email, password: values.password, tenantCode: values.tenantCode.trim() });
+    if (!res.ok) {
+      if (res.field === "fullName" || res.field === "email" || res.field === "password" || res.field === "tenantCode") {
+        setError(res.field, { message: res.error });
+        if (res.field === "tenantCode") setCodeOpen(true);
+      } else {
+        setFormError(res.error);
+      }
+      return;
+    }
+    const draft = { fullName: values.fullName.trim(), email: res.email, tenantCode: values.tenantCode.trim() };
+    if (res.needsConfirmation) {
+      accountCreated(draft);
+      return;
+    }
+    // Email confirmation is off for this project: the user is signed in already.
+    accountCreated(draft);
+    useSignupStore.getState().clearAwaiting();
+    router.refresh();
   };
 
   return (
-    <StepShell step={1} title="Create your account" description="Use the email you want alerts and broker notices delivered to.">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button type="button" variant="outline" size="lg" onClick={() => onSso("google")}>
-          <GoogleMark />
-          Continue with Google
-        </Button>
-        <Button type="button" variant="outline" size="lg" onClick={() => onSso("apple")}>
-          <AppleMark />
-          Continue with Apple
-        </Button>
-        <FieldHint className="sm:col-span-2">Demo: single sign-on fills a sample identity and moves you to the next step.</FieldHint>
-      </div>
-
-      <div className="flex items-center gap-3" role="separator" aria-label="or continue with email">
-        <Separator className="flex-1" />
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">or</span>
-        <Separator className="flex-1" />
-      </div>
+    <StepShell step={1} title="Create your account" description="Use the email you want account notices delivered to. We send a link to confirm it.">
+      {formError ? (
+        <Alert variant="destructive">
+          <TriangleAlertIcon />
+          <AlertTitle>{formError}</AlertTitle>
+          {formError.includes("Sign in") ? (
+            <AlertDescription>
+              <Link href="/login" className="font-medium underline underline-offset-3">
+                Go to sign in
+              </Link>
+            </AlertDescription>
+          ) : null}
+        </Alert>
+      ) : null}
 
       <form id="signup-account-form" noValidate onSubmit={handleSubmit(onSubmit)} onFocus={markStarted} className="grid gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -103,7 +137,7 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
             <FieldError id="signup-fullName-error" message={errors.fullName?.message} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="signup-email">Work email</Label>
+            <Label htmlFor="signup-email">Email</Label>
             <Input
               id="signup-email"
               type="email"
@@ -130,12 +164,7 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
               {...register("password")}
             />
             <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                size="icon-xs"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
-                onClick={() => setShowPassword((v) => !v)}
-              >
+              <InputGroupButton size="icon-xs" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword((v) => !v)}>
                 {showPassword ? <EyeOffIcon /> : <EyeIcon />}
               </InputGroupButton>
             </InputGroupAddon>
@@ -145,11 +174,9 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
         </div>
 
         <Collapsible open={codeOpen} onOpenChange={setCodeOpen} className="grid gap-3">
-          <CollapsibleTrigger
-            render={<Button type="button" variant="ghost" size="sm" className="w-fit -ml-2.5 text-muted-foreground hover:text-foreground" />}
-          >
+          <CollapsibleTrigger render={<Button type="button" variant="ghost" size="sm" className="w-fit -ml-2.5 text-muted-foreground hover:text-foreground" />}>
             <ChevronDownIcon className={cn("transition-transform", codeOpen && "rotate-180")} />
-            Invite or tenant code
+            Tenant code
             {tenantMatch ? <span className="ml-1 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-primary">Applied</span> : null}
           </CollapsibleTrigger>
           <CollapsibleContent className="grid gap-3">
@@ -160,28 +187,31 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                placeholder={TENANT_CODE}
                 className="font-mono uppercase sm:max-w-xs"
                 aria-invalid={!!errors.tenantCode}
                 aria-describedby={errors.tenantCode ? "signup-tenantCode-error" : "signup-tenantCode-hint"}
                 {...register("tenantCode")}
               />
               <FieldError id="signup-tenantCode-error" message={errors.tenantCode?.message} />
-              {!tenantMatch ? (
-                <FieldHint id="signup-tenantCode-hint">
-                  Codes come from a teammate&apos;s invite or from the tenant who referred you. Try <span className="font-mono">{TENANT_CODE}</span> to join through {tenantName}
-                  {whiteLabel ? " and see the white-label flow" : ""}.
+              {!errors.tenantCode && !tenantMatch ? (
+                <FieldHint id="signup-tenantCode-hint" className="inline-flex items-center gap-1.5">
+                  {checkingCode ? <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+                  {checkingCode
+                    ? "Checking the code"
+                    : cleanCode.length >= 3
+                      ? "No active tenant uses this code. Check it, or leave it empty to sign up directly."
+                      : "Only if a tenant who referred you gave you a code. Leave it empty otherwise."}
                 </FieldHint>
               ) : null}
             </div>
-            {tenantMatch ? (
+            {tenantMatch && tenant ? (
               <Alert className="bg-brand-soft/60">
                 <HandshakeIcon className="text-primary" />
-                <AlertTitle>You are joining through {tenantName} as a tenant user.</AlertTitle>
+                <AlertTitle>You are joining through {tenant.name} as a tenant user.</AlertTitle>
                 <AlertDescription>
-                  {whiteLabel
-                    ? "Their branding and pricing apply. Your workspace runs on Nasscord under their name."
-                    : `You trade from the same terminal as every Nasscord trader, and ${tenantName} is credited for bringing you.`}
+                  {tenant.branding
+                    ? `Your terminal wears ${tenant.branding.name}'s brand. Nasscord runs it underneath.`
+                    : `You trade from the same terminal as every Nasscord trader, and ${tenant.name} is credited for bringing you.`}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -202,7 +232,8 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button type="submit" size="lg" disabled={isSubmitting}>
-            Create account
+            {isSubmitting ? <LoaderCircleIcon className="animate-spin" /> : null}
+            {isSubmitting ? "Creating account" : "Create account"}
           </Button>
         </div>
       </form>
@@ -210,24 +241,47 @@ export function StepAccount({ tenantName, whiteLabel }: { tenantName: string; wh
   );
 }
 
-function GoogleMark() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4">
-      <path fill="currentColor" d="M21.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.7h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3Z" opacity=".9" />
-      <path fill="currentColor" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1a6 6 0 0 1-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22Z" opacity=".7" />
-      <path fill="currentColor" d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3.1a10 10 0 0 0 0 9l3.3-2.6Z" opacity=".5" />
-      <path fill="currentColor" d="M12 6a5.4 5.4 0 0 1 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-8.9 5.5l3.3 2.6A6 6 0 0 1 12 6Z" opacity=".8" />
-    </svg>
-  );
-}
+function CheckEmail({ email }: { email: string }) {
+  const clearAwaiting = useSignupStore((s) => s.clearAwaiting);
+  const [sending, setSending] = React.useState(false);
 
-function AppleMark() {
+  const resend = () => {
+    setSending(true);
+    React.startTransition(async () => {
+      const res = await resendConfirmation({ email });
+      setSending(false);
+      if (res.ok) toast.success("Link sent again", { description: `Check ${maskEmail(email)}, including spam.` });
+      else toast.error("Could not send the link", { description: res.error });
+    });
+  };
+
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4">
-      <path
-        fill="currentColor"
-        d="M16.4 12.6c0-2.2 1.8-3.3 1.9-3.3a4.2 4.2 0 0 0-3.2-1.7c-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-3-.8A4.5 4.5 0 0 0 5 9.9c-1.6 2.8-.4 7 1.2 9.2.8 1.1 1.7 2.3 2.9 2.3s1.6-.7 3-.7 1.8.7 3 .7 2-1.1 2.8-2.2a9.7 9.7 0 0 0 1.3-2.6 4 4 0 0 1-2.8-4ZM14.3 6a3.9 3.9 0 0 0 .9-2.9 4 4 0 0 0-2.6 1.4 3.7 3.7 0 0 0-.9 2.8A3.3 3.3 0 0 0 14.3 6Z"
-      />
-    </svg>
+    <StepShell step={1} title="Check your email" description="Confirm your address to continue setting up.">
+      <div className="flex items-start gap-3 rounded-xl bg-brand-soft px-4 py-3">
+        <MailCheckIcon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+        <div className="grid gap-1 text-sm">
+          <span className="font-semibold">
+            We sent a confirmation link to <span className="break-all">{maskEmail(email)}</span>.
+          </span>
+          <span className="text-muted-foreground">Open it on this device. It signs you in and brings you back here to name your workspace.</span>
+        </div>
+      </div>
+      <ul className="grid gap-1.5 text-sm text-muted-foreground">
+        <li>Nothing after a few minutes? Check spam, then send it again.</li>
+        <li>Already have an account with this email? Sign in instead; no new email is sent for it.</li>
+      </ul>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" onClick={resend} disabled={sending}>
+          {sending ? <LoaderCircleIcon className="animate-spin" /> : null}
+          Send the link again
+        </Button>
+        <Button type="button" variant="ghost" onClick={clearAwaiting}>
+          Use a different email
+        </Button>
+        <Button type="button" variant="link" className="px-0" render={<Link href="/login" />}>
+          Sign in instead
+        </Button>
+      </div>
+    </StepShell>
   );
 }

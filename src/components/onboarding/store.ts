@@ -3,43 +3,25 @@
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { slugify } from "@/lib/format";
-import type { BrokerId } from "@/lib/types";
-import {
-  DEFAULT_TIMEZONE,
-  SIGNUP_DRAFT_KEY,
-  TENANT_CODE,
-  defaultWorkspaceName,
-  type DemoAccount,
-  type RiskPct,
-  type SignupPlanId,
-  type SsoProvider,
-  type TimezoneId,
-  type WizardStep,
-} from "@/components/onboarding/data";
+import type { Role, TenantBranding } from "@/lib/types";
+import { DEFAULT_TIMEZONE, SIGNUP_DRAFT_KEY, defaultWorkspaceName, type SignupPlanId, type TimezoneId, type WizardStep } from "@/components/onboarding/data";
 import type { PreferencesValues } from "@/components/onboarding/schemas";
 
 /* ------------------------------------------------------------------
-   Wizard state. Persisted to localStorage under nasscord-signup-draft so
-   a refresh does not lose progress. The password is never persisted.
-   Version 3 renamed the account's invite code field to tenantCode;
-   version 2 drafts are migrated, anything older starts over.
+   Wizard state. The account and workspace live in Supabase; this store
+   only remembers the draft and where the user is, in localStorage under
+   nasscord-signup-draft, so a refresh or the email round trip does not
+   lose progress. The password is never stored. Version 4 is the real
+   signup; older demo drafts start over.
    Hydration is manual (skipHydration) so the server render and the first
    client render agree; the wizard shows a skeleton until `hydrated`.
    ------------------------------------------------------------------ */
 
-export interface ConnectedBroker {
-  brokerId: BrokerId;
-  accounts: DemoAccount[];
-  connectedAt: number;
-}
-
 export interface AccountDraft {
   fullName: string;
   email: string;
-  password: string;
-  /** Optional tenant code. A valid one (isTenantCode) signs the user up as a tenant user of that tenant. */
+  /** Optional tenant code. A valid one makes the user a tenant user of that tenant. */
   tenantCode: string;
-  sso: SsoProvider | null;
 }
 
 export interface WorkspaceDraft {
@@ -53,6 +35,16 @@ export interface WorkspaceDraft {
   plan: SignupPlanId;
 }
 
+/** The tenant a code resolved to, for the "Applied" badge and the white-label preview. */
+export interface TenantPreview {
+  code: string;
+  name: string;
+  branding: TenantBranding | null;
+}
+
+/** Where the server says this user is (see src/app/(auth)/signup/page.tsx). */
+export type SignupPhase = "account" | "workspace" | "continue";
+
 interface SignupData {
   hydrated: boolean;
   /** True once the user has moved between steps; used to move focus on step change without stealing it on load. */
@@ -64,9 +56,12 @@ interface SignupData {
   startedAt: number | null;
   completedAt: number | null;
   account: AccountDraft;
+  /** The address a confirmation link was sent to; step 1 shows "check your email" while set. */
+  awaitingEmail: string | null;
+  tenant: TenantPreview | null;
   workspace: WorkspaceDraft;
-  connections: ConnectedBroker[];
-  notify: BrokerId[];
+  /** The workspace step 2 created. */
+  created: { slug: string; role: Role } | null;
   prefs: PreferencesValues;
 }
 
@@ -74,18 +69,19 @@ interface SignupActions {
   goTo: (step: WizardStep) => void;
   back: () => void;
   markStarted: () => void;
-  submitAccount: (values: Omit<AccountDraft, "sso">, sso?: SsoProvider | null) => void;
   setTenantCode: (code: string) => void;
+  setTenant: (tenant: TenantPreview | null) => void;
+  /** Step 1 done: the account exists and a confirmation email went to `email`. */
+  accountCreated: (values: AccountDraft) => void;
+  clearAwaiting: () => void;
   setWorkspace: (patch: Partial<WorkspaceDraft>) => void;
-  submitWorkspace: () => void;
-  addConnection: (brokerId: BrokerId, accounts: DemoAccount[]) => void;
-  removeConnection: (brokerId: BrokerId) => void;
-  toggleNotify: (brokerId: BrokerId) => void;
-  /** Leaves step 3 with or without a connection ("Skip for now" uses it too). */
+  workspaceCreated: (created: { slug: string; role: Role }) => void;
   submitBrokers: () => void;
   setPrefs: (patch: Partial<PreferencesValues>) => void;
   finishPreferences: () => void;
   markLaunched: () => void;
+  /** Lines the draft up with what the server knows (phase), keeping what still applies. */
+  syncPhase: (phase: SignupPhase, prefill: Partial<AccountDraft>) => void;
   reset: () => void;
 }
 
@@ -99,11 +95,12 @@ const initialData: SignupData = {
   furthest: 1,
   startedAt: null,
   completedAt: null,
-  account: { fullName: "", email: "", password: "", tenantCode: "", sso: null },
+  account: { fullName: "", email: "", tenantCode: "" },
+  awaitingEmail: null,
+  tenant: null,
   workspace: { name: "", nameEdited: false, slug: "", slugEdited: false, timezone: DEFAULT_TIMEZONE, plan: "pro" },
-  connections: [],
-  notify: [],
-  prefs: { defaultAccountId: "", riskPct: 1, emailAlerts: true, push: true, sms: false, extendedHours: false, paperMode: true },
+  created: null,
+  prefs: { riskPct: 1, emailAlerts: true, pushAlerts: true, smsAlerts: false, extendedHours: false, paperMode: true },
 };
 
 /** localStorage can throw (private mode, blocked storage). Every access is guarded. */
@@ -131,7 +128,7 @@ const safeStorage: StateStorage = {
   },
 };
 
-/** What goes to localStorage. Shared by `partialize` and the migration's fresh start. */
+/** What goes to localStorage. */
 function toDraft(s: SignupData) {
   return {
     launched: s.launched,
@@ -139,32 +136,25 @@ function toDraft(s: SignupData) {
     furthest: s.furthest,
     startedAt: s.startedAt,
     completedAt: s.completedAt,
-    account: { ...s.account, password: "" },
+    account: s.account,
+    awaitingEmail: s.awaitingEmail,
+    tenant: s.tenant,
     workspace: s.workspace,
-    connections: s.connections,
-    notify: s.notify,
+    created: s.created,
     prefs: s.prefs,
   };
 }
 type SignupDraft = ReturnType<typeof toDraft>;
 
-/**
- * Drafts saved by an older wizard. Version 2 kept the code under the field's previous name, and the
- * only code it accepted no longer exists, so the tenant code starts empty and the rest of the draft
- * is kept. Anything older, or anything unreadable, starts over.
- */
-function migrateDraft(persisted: unknown, version: number): SignupDraft {
-  const fresh = toDraft(initialData);
-  if (version !== 2 || typeof persisted !== "object" || persisted === null) return fresh;
-  const old = persisted as Partial<SignupDraft>;
-  const a: Partial<AccountDraft> = old.account ?? {};
-  return { ...fresh, ...old, account: { fullName: a.fullName ?? "", email: a.email ?? "", password: "", tenantCode: "", sso: a.sso ?? null } };
+/** Drafts from the demo wizard (versions 1 to 3) start over. */
+function migrateDraft(): SignupDraft {
+  return toDraft(initialData);
 }
 
-function pickDefaultAccount(connections: ConnectedBroker[], current: string) {
-  const all = connections.flatMap((c) => c.accounts);
-  if (all.some((a) => a.id === current)) return current;
-  return all[0]?.id ?? "";
+function workspacePrefill(workspace: WorkspaceDraft, fullName: string): WorkspaceDraft {
+  const name = workspace.nameEdited && workspace.name ? workspace.name : defaultWorkspaceName(fullName);
+  const slug = workspace.slugEdited && workspace.slug ? workspace.slug : slugify(name).slice(0, 32).replace(/-+$/, "");
+  return { ...workspace, name, slug };
 }
 
 export const useSignupStore = create<SignupStore>()(
@@ -173,62 +163,40 @@ export const useSignupStore = create<SignupStore>()(
       ...initialData,
 
       goTo: (step) => {
-        const { furthest } = get();
+        const { furthest, created } = get();
         if (step > furthest) return;
+        // Account and workspace exist once created: those steps cannot be redone.
+        if (created && step < 3) return;
         set({ step, navigated: true });
       },
 
       back: () => {
-        const { step } = get();
-        if (step > 1) set({ step: (step - 1) as WizardStep, navigated: true });
+        const { step, created } = get();
+        const min = created ? 3 : 2;
+        if (step > min) set({ step: (step - 1) as WizardStep, navigated: true });
       },
 
       markStarted: () => {
         if (get().startedAt === null) set({ startedAt: Date.now() });
       },
 
-      submitAccount: (values, sso = null) => {
-        const { workspace, startedAt } = get();
-        const name = workspace.nameEdited && workspace.name ? workspace.name : defaultWorkspaceName(values.fullName);
-        const slug = workspace.slugEdited && workspace.slug ? workspace.slug : slugify(name);
-        set({
-          account: { ...values, sso },
-          workspace: { ...workspace, name, slug },
-          step: 2,
-          furthest: 2,
-          navigated: true,
-          startedAt: startedAt ?? Date.now(),
-        });
-      },
-
       setTenantCode: (tenantCode) => set((s) => ({ account: { ...s.account, tenantCode } })),
+
+      setTenant: (tenant) => set({ tenant }),
+
+      accountCreated: (values) =>
+        set((s) => ({
+          account: values,
+          awaitingEmail: values.email,
+          workspace: workspacePrefill(s.workspace, values.fullName),
+          startedAt: s.startedAt ?? Date.now(),
+        })),
+
+      clearAwaiting: () => set({ awaitingEmail: null }),
 
       setWorkspace: (patch) => set((s) => ({ workspace: { ...s.workspace, ...patch } })),
 
-      submitWorkspace: () => set((s) => ({ step: 3, furthest: s.furthest < 3 ? 3 : s.furthest, navigated: true })),
-
-      addConnection: (brokerId, accounts) =>
-        set((s) => {
-          const rest = s.connections.filter((c) => c.brokerId !== brokerId);
-          const existing = s.connections.find((c) => c.brokerId === brokerId);
-          const connections = accounts.length
-            ? [...rest, { brokerId, accounts, connectedAt: existing?.connectedAt ?? Date.now() }].sort((a, b) => a.connectedAt - b.connectedAt)
-            : rest;
-          return {
-            connections,
-            notify: s.notify.filter((id) => id !== brokerId),
-            prefs: { ...s.prefs, defaultAccountId: pickDefaultAccount(connections, s.prefs.defaultAccountId) },
-          };
-        }),
-
-      removeConnection: (brokerId) =>
-        set((s) => {
-          const connections = s.connections.filter((c) => c.brokerId !== brokerId);
-          return { connections, prefs: { ...s.prefs, defaultAccountId: pickDefaultAccount(connections, s.prefs.defaultAccountId) } };
-        }),
-
-      toggleNotify: (brokerId) =>
-        set((s) => ({ notify: s.notify.includes(brokerId) ? s.notify.filter((id) => id !== brokerId) : [...s.notify, brokerId] })),
+      workspaceCreated: (created) => set((s) => ({ created, step: 3, furthest: s.furthest < 3 ? 3 : s.furthest, navigated: true })),
 
       submitBrokers: () => set((s) => ({ step: 4, furthest: s.furthest < 4 ? 4 : s.furthest, navigated: true })),
 
@@ -238,11 +206,27 @@ export const useSignupStore = create<SignupStore>()(
 
       markLaunched: () => set({ launched: true }),
 
+      syncPhase: (phase, prefill) => {
+        const s = get();
+        const account: AccountDraft = {
+          fullName: prefill.fullName || s.account.fullName,
+          email: prefill.email || s.account.email,
+          tenantCode: prefill.tenantCode ?? s.account.tenantCode,
+        };
+        if (phase === "account") {
+          set({ hydrated: true, step: 1, furthest: 1, created: null, account });
+        } else if (phase === "workspace") {
+          set({ hydrated: true, step: 2, furthest: 2, created: null, awaitingEmail: null, account, workspace: workspacePrefill(s.workspace, account.fullName) });
+        } else {
+          set({ hydrated: true, awaitingEmail: null, account });
+        }
+      },
+
       reset: () => set({ ...initialData, hydrated: true }),
     }),
     {
       name: SIGNUP_DRAFT_KEY,
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => safeStorage),
       skipHydration: true,
       partialize: (s) => toDraft(s),
@@ -251,21 +235,6 @@ export const useSignupStore = create<SignupStore>()(
   ),
 );
 
-/* ---------- selectors ---------- */
-
-/** True when the code is the demo tenant's (Acme Capital's) code. Case and surrounding spaces do not matter. */
-export function isTenantCode(code: string) {
-  return code.trim().toUpperCase() === TENANT_CODE;
-}
-
-export function selectAllAccounts(s: Pick<SignupStore, "connections">): DemoAccount[] {
-  return s.connections.flatMap((c) => c.accounts);
-}
-
-export function selectDefaultAccount(s: Pick<SignupStore, "connections" | "prefs">): DemoAccount | undefined {
-  return selectAllAccounts(s).find((a) => a.id === s.prefs.defaultAccountId);
-}
-
-export function riskDollars(netLiq: number, riskPct: RiskPct) {
+export function riskDollars(netLiq: number, riskPct: number) {
   return Math.round(netLiq * (riskPct / 100) * 100) / 100;
 }

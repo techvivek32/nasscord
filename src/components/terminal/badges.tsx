@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { TONE_BADGE } from "@/components/status-dot";
-import type { AlertNews, OrderSide, OrderStatus } from "@/lib/types";
+import type { OrderSide, OrderStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ORDER_STATUS: Record<OrderStatus, { label: string; tone: keyof typeof TONE_BADGE }> = {
@@ -27,35 +27,5 @@ export function SideBadge({ side, className }: { side: OrderSide; className?: st
     <Badge variant="secondary" className={cn("font-mono tracking-wide", side === "BUY" ? TONE_BADGE.good : TONE_BADGE.bad, className)}>
       {side}
     </Badge>
-  );
-}
-
-const SENTIMENT: Record<AlertNews["sentiment"], { label: string; tone: keyof typeof TONE_BADGE }> = {
-  bullish: { label: "News: bullish", tone: "good" },
-  bearish: { label: "News: bearish", tone: "bad" },
-  neutral: { label: "News: neutral", tone: "neutral" },
-};
-
-export function SentimentBadge({ sentiment, className }: { sentiment: AlertNews["sentiment"]; className?: string }) {
-  const s = SENTIMENT[sentiment];
-  return (
-    <Badge variant="secondary" className={cn(TONE_BADGE[s.tone], className)}>
-      {s.label}
-    </Badge>
-  );
-}
-
-export function ScoreTile({ score, className }: { score: number; className?: string }) {
-  return (
-    <span
-      className={cn(
-        "grid size-12 shrink-0 place-items-center rounded-lg font-heading text-lg font-semibold tabular",
-        score >= 100 ? "bg-gain-soft text-gain-foreground" : "bg-brand-soft text-primary",
-        className,
-      )}
-      aria-label={`Score ${score}`}
-    >
-      {score}
-    </span>
   );
 }

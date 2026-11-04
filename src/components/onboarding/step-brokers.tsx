@@ -1,191 +1,127 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeftIcon, BellIcon, CheckIcon, PlugZapIcon, RefreshCwIcon } from "lucide-react";
-import { BrokerMark, BrokerStatusBadge } from "@/components/brokers/broker-mark";
-import { Badge } from "@/components/ui/badge";
+import { ArrowLeftIcon } from "lucide-react";
+import { useConnections } from "@/hooks/queries";
+import { BrokerMark } from "@/components/brokers/broker-mark";
+import { ConnectBrokers, CONNECT_HOW } from "@/components/brokers/connect/connect-brokers";
+import { CONNECTION_TONE, connectionName } from "@/components/brokers/connect/status";
+import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { BROKERS } from "@/lib/brokers";
-import type { Broker, BrokerId } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { ConnectDialog, ManageDialog } from "@/components/onboarding/connect-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WorkspaceScopeProvider, type WorkspaceScope } from "@/components/workspace-scope";
+import { CONNECTABLE_BROKERS, type ConnectableBrokerId } from "@/lib/brokers";
+import { getBrokerScope } from "@/lib/server/terminal-actions-extra";
 import { StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { useSignupStore } from "@/components/onboarding/store";
 
-/** Step 3: the twelve registry brokers, each with the one action its status allows. */
+type ScopeState = { status: "loading" } | { status: "ready"; scope: WorkspaceScope } | { status: "none" };
+
+/**
+ * Step 3: connect IBKR or E*TRADE with the same dialogs as the terminal's Brokers page, or skip and
+ * connect later. The workspace exists by now (step 2), so the broker routes work; this step only
+ * needs the workspace scope that the terminal layout would otherwise provide.
+ */
 export function StepBrokers() {
-  const connections = useSignupStore((s) => s.connections);
-  const notify = useSignupStore((s) => s.notify);
   const navigated = useSignupStore((s) => s.navigated);
-  const toggleNotify = useSignupStore((s) => s.toggleNotify);
   const submitBrokers = useSignupStore((s) => s.submitBrokers);
   const back = useSignupStore((s) => s.back);
+  const created = useSignupStore((s) => s.created);
+  const [scope, setScope] = React.useState<ScopeState>({ status: "loading" });
 
-  const [connecting, setConnecting] = React.useState<BrokerId | null>(null);
-  const [managing, setManaging] = React.useState<BrokerId | null>(null);
+  useFocusOnMount("signup-brokers-continue", navigated);
 
-  useFocusOnMount(`signup-broker-${BROKERS[0].id}`, navigated);
-
-  const connectedCount = connections.length;
-  const accountCount = connections.reduce((n, c) => n + c.accounts.length, 0);
+  React.useEffect(() => {
+    let cancelled = false;
+    getBrokerScope()
+      .then((s) => !cancelled && setScope(s ? { status: "ready", scope: s } : { status: "none" }))
+      .catch(() => !cancelled && setScope({ status: "none" }));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <StepShell
       step={3}
-      title="Connect your brokers"
-      description="Nasscord talks to each broker through its own API with a token you can revoke. Connect one now; add the rest any time from Settings."
+      title="Connect a broker"
+      description="Connect IBKR or E*TRADE now, or continue and connect later from Brokers in your terminal."
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={back}>
-            <ArrowLeftIcon />
-            Back
-          </Button>
-          <div className="flex flex-wrap items-center gap-3">
-            {connectedCount === 0 ? (
-              <Button type="button" variant="link" className="px-0 text-muted-foreground" onClick={submitBrokers}>
-                Skip for now
-              </Button>
-            ) : (
-              <span className="text-xs text-muted-foreground tabular">
-                {connectedCount} {connectedCount === 1 ? "broker" : "brokers"} · {accountCount} {accountCount === 1 ? "account" : "accounts"}
-              </span>
-            )}
-            <Button type="button" size="lg" disabled={connectedCount === 0} onClick={submitBrokers}>
-              Continue
+          {created ? (
+            <span />
+          ) : (
+            <Button type="button" variant="ghost" onClick={back}>
+              <ArrowLeftIcon />
+              Back
             </Button>
-          </div>
+          )}
+          <Button id="signup-brokers-continue" type="button" size="lg" onClick={submitBrokers}>
+            Continue
+          </Button>
         </>
       }
     >
-      <ul className="grid gap-3 sm:grid-cols-2" aria-label="Brokers">
-        {BROKERS.map((b) => {
-          const connection = connections.find((c) => c.brokerId === b.id);
-          return (
-            <li key={b.id} className="min-w-0">
-              <BrokerTile
-                broker={b}
-                connectedAccounts={connection?.accounts.length ?? 0}
-                notifying={notify.includes(b.id)}
-                onConnect={() => setConnecting(b.id)}
-                onManage={() => setManaging(b.id)}
-                onNotify={() => toggleNotify(b.id)}
-              />
-            </li>
-          );
-        })}
-      </ul>
-
-      {connecting ? <ConnectDialog key={connecting} brokerId={connecting} open onOpenChange={(o) => !o && setConnecting(null)} /> : null}
-      {managing ? <ManageDialog key={managing} brokerId={managing} open onOpenChange={(o) => !o && setManaging(null)} /> : null}
+      {scope.status === "loading" ? (
+        <div className="grid gap-3" aria-busy="true" aria-label="Loading the brokers">
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      ) : scope.status === "ready" ? (
+        <WorkspaceScopeProvider value={scope.scope}>
+          <ConnectBrokers layout="list" />
+          <ConnectedSoFar />
+        </WorkspaceScopeProvider>
+      ) : (
+        <>
+          <ul className="grid gap-3" aria-label="Brokers you can connect from the terminal">
+            {CONNECTABLE_BROKERS.map((b) => (
+              <li key={b.id} className="flex items-start gap-3 rounded-xl border border-border px-3 py-3">
+                <BrokerMark id={b.id} size="md" />
+                <div className="grid min-w-0 gap-0.5">
+                  <span className="text-sm font-semibold">{b.name}</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">{CONNECT_HOW[b.id as ConnectableBrokerId]}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-sm text-muted-foreground">Your workspace could not be read right now, so connect your broker from Brokers in your terminal after setup.</p>
+        </>
+      )}
+      <p className="text-xs text-muted-foreground">This release is read-only: Nasscord shows balances, positions, orders and executions from your broker and places no orders.</p>
     </StepShell>
   );
 }
 
-function BrokerTile({
-  broker,
-  connectedAccounts,
-  notifying,
-  onConnect,
-  onManage,
-  onNotify,
-}: {
-  broker: Broker;
-  connectedAccounts: number;
-  notifying: boolean;
-  onConnect: () => void;
-  onManage: () => void;
-  onNotify: () => void;
-}) {
-  const connected = connectedAccounts > 0;
-  const buttonId = `signup-broker-${broker.id}`;
-
+/** Connections made so far in this workspace, from the broker routes. */
+function ConnectedSoFar() {
+  const { data } = useConnections();
+  if (!data || data.length === 0) return null;
   return (
-    <Card size="sm" className={cn("h-full gap-3", connected && "ring-primary/50")}>
-      <div className="flex items-start gap-3 px-3">
-        <BrokerMark id={broker.id} size="md" />
-        <div className="grid min-w-0 flex-1 gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-semibold">{broker.name}</span>
-            {connected ? (
-              <Badge variant="secondary" className="bg-gain-soft text-gain-foreground">
-                <CheckIcon />
-                Connected · {connectedAccounts} {connectedAccounts === 1 ? "account" : "accounts"}
-              </Badge>
-            ) : (
-              <BrokerStatusBadge status={broker.status} />
-            )}
-          </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">{broker.blurb}</p>
-        </div>
-      </div>
-      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 px-3">
-        <TileAction broker={broker} connected={connected} notifying={notifying} buttonId={buttonId} onConnect={onConnect} onManage={onManage} onNotify={onNotify} />
-      </div>
-    </Card>
-  );
-}
-
-function TileAction({
-  broker,
-  connected,
-  notifying,
-  buttonId,
-  onConnect,
-  onManage,
-  onNotify,
-}: {
-  broker: Broker;
-  connected: boolean;
-  notifying: boolean;
-  buttonId: string;
-  onConnect: () => void;
-  onManage: () => void;
-  onNotify: () => void;
-}) {
-  if (connected) {
-    return (
-      <>
-        <span className="text-xs text-muted-foreground">{broker.capabilities.trading ? "Trading enabled" : "Read-only sync"}</span>
-        <Button id={buttonId} type="button" variant="outline" size="sm" onClick={onManage}>
-          Manage
-        </Button>
-      </>
-    );
-  }
-  if (broker.status === "soon") {
-    return (
-      <>
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          {notifying ? "We will email you when it opens." : "Not available yet."}
-        </span>
-        <Button id={buttonId} type="button" variant={notifying ? "secondary" : "outline"} size="sm" aria-pressed={notifying} onClick={onNotify}>
-          {notifying ? <CheckIcon /> : <BellIcon />}
-          {notifying ? "We will email you" : "Notify me"}
-        </Button>
-      </>
-    );
-  }
-  if (broker.status === "sync") {
-    return (
-      <>
-        <span className="text-xs text-muted-foreground">Positions and balances only</span>
-        <Button id={buttonId} type="button" variant="outline" size="sm" onClick={onConnect}>
-          <RefreshCwIcon />
-          Sync
-        </Button>
-      </>
-    );
-  }
-  return (
-    <>
-      <span className="text-xs text-muted-foreground">
-        {[broker.capabilities.options && "Options", broker.capabilities.extendedHours && "Extended hours", broker.capabilities.paper && "Paper"].filter(Boolean).join(" · ") || "Equities"}
-      </span>
-      <Button id={buttonId} type="button" size="sm" onClick={onConnect}>
-        <PlugZapIcon />
-        Connect
-      </Button>
-    </>
+    <div className="grid gap-2">
+      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Connected so far</p>
+      <ul className="grid gap-2">
+        {data.map((c) => {
+          const tone = CONNECTION_TONE[c.status];
+          const included = c.accounts.filter((a) => a.included).length;
+          return (
+            <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <BrokerMark id={c.brokerId} size="sm" />
+                {connectionName(c)}
+              </span>
+              <span className="flex items-center gap-3 text-xs text-muted-foreground">
+                {c.accounts.length > 0 ? (
+                  <span>
+                    {included} of {c.accounts.length} {c.accounts.length === 1 ? "account" : "accounts"} included
+                  </span>
+                ) : null}
+                <StatusDot tone={tone.tone} label={<span className="text-xs">{tone.label}</span>} />
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

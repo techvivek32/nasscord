@@ -2,139 +2,69 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { toast } from "sonner";
-import { ArrowRightIcon, CircleCheckIcon, LoaderCircleIcon, UserPlusIcon } from "lucide-react";
-import { BrokerMark } from "@/components/brokers/broker-mark";
+import { ArrowRightIcon, CircleCheckIcon, LoaderCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { completeSignup, inviteTeammate } from "@/lib/auth-actions";
-import { getBroker } from "@/lib/brokers";
-import { ENGINE_DEFAULTS } from "@/lib/engine";
-import { fmtMoney } from "@/lib/format";
+import { APP_DOMAIN } from "@/lib/branding";
 import { getPlan } from "@/lib/plans";
-import { FALLBACK_SETUP_MS, MAX_REPORTED_SETUP_MS, SIGNUP_TENANT_ID, formatElapsed } from "@/components/onboarding/data";
-import { inviteSchema, type InviteValues } from "@/components/onboarding/schemas";
-import { FieldError, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
-import { riskDollars, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
+import { ROLE_LABEL } from "@/lib/roles";
+import { MAX_REPORTED_SETUP_MS, formatElapsed } from "@/components/onboarding/data";
+import { StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
+import { useSignupStore } from "@/components/onboarding/store";
 
-/**
- * Step 5: confirmation, summary, launch. `tenantJoined`: a valid tenant code was entered, so the user
- * becomes a tenant user of that tenant; otherwise an organic trader. `brandActive`: that tenant has white-label.
- */
-export function StepReady({ tenantName, tenantJoined, brandActive }: { tenantName: string; tenantJoined: boolean; brandActive: boolean }) {
+/** Step 5: what was set up, then "Open your terminal" (/app). */
+export function StepReady({ tenantName, brandActive }: { tenantName: string | null; brandActive: boolean }) {
   const router = useRouter();
-  const account = useSignupStore((s) => s.account);
   const workspace = useSignupStore((s) => s.workspace);
-  const connections = useSignupStore((s) => s.connections);
+  const created = useSignupStore((s) => s.created);
   const prefs = useSignupStore((s) => s.prefs);
   const startedAt = useSignupStore((s) => s.startedAt);
   const completedAt = useSignupStore((s) => s.completedAt);
   const navigated = useSignupStore((s) => s.navigated);
   const markLaunched = useSignupStore((s) => s.markLaunched);
-
   const [launching, setLaunching] = React.useState(false);
-  const [inviteOpen, setInviteOpen] = React.useState(false);
 
   useFocusOnMount("signup-open-terminal", navigated);
 
   const plan = getPlan(workspace.plan);
-  const defaultAccount = selectDefaultAccount({ connections, prefs });
-  const accountCount = connections.reduce((n, c) => n + c.accounts.length, 0);
-
+  const slug = created?.slug ?? workspace.slug;
+  const role = created?.role ?? "trader";
   const elapsed = startedAt && completedAt && completedAt > startedAt ? completedAt - startedAt : null;
-  const setupMs = elapsed !== null && elapsed <= MAX_REPORTED_SETUP_MS ? elapsed : FALLBACK_SETUP_MS;
-
-  const planLine = brandActive
-    ? `${plan.name} · billed by ${tenantName}`
-    : plan.monthly === 0
-      ? `${plan.name} · $0`
-      : plan.id === "pro"
-        ? `${plan.name} · 14-day trial, then $${plan.monthly}/mo`
-        : `${plan.name} · $${plan.monthly}/mo`;
+  const showElapsed = elapsed !== null && elapsed <= MAX_REPORTED_SETUP_MS;
 
   const openTerminal = () => {
     setLaunching(true);
-    React.startTransition(async () => {
-      try {
-        await completeSignup({
-          name: account.fullName || "New trader",
-          email: account.email,
-          workspaceSlug: workspace.slug,
-          tenantId: tenantJoined ? SIGNUP_TENANT_ID : undefined,
-        });
-        markLaunched();
-        router.push("/app");
-      } catch {
-        setLaunching(false);
-        toast.error("Could not open the terminal", { description: "Try again in a moment." });
-      }
-    });
+    markLaunched();
+    router.push("/app");
   };
 
   return (
-    <StepShell step={5} title="Your terminal is ready" description={`Setup took ${formatElapsed(setupMs)}. Here is what you set up.`}>
+    <StepShell step={5} title="Your terminal is ready" description={showElapsed ? `Setup took ${formatElapsed(elapsed)}. Here is what you set up.` : "Here is what you set up."}>
       <div className="flex items-start gap-3 rounded-xl bg-gain-soft px-4 py-3 text-gain-foreground">
         <CircleCheckIcon className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
         <div className="grid gap-0.5 text-sm">
           <span className="font-semibold">Workspace created</span>
-          <span className="font-mono text-xs break-all">{workspace.slug}.nasscord.com</span>
+          <span className="font-mono text-xs break-all">
+            {slug}.{APP_DOMAIN}
+          </span>
         </div>
       </div>
 
       <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-        <Row label="Workspace URL">
-          <span className="font-mono text-xs break-all">{workspace.slug}.nasscord.com</span>
+        <Row label="Workspace">{workspace.name}</Row>
+        <Row label="Your role">
+          {role === "tenant_user" && tenantName ? `${ROLE_LABEL.tenant_user} through ${tenantName}` : ROLE_LABEL[role]}
         </Row>
-        <Row label="How you joined">{tenantJoined ? `You joined through ${tenantName} as a tenant user` : "You signed up directly, as a trader"}</Row>
-        <Row label="Plan">{planLine}</Row>
+        <Row label="Plan">{brandActive && tenantName ? `${plan.name} · priced by ${tenantName}` : plan.name}</Row>
         <Row label="Brokers">
-          {connections.length ? (
-            <span className="inline-flex flex-wrap items-center gap-1.5">
-              {connections.map((c) => (
-                <span key={c.brokerId} className="inline-flex items-center gap-1">
-                  <BrokerMark id={c.brokerId} size="sm" />
-                  <span className="text-xs">{getBroker(c.brokerId).short}</span>
-                </span>
-              ))}
-              <span className="text-xs text-muted-foreground tabular">
-                · {accountCount} {accountCount === 1 ? "account" : "accounts"}
-              </span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">None yet. Add one from Settings.</span>
-          )}
-        </Row>
-        <Row label="Default account">
-          {defaultAccount ? (
-            <span>
-              {getBroker(defaultAccount.brokerId).short} {defaultAccount.label} <span className="font-mono text-xs text-muted-foreground tabular">{defaultAccount.masked}</span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">Not set</span>
-          )}
+          <span className="text-muted-foreground">Connect from the Brokers page</span>
         </Row>
         <Row label="Risk per trade">
-          <span className="tabular">
-            {prefs.riskPct}%{defaultAccount ? ` · ${fmtMoney(riskDollars(defaultAccount.netLiq, prefs.riskPct))} per trade` : ""}
-          </span>
+          <span className="tabular">{prefs.riskPct}%</span>
         </Row>
-        <Row label="Mode">{prefs.paperMode ? "Paper trading until you switch to live" : "Live trading"}</Row>
+        <Row label="Mode">{prefs.paperMode ? "Paper until you switch to live" : "Live"}</Row>
       </dl>
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-          <DialogTrigger render={<Button type="button" variant="outline" size="lg" />}>
-            <UserPlusIcon />
-            Invite a teammate
-          </DialogTrigger>
-          <DialogContent>
-            <InviteForm workspaceSlug={workspace.slug} invitedBy={account.email} seatLimit={plan.limits.seats} onDone={() => setInviteOpen(false)} />
-          </DialogContent>
-        </Dialog>
+      <div className="flex justify-end">
         <Button id="signup-open-terminal" type="button" size="lg" onClick={openTerminal} disabled={launching}>
           {launching ? <LoaderCircleIcon className="animate-spin" /> : null}
           {launching ? "Opening" : "Open your terminal"}
@@ -144,78 +74,22 @@ export function StepReady({ tenantName, tenantJoined, brandActive }: { tenantNam
 
       <div className="grid gap-2 border-t border-border pt-4">
         <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">What happens next</p>
-        <ul className="grid gap-1.5 text-sm text-muted-foreground">
+        <ol className="grid gap-1.5 text-sm text-muted-foreground">
           <li className="flex gap-2">
             <span aria-hidden="true">1.</span>
-            Your first alerts arrive after the next {ENGINE_DEFAULTS.timeframe.replace("m", "-minute")} scan during market hours. TradeScope watches {ENGINE_DEFAULTS.universeSize} symbols and only surfaces scores of {ENGINE_DEFAULTS.minScore} or higher.
+            Connect Interactive Brokers or E*TRADE from the Brokers page in the terminal.
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true">2.</span>
-            Broker tokens refresh automatically. Interactive Brokers asks for its own second factor once a day.
+            IBKR asks you to sign in on its own page about once a day. E*TRADE ends every session at midnight Eastern, so you reconnect once a day.
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true">3.</span>
-            Add brokers, teammates and notification channels any time from Settings.
+            This release reads your accounts: balances, positions, orders and executions. Placing orders comes later.
           </li>
-        </ul>
+        </ol>
       </div>
     </StepShell>
-  );
-}
-
-function InviteForm({ workspaceSlug, invitedBy, seatLimit, onDone }: { workspaceSlug: string; invitedBy: string; seatLimit: number | "unlimited"; onDone: () => void }) {
-  const [pending, setPending] = React.useState(false);
-  const { register, handleSubmit, formState, setError } = useForm<InviteValues>({ resolver: zodResolver(inviteSchema), defaultValues: { email: "" } });
-
-  const submit = (values: InviteValues) => {
-    setPending(true);
-    React.startTransition(async () => {
-      const res = await inviteTeammate({ email: values.email, workspaceSlug, invitedBy });
-      setPending(false);
-      if (!res.ok) {
-        setError("email", { message: res.error });
-        return;
-      }
-      toast.success(`Invite sent to ${res.email}`, { description: "They get a join link that expires in 7 days." });
-      onDone();
-    });
-  };
-
-  return (
-    <form noValidate onSubmit={handleSubmit(submit)} className="grid gap-4">
-      <DialogHeader>
-        <DialogTitle>Invite a teammate</DialogTitle>
-        <DialogDescription>
-          {seatLimit === 1
-            ? "Your plan includes 1 seat. Invites beyond it prompt an upgrade to Desk."
-            : seatLimit === "unlimited"
-              ? "Seats are unlimited on your plan."
-              : `Your plan includes ${seatLimit} seats.`}
-        </DialogDescription>
-      </DialogHeader>
-      <div className="grid gap-1.5">
-        <Label htmlFor="signup-invite-email">Teammate email</Label>
-        <Input
-          id="signup-invite-email"
-          type="email"
-          autoComplete="off"
-          placeholder="teammate@yourfirm.com"
-          aria-invalid={!!formState.errors.email}
-          aria-describedby={formState.errors.email ? "signup-invite-email-error" : undefined}
-          {...register("email")}
-        />
-        <FieldError id="signup-invite-email-error" message={formState.errors.email?.message} />
-      </div>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onDone}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <LoaderCircleIcon className="animate-spin" /> : null}
-          Send invite
-        </Button>
-      </DialogFooter>
-    </form>
   );
 }
 

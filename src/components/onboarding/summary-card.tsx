@@ -1,29 +1,28 @@
 "use client";
 
-import { BrokerMark } from "@/components/brokers/broker-mark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { APP_DOMAIN } from "@/lib/branding";
 import { getPlan } from "@/lib/plans";
-import { fmtMoney } from "@/lib/format";
 import { ROLE_LABEL } from "@/lib/roles";
-import { isTenantCode, riskDollars, selectDefaultAccount, useSignupStore } from "@/components/onboarding/store";
+import { useSignupStore } from "@/components/onboarding/store";
 
-/** Live summary in the rail: updates as the trader fills the steps. `whiteLabel`: the tenant sets its traders' pricing. */
-export function SummaryCard({ tenantName, whiteLabel = false }: { tenantName?: string; whiteLabel?: boolean }) {
+/** Live summary in the rail: updates as the trader fills the steps. */
+export function SummaryCard() {
   const workspace = useSignupStore((s) => s.workspace);
-  const connections = useSignupStore((s) => s.connections);
   const prefs = useSignupStore((s) => s.prefs);
+  const tenant = useSignupStore((s) => s.tenant);
   const tenantCode = useSignupStore((s) => s.account.tenantCode);
+  const created = useSignupStore((s) => s.created);
   const plan = getPlan(workspace.plan);
-  const defaultAccount = selectDefaultAccount({ connections, prefs });
-  const tenant = isTenantCode(tenantCode) ? tenantName : undefined;
+  const joinedTenant = tenant && tenant.code === tenantCode.trim().toUpperCase() ? tenant : null;
 
-  const price = plan.monthly === 0 ? "$0" : `$${plan.monthly}/mo`;
-  const planLine = tenant && whiteLabel
-    ? `${plan.name} · ${tenant} pricing`
-    : plan.id === "pro"
-      ? `${plan.name} · 14-day trial, then ${price}`
-      : `${plan.name} · ${price}`;
-  const accountCount = connections.reduce((n, c) => n + c.accounts.length, 0);
+  const joiningAs = created
+    ? created.role === "tenant_user" && joinedTenant
+      ? `${ROLE_LABEL.tenant_user} through ${joinedTenant.name}`
+      : ROLE_LABEL[created.role]
+    : joinedTenant
+      ? `${ROLE_LABEL.tenant_user} through ${joinedTenant.name}`
+      : ROLE_LABEL.trader;
 
   return (
     <Card size="sm">
@@ -34,32 +33,20 @@ export function SummaryCard({ tenantName, whiteLabel = false }: { tenantName?: s
         <dl className="grid gap-3 text-sm">
           <Row label="Workspace">
             {workspace.slug ? (
-              <span className="font-mono text-xs break-all">{workspace.slug}.nasscord.com</span>
+              <span className="font-mono text-xs break-all">
+                {workspace.slug}.{APP_DOMAIN}
+              </span>
             ) : (
               <span className="text-muted-foreground">Not set yet</span>
             )}
           </Row>
-          <Row label="Joining as">{tenant ? `${ROLE_LABEL.tenant_user} through ${tenant}` : ROLE_LABEL.trader}</Row>
-          <Row label="Plan">{planLine}</Row>
+          <Row label="Joining as">{joiningAs}</Row>
+          <Row label="Plan">{joinedTenant?.branding ? `${plan.name} · ${joinedTenant.name} pricing` : plan.name}</Row>
           <Row label="Brokers">
-            {connections.length ? (
-              <span className="inline-flex flex-wrap items-center gap-1">
-                {connections.map((c) => (
-                  <BrokerMark key={c.brokerId} id={c.brokerId} size="sm" />
-                ))}
-                <span className="ml-1 text-xs text-muted-foreground tabular">
-                  {accountCount} {accountCount === 1 ? "account" : "accounts"}
-                </span>
-              </span>
-            ) : (
-              <span className="text-muted-foreground">None connected</span>
-            )}
+            <span className="text-muted-foreground">Connected in step 3</span>
           </Row>
           <Row label="Risk per trade">
-            <span className="tabular">
-              {prefs.riskPct}%
-              {defaultAccount ? <span className="text-muted-foreground"> · {fmtMoney(riskDollars(defaultAccount.netLiq, prefs.riskPct))}</span> : null}
-            </span>
+            <span className="tabular">{prefs.riskPct}%</span>
           </Row>
         </dl>
       </CardContent>

@@ -1,10 +1,12 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
+import { TriangleAlertIcon } from "lucide-react";
 import { TenantTheme } from "@/components/tenant-theme";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TenantBranding } from "@/lib/types";
 import { StepProgress, StepRail } from "@/components/onboarding/step-rail";
 import { SummaryCard } from "@/components/onboarding/summary-card";
 import { StepAccount } from "@/components/onboarding/step-account";
@@ -12,46 +14,108 @@ import { StepWorkspace } from "@/components/onboarding/step-workspace";
 import { StepBrokers } from "@/components/onboarding/step-brokers";
 import { StepPreferences } from "@/components/onboarding/step-preferences";
 import { StepReady } from "@/components/onboarding/step-ready";
-import { isTenantCode, useSignupStore } from "@/components/onboarding/store";
+import { useSignupStore, type AccountDraft, type SignupPhase, type TenantPreview } from "@/components/onboarding/store";
+import type { WizardStep } from "@/components/onboarding/data";
+import { signOut, syncAccess } from "@/lib/auth-actions";
+
+type AccessState = { status: "pending" } | { status: "ok" } | { status: "failed"; error: string };
 
 /**
- * Root of the signup wizard. Two columns on desktop (rail 280px + step card), stacked on
- * mobile with a compact progress line. A valid tenant code makes the new user a tenant user of
- * that tenant; when the tenant has white-label (`tenantBranding` is set) the right column takes
- * its accent as soon as the code is entered, so the trader sees the white-label preview live.
+ * Root of the signup wizard. The server page says where the user really is (`phase`):
+ *  - "account": signed out. Step 1 creates the account and waits for the email confirmation.
+ *  - "workspace": signed in from the confirmation link, no workspace yet. Resumes at step 2.
+ *  - "continue": the workspace exists. Steps 3 to 5 continue from the saved draft; without one
+ *    (another device, or setup already finished) the user goes to `home`. With `needsSync` (the
+ *    session lacks the role in the members row) syncAccess first copies the role into the session;
+ *    if that fails the user sees why and can retry, instead of bouncing between /signup and /app.
+ * Two columns on desktop (rail 280px + step card), stacked on mobile. A tenant code with
+ * white-label wraps the step card in that tenant's accent as a live preview.
  */
-export function SignupWizard({ tenantName, tenantBranding }: { tenantName: string; tenantBranding: TenantBranding | null }) {
+export function SignupWizard({
+  phase,
+  prefill,
+  initialTenant,
+  home,
+  needsSync = false,
+}: {
+  phase: SignupPhase;
+  prefill: Partial<AccountDraft>;
+  initialTenant: TenantPreview | null;
+  home: string;
+  needsSync?: boolean;
+}) {
+  const router = useRouter();
+  const [access, setAccess] = React.useState<AccessState>(() => (phase === "continue" && needsSync ? { status: "pending" } : { status: "ok" }));
+  const [syncAttempt, setSyncAttempt] = React.useState(0);
   const hydrated = useSignupStore((s) => s.hydrated);
   const step = useSignupStore((s) => s.step);
   const furthest = useSignupStore((s) => s.furthest);
+  const created = useSignupStore((s) => s.created);
+  const tenant = useSignupStore((s) => s.tenant);
   const tenantCode = useSignupStore((s) => s.account.tenantCode);
   const goTo = useSignupStore((s) => s.goTo);
 
+  const prefillKey = `${prefill.fullName ?? ""}|${prefill.email ?? ""}|${prefill.tenantCode ?? ""}`;
   React.useEffect(() => {
-    // Manual hydration keeps the first client render identical to the server render.
-    void useSignupStore.persist.rehydrate();
-    const state = useSignupStore.getState();
-    if (state.launched) state.reset();
-    else useSignupStore.setState({ hydrated: true });
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      // Manual hydration keeps the first client render identical to the server render.
+      await useSignupStore.persist.rehydrate();
+      if (cancelled) return;
+      const store = useSignupStore.getState();
+      if (store.launched) store.reset();
+      if (phase === "continue") {
+        let target = home;
+        if (needsSync) {
+          const res = await syncAccess().catch(() => null);
+          if (cancelled) return;
+          if (!res || !res.ok) {
+            setAccess({ status: "failed", error: res && !res.ok ? res.error : "We could not reach Nasscord. Check your connection and try again." });
+            return;
+          }
+          target = res.home;
+          setAccess({ status: "ok" });
+        }
+        const s = useSignupStore.getState();
+        if (!s.created || s.step < 3) {
+          router.replace(target);
+          return;
+        }
+      }
+      useSignupStore.getState().syncPhase(phase, prefill);
+      const code = useSignupStore.getState().account.tenantCode.trim().toUpperCase();
+      if (initialTenant && initialTenant.code === code) useSignupStore.getState().setTenant(initialTenant);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // prefill is compared through prefillKey; initialTenant follows the same server render.
+  }, [phase, prefillKey, home, router, needsSync, syncAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Signing up through the tenant: the user becomes a tenant user. */
-  const tenantJoined = isTenantCode(tenantCode);
-  /** ...and the tenant has white-label, so its brand and pricing apply. */
-  const brandActive = tenantJoined && tenantBranding !== null;
+  const activeTenant = tenant && tenant.code === tenantCode.trim().toUpperCase() ? tenant : null;
+  const branding = activeTenant?.branding ?? null;
+  const minStep: WizardStep = created ? 3 : phase === "workspace" ? 2 : 1;
 
-  const stepCard = !hydrated ? (
+  const stepCard = !hydrated || access.status === "pending" ? (
     <WizardSkeleton />
+  ) : access.status === "failed" ? (
+    <AccessFailed
+      error={access.error}
+      onRetry={() => {
+        setAccess({ status: "pending" });
+        setSyncAttempt((n) => n + 1);
+      }}
+    />
   ) : step === 1 ? (
-    <StepAccount tenantName={tenantName} whiteLabel={tenantBranding !== null} />
+    <StepAccount />
   ) : step === 2 ? (
-    <StepWorkspace tenantName={tenantName} brandActive={brandActive} />
+    <StepWorkspace tenantName={activeTenant?.name ?? null} brandActive={branding !== null} />
   ) : step === 3 ? (
     <StepBrokers />
   ) : step === 4 ? (
     <StepPreferences />
   ) : (
-    <StepReady tenantName={tenantName} tenantJoined={tenantJoined} brandActive={brandActive} />
+    <StepReady tenantName={activeTenant?.name ?? null} brandActive={branding !== null} />
   );
 
   return (
@@ -59,12 +123,12 @@ export function SignupWizard({ tenantName, tenantBranding }: { tenantName: strin
       <aside className="hidden lg:flex lg:flex-col lg:gap-6">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Create your workspace</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Five short steps. Your draft is saved in this browser as you go.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Five short steps. Your progress is saved in this browser as you go.</p>
         </div>
         {hydrated ? (
           <>
-            <StepRail current={step} furthest={furthest} onSelect={goTo} />
-            <SummaryCard tenantName={tenantName} whiteLabel={tenantBranding !== null} />
+            <StepRail current={step} furthest={furthest} minStep={minStep} onSelect={goTo} />
+            <SummaryCard />
           </>
         ) : (
           <RailSkeleton />
@@ -77,11 +141,11 @@ export function SignupWizard({ tenantName, tenantBranding }: { tenantName: strin
       </div>
 
       <section aria-live="polite" className="min-w-0">
-        {brandActive && tenantBranding ? (
-          <TenantTheme branding={tenantBranding}>
+        {branding ? (
+          <TenantTheme branding={branding}>
             <div className="grid gap-4">
               {stepCard}
-              <TenantPreviewNote name={tenantBranding.name} />
+              <p className="text-xs text-muted-foreground">Preview: buttons, links and focus rings use {branding.name}&apos;s accent. Your terminal will look the same.</p>
             </div>
           </TenantTheme>
         ) : (
@@ -89,7 +153,7 @@ export function SignupWizard({ tenantName, tenantBranding }: { tenantName: strin
         )}
         {hydrated ? (
           <div className="mt-6 lg:hidden">
-            <SummaryCard tenantName={tenantName} whiteLabel={tenantBranding !== null} />
+            <SummaryCard />
           </div>
         ) : null}
       </section>
@@ -97,17 +161,38 @@ export function SignupWizard({ tenantName, tenantBranding }: { tenantName: strin
   );
 }
 
-function TenantPreviewNote({ name }: { name: string }) {
+/** The workspace exists but the session could not be updated with its role. Retry runs syncAccess again. */
+function AccessFailed({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <p className="text-xs text-muted-foreground">
-      Preview: buttons, links and focus rings use {name}&apos;s accent. Your terminal will look the same after setup.
-    </p>
+    <Card role="alert">
+      <CardHeader className="gap-2">
+        <span className="flex items-center gap-2 text-xs font-semibold tracking-wide text-warn-foreground uppercase">
+          <TriangleAlertIcon className="size-4" aria-hidden="true" />
+          Sign-in not updated
+        </span>
+        <CardTitle className="text-lg tracking-tight">We could not open your workspace yet</CardTitle>
+        <CardDescription>{error}</CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">
+        Your workspace and settings are saved. Trying again updates your sign-in so you can open it. If it keeps failing, sign out and sign in again.
+      </CardContent>
+      <CardFooter className="flex flex-wrap items-center justify-between gap-3">
+        <form action={signOut}>
+          <Button type="submit" variant="outline">
+            Sign out
+          </Button>
+        </form>
+        <Button type="button" onClick={onRetry}>
+          Try again
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }
 
 function WizardSkeleton() {
   return (
-    <Card aria-busy="true" aria-label="Loading your draft">
+    <Card aria-busy="true" aria-label="Loading your progress">
       <CardHeader className="gap-2">
         <Skeleton className="h-3 w-20" />
         <Skeleton className="h-6 w-48" />

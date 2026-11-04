@@ -5,14 +5,14 @@ import { STEPS, type WizardStep } from "@/components/onboarding/data";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
-/** Desktop rail: numbered list with done / current / upcoming states. Completed steps are buttons. */
-export function StepRail({ current, furthest, onSelect }: { current: WizardStep; furthest: WizardStep; onSelect: (step: WizardStep) => void }) {
+/** Desktop rail: numbered list with done / current / upcoming states. Completed steps from `minStep` on are buttons. */
+export function StepRail({ current, furthest, minStep = 1, onSelect }: { current: WizardStep; furthest: WizardStep; minStep?: WizardStep; onSelect: (step: WizardStep) => void }) {
   return (
     <nav aria-label="Setup steps">
       <ol className="grid gap-1">
         {STEPS.map((s) => {
           const state = s.id < current ? "done" : s.id === current ? "current" : "upcoming";
-          const clickable = s.id <= furthest && s.id !== current && current !== 5;
+          const clickable = s.id <= furthest && s.id >= minStep && s.id !== current && current !== 5;
           const inner = (
             <>
               <span

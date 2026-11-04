@@ -1,13 +1,14 @@
 "use client";
 
+import { EyeIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserMenu, type ShellUser } from "@/components/layout/user-menu";
-import { DemoFlag } from "@/components/page-header";
 import { StatusDot } from "@/components/status-dot";
 import { marketSession } from "@/lib/engine";
 import { AccountSwitcher } from "@/components/terminal/account-switcher";
 import { useMinuteClock } from "@/components/terminal/hooks";
-import { PaperLiveBadge } from "@/components/terminal/paper-mode";
+import { useHydrateTerminalStore } from "@/components/terminal/store";
 
 export type TerminalUser = ShellUser;
 
@@ -18,7 +19,7 @@ const SESSION_LABEL = {
   closed: { tone: "neutral" as const, label: "Closed", detail: "opens 09:30 ET", pulse: false },
 };
 
-/** Market session pill from lib/engine. Client-only so the server render never guesses the time. */
+/** Market session pill from lib/engine (the real clock). Client-only so the server render never guesses the time. */
 export function SessionPill({ className }: { className?: string }) {
   const now = useMinuteClock();
   if (!now) return <Skeleton className="h-5 w-32" />;
@@ -38,14 +39,18 @@ export function SessionPill({ className }: { className?: string }) {
   );
 }
 
-/** Right side of the shell header: scope, session, mode, demo flag, user. */
+/** Right side of the shell header: account scope with its totals, market session, read-only marker, user. */
 export function TerminalHeader({ user }: { user: TerminalUser }) {
+  // The header is always mounted, so the saved account scope and watchlist load on every screen size.
+  useHydrateTerminalStore();
   return (
     <div className="flex items-center gap-1.5 sm:gap-2.5">
       <AccountSwitcher className="hidden sm:inline-flex" />
       <SessionPill className="hidden md:inline-flex" />
-      <PaperLiveBadge />
-      <DemoFlag className="hidden xl:inline-flex" />
+      <Badge variant="secondary" className="hidden gap-1 lg:inline-flex" title="Order entry is switched off in this release. Place orders in your broker's app for now.">
+        <EyeIcon />
+        Read only
+      </Badge>
       <UserMenu user={user} settingsHref="/app/settings" />
     </div>
   );

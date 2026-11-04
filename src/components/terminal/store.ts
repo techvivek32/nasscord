@@ -1,82 +1,42 @@
 "use client";
 
+import * as React from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
-import type { Alert, BrokerConnection, Order } from "@/lib/types";
 
 /* ------------------------------------------------------------------
-   Terminal session state. Account scope and paper mode persist in
-   localStorage (guarded, manual hydration so SSR and the first client
-   render agree). Orders placed in this session, closed positions and
-   the loaded order ticket live only for the tab.
+   Per-browser terminal preferences: the account scope picked in the
+   header and the watchlist symbols. Nothing here stands in for server
+   state: connections, accounts, inclusion, positions and orders always
+   come from the broker routes. Persisted in localStorage (guarded),
+   hydrated by hand so the server render and the first client render
+   agree.
    ------------------------------------------------------------------ */
 
 export const TERMINAL_STORE_KEY = "nasscord-terminal";
 
 export type AccountScope = "all" | string;
 
-export interface TicketDraft {
-  symbol: string;
-  entry: number;
-  stop: number;
-  target: number;
-  accountId?: string;
-  alertId?: number;
-  /** Set when the ticket was loaded from a "Buy" button, so the ticket can scroll into view. */
-  loadedAt: number;
-}
-
 interface TerminalData {
   hydrated: boolean;
+  /** "all", or a broker_accounts.id. An id that is no longer an included account reads as "all". */
   selectedAccountId: AccountScope;
-  /** null until the workspace default has been applied (see initPaperMode). */
-  paperMode: boolean | null;
-  /** Per-account overrides of BrokerAccount.included, set from /app/brokers. */
-  includedOverrides: Record<string, boolean>;
+  /** Symbols the user follows, in the order they added them. */
   watchlist: string[];
-  /** Orders placed in this session (the verified order engine appends here). */
-  localOrders: Order[];
-  /** Order ids cancelled in this session (server-side orders are read-only demo data). */
-  cancelledOrderIds: string[];
-  /** Positions closed in this session. */
-  closedPositionIds: string[];
-  /** Brokers connected in this session through the simulated hand-off on /app/brokers. */
-  sessionConnections: BrokerConnection[];
-  ticket: TicketDraft | null;
 }
 
 interface TerminalActions {
   setSelectedAccount: (id: AccountScope) => void;
-  initPaperMode: (workspaceDefault: boolean) => void;
-  setPaperMode: (on: boolean) => void;
-  setIncluded: (accountId: string, included: boolean) => void;
   addWatch: (symbol: string) => void;
   removeWatch: (symbol: string) => void;
-  addLocalOrders: (orders: Order[]) => void;
-  updateLocalOrder: (id: string, patch: Partial<Order>) => void;
-  cancelOrder: (id: string) => void;
-  closePosition: (id: string) => void;
-  addSessionConnection: (connection: BrokerConnection) => void;
-  loadTicket: (draft: Omit<TicketDraft, "loadedAt">) => void;
-  loadTicketFromAlert: (alert: Alert, accountId?: string) => void;
-  clearTicket: () => void;
 }
 
 export type TerminalStore = TerminalData & TerminalActions;
 
-export const DEFAULT_WATCHLIST = ["SPY", "QQQ", "NVDA", "AAPL", "MSFT", "TSLA", "AVGO", "META"];
-
 const initialData: TerminalData = {
   hydrated: false,
   selectedAccountId: "all",
-  paperMode: null,
-  includedOverrides: {},
-  watchlist: DEFAULT_WATCHLIST,
-  localOrders: [],
-  cancelledOrderIds: [],
-  closedPositionIds: [],
-  sessionConnections: [],
-  ticket: null,
+  watchlist: [],
 };
 
 /** localStorage can throw (private mode, blocked storage) and does not exist on the server. */
@@ -107,20 +67,14 @@ const safeStorage: StateStorage = {
   },
 };
 
+type Persisted = Pick<TerminalData, "selectedAccountId" | "watchlist">;
+
 export const useTerminalStore = create<TerminalStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       ...initialData,
 
       setSelectedAccount: (selectedAccountId) => set({ selectedAccountId }),
-
-      initPaperMode: (workspaceDefault) => {
-        if (get().paperMode === null) set({ paperMode: workspaceDefault });
-      },
-
-      setPaperMode: (paperMode) => set({ paperMode }),
-
-      setIncluded: (accountId, included) => set((s) => ({ includedOverrides: { ...s.includedOverrides, [accountId]: included } })),
 
       addWatch: (symbol) =>
         set((s) => {
@@ -130,52 +84,48 @@ export const useTerminalStore = create<TerminalStore>()(
         }),
 
       removeWatch: (symbol) => set((s) => ({ watchlist: s.watchlist.filter((x) => x !== symbol) })),
-
-      addLocalOrders: (orders) => set((s) => ({ localOrders: [...orders, ...s.localOrders] })),
-
-      updateLocalOrder: (id, patch) => set((s) => ({ localOrders: s.localOrders.map((o) => (o.id === id ? { ...o, ...patch } : o)) })),
-
-      cancelOrder: (id) =>
-        set((s) => ({
-          cancelledOrderIds: s.cancelledOrderIds.includes(id) ? s.cancelledOrderIds : [...s.cancelledOrderIds, id],
-          localOrders: s.localOrders.map((o) => (o.id === id ? { ...o, status: "cancelled" } : o)),
-        })),
-
-      closePosition: (id) => set((s) => ({ closedPositionIds: s.closedPositionIds.includes(id) ? s.closedPositionIds : [...s.closedPositionIds, id] })),
-
-      addSessionConnection: (connection) => set((s) => ({ sessionConnections: [...s.sessionConnections.filter((c) => c.brokerId !== connection.brokerId), connection] })),
-
-      loadTicket: (draft) => set({ ticket: { ...draft, loadedAt: Date.now() } }),
-
-      loadTicketFromAlert: (alert, accountId) =>
-        set({ ticket: { symbol: alert.symbol, entry: alert.entry, stop: alert.stop, target: alert.target, alertId: alert.id, accountId, loadedAt: Date.now() } }),
-
-      clearTicket: () => set({ ticket: null }),
     }),
     {
       name: TERMINAL_STORE_KEY,
-      version: 1,
+      // Version 2 is the real-data terminal. Version 1 held demo overlays and a sample watchlist; only the scope carries over.
+      version: 2,
       storage: createJSONStorage(() => safeStorage),
       skipHydration: true,
-      partialize: (s) => ({
-        selectedAccountId: s.selectedAccountId,
-        paperMode: s.paperMode,
-        includedOverrides: s.includedOverrides,
-        watchlist: s.watchlist,
-      }),
+      partialize: (s): Persisted => ({ selectedAccountId: s.selectedAccountId, watchlist: s.watchlist }),
+      migrate: (persisted, version): Persisted => {
+        const old = (persisted ?? {}) as Partial<Persisted>;
+        const selectedAccountId = typeof old.selectedAccountId === "string" ? old.selectedAccountId : "all";
+        const watchlist = version >= 2 && Array.isArray(old.watchlist) ? old.watchlist.filter((x): x is string => typeof x === "string") : [];
+        return { selectedAccountId, watchlist };
+      },
     },
   ),
 );
 
-/** Called once from the terminal layout (client side). Reads the persisted slice, then applies the workspace default for paper mode. */
-export async function hydrateTerminalStore(workspacePaperDefault: boolean) {
+let hydrating: Promise<void> | null = null;
+
+/** Reads the persisted slice once per page load (client side); later calls share the first one. */
+export function hydrateTerminalStore(): Promise<void> {
   const store = useTerminalStore;
-  if (store.getState().hydrated) return;
-  try {
-    await store.persist.rehydrate();
-  } catch {
-    /* storage unavailable: run with defaults */
-  }
-  store.getState().initPaperMode(workspacePaperDefault);
-  store.setState({ hydrated: true });
+  if (store.getState().hydrated) return Promise.resolve();
+  hydrating ??= (async () => {
+    try {
+      await store.persist.rehydrate();
+    } catch {
+      /* storage unavailable: run with defaults */
+    }
+    store.setState({ hydrated: true });
+  })();
+  return hydrating;
+}
+
+/**
+ * Hydrates the store from whichever component mounts first. The terminal header calls it (it is
+ * always mounted, unlike the sidebar, which is a closed sheet on phones), and so does every component
+ * that waits on `hydrated`, so none of them depends on another being on screen.
+ */
+export function useHydrateTerminalStore() {
+  React.useEffect(() => {
+    void hydrateTerminalStore();
+  }, []);
 }

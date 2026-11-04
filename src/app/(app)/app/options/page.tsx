@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
-import { DemoFlag, PageHeader } from "@/components/page-header";
-import { OptionsDesk } from "@/components/terminal/options-desk";
+import Link from "next/link";
+import { EmptyState, PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Options" };
 
 export default function Page() {
   return (
     <>
-      <PageHeader
-        title="Options"
-        description="Call ideas built from the top open alerts, sized by a fixed capital-risk preset: 0.10, 0.15 or 0.20 percent of net liquidation per idea, with the stop at half the premium."
-        actions={<DemoFlag />}
+      <PageHeader title="Options" description="Call ideas on TradeScope alerts, sized against your net liquidation, once TradeScope and an option-chain feed are connected." />
+      <EmptyState
+        title="No option ideas yet"
+        description="Option ideas are built from TradeScope alerts and live option chains. Neither is connected to this workspace yet, so there is nothing to show."
+        action={
+          <Button variant="outline" size="sm" render={<Link href="/app/positions" />}>
+            See your positions
+          </Button>
+        }
       />
-      <OptionsDesk />
     </>
   );
 }

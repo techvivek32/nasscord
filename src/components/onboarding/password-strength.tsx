@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, MinusIcon } from "lucide-react";
-import { PASSWORD_RULES, passwordScore } from "@/components/onboarding/schemas";
+import { PASSWORD_RULES, passwordScore } from "@/lib/signup";
 import { cn } from "@/lib/utils";
 
 const LABELS = ["Too short", "Weak", "Fair", "Good", "Strong"] as const;
