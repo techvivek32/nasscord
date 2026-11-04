@@ -1,15 +1,20 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TONE_BADGE } from "@/components/status-dot";
+import { fmtDate } from "@/lib/format";
 import { PLAN_LABEL } from "@/lib/plans";
-import type { Payout, PlanId, WorkspaceStatus } from "@/lib/types";
+import type { PlanId, TenantStatus, WorkspaceStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/* Local copies of the console helpers. The tenant portal owns its own so it never depends on
-   another area's in-progress files; promote to src/components when the integrator merges. */
+/* The tenant portal's small building blocks. Pure: safe for server and client components. */
 
 export type Tone = keyof typeof TONE_BADGE;
+
+/** "Nov 3, 2026" in Eastern time, so server and browser render the same day. */
+export function fmtDay(iso: string) {
+  return fmtDate(iso, { timeZone: "America/New_York" });
+}
 
 export function ToneBadge({ tone, children, className }: { tone: Tone; children: React.ReactNode; className?: string }) {
   return (
@@ -50,14 +55,14 @@ export function WorkspaceStatusBadge({ status }: { status: WorkspaceStatus }) {
   return <ToneBadge tone={s.tone}>{s.label}</ToneBadge>;
 }
 
-const PAYOUT_STATUS: Record<Payout["status"], { label: string; tone: Tone }> = {
-  scheduled: { label: "Scheduled", tone: "brand" },
-  paid: { label: "Paid", tone: "good" },
-  on_hold: { label: "On hold", tone: "warn" },
+const TENANT_STATUS: Record<TenantStatus, { label: string; tone: Tone }> = {
+  active: { label: "Active", tone: "good" },
+  pending: { label: "Pending", tone: "warn" },
+  suspended: { label: "Suspended", tone: "neutral" },
 };
 
-export function PayoutStatusBadge({ status }: { status: Payout["status"] }) {
-  const s = PAYOUT_STATUS[status];
+export function TenantStatusBadge({ status }: { status: TenantStatus }) {
+  const s = TENANT_STATUS[status];
   return <ToneBadge tone={s.tone}>{s.label}</ToneBadge>;
 }
 
@@ -68,33 +73,14 @@ export function KV({ items, className }: { items: Array<{ label: string; value: 
       {items.map((it) => (
         <div key={it.label} className="flex items-start justify-between gap-4 py-2">
           <dt className="text-muted-foreground">{it.label}</dt>
-          <dd className="min-w-0 text-right font-medium tabular">{it.value}</dd>
+          <dd className="min-w-0 text-right font-medium break-words tabular">{it.value}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
-/** Label + help on the left, a control on the right. */
-export function ControlRow({ id, label, help, children }: { id: string; label: string; help?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-2.5">
-      <div className="grid gap-0.5">
-        <label htmlFor={id} className="cursor-pointer text-sm font-medium">
-          {label}
-        </label>
-        {help ? (
-          <p id={`${id}-help`} className="text-xs text-muted-foreground">
-            {help}
-          </p>
-        ) : null}
-      </div>
-      <div className="shrink-0 pt-0.5">{children}</div>
-    </div>
-  );
-}
-
-/** Form field wrapper: label, control, error. */
+/** Form field wrapper: label, control, error or hint. */
 export function Field({ id, label, hint, error, children, className }: { id: string; label: string; hint?: string; error?: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={cn("grid gap-1.5", className)}>
@@ -115,15 +101,6 @@ export function Field({ id, label, hint, error, children, className }: { id: str
   );
 }
 
-export function ErrorState({ title = "Could not load this page.", description = "Refresh to try again. If it keeps happening, write to support@nasscord.com." }: { title?: string; description?: string }) {
-  return (
-    <div role="alert" className="rounded-xl border border-dashed border-input px-6 py-10 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
 /* ---------------- skeletons ---------------- */
 
 export function StatGridSkeleton({ count = 4 }: { count?: number }) {
@@ -137,23 +114,9 @@ export function StatGridSkeleton({ count = 4 }: { count?: number }) {
           <div className="px-3">
             <Skeleton className="h-7 w-20" />
           </div>
-          <div className="px-3">
-            <Skeleton className="h-3 w-28" />
-          </div>
         </Card>
       ))}
     </div>
-  );
-}
-
-export function ChartCardSkeleton({ title, className }: { title?: string; className?: string }) {
-  return (
-    <Card className={className} aria-busy="true">
-      <CardHeader>{title ? <CardTitle>{title}</CardTitle> : <Skeleton className="h-4 w-40" />}</CardHeader>
-      <CardContent>
-        <Skeleton className="aspect-[16/9] w-full rounded-lg" />
-      </CardContent>
-    </Card>
   );
 }
 
@@ -175,35 +138,6 @@ export function TableSkeleton({ rows = 6, cols = 5, className }: { rows?: number
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-export function ListSkeleton({ rows = 4 }: { rows?: number }) {
-  return (
-    <ul className="divide-y divide-border" aria-busy="true">
-      {Array.from({ length: rows }).map((_, i) => (
-        <li key={i} className="flex items-center justify-between gap-3 py-3">
-          <div className="grid flex-1 gap-1.5">
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-3 w-1/3" />
-          </div>
-          <Skeleton className="h-5 w-16" />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export function FormSkeleton({ fields = 5 }: { fields?: number }) {
-  return (
-    <div className="grid gap-4" aria-busy="true" aria-label="Loading form">
-      {Array.from({ length: fields }).map((_, i) => (
-        <div key={i} className="grid gap-1.5">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="h-8 w-full" />
-        </div>
-      ))}
     </div>
   );
 }

@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { SettingsPage } from "@/components/tenant/settings";
-import { isSettingsTab } from "@/components/tenant/settings-tab";
+import { TenantSettings } from "@/components/tenant/settings";
+import { NoTenant } from "@/components/tenant/no-tenant";
+import { loadPortal } from "@/components/tenant/scope";
 
 export const metadata: Metadata = { title: "Settings · Tenant portal" };
 
-export default async function TenantSettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const { tab } = await searchParams;
+export default async function TenantSettingsPage() {
+  const { session, tenant } = await loadPortal();
   return (
     <>
-      <PageHeader title="Settings" description="Contacts, notifications, API keys and your tenant agreement." />
-      <SettingsPage initialTab={isSettingsTab(tab) ? tab : "contacts"} />
+      <PageHeader title="Settings" description="Your tenant's record and the account you sign in with." />
+      {tenant ? <TenantSettings tenant={tenant} session={session} /> : <NoTenant session={session} />}
     </>
   );
 }

@@ -1,65 +1,46 @@
-"use client";
-
-import * as React from "react";
 import Link from "next/link";
-import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowLeft } from "lucide-react";
-import { toast } from "sonner";
-import { DataTable } from "@/components/data-table";
+import { ArrowLeft, Mail } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/page-header";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAudit, useUsers, useWorkspace } from "@/hooks/queries";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getBroker } from "@/lib/brokers";
-import { fmtDateTime, maskEmail, timeAgo } from "@/lib/format";
-import type { Tenant, User, Workspace } from "@/lib/types";
-import { PlanBadge, ResultBadge, RoleBadge, TwoFactorBadge, WorkspaceStatusBadge } from "./badges";
-import { DEMO_NOW, SUPER_ADMIN_EMAIL, workspaceHostFor } from "./lib";
-import { ListSkeleton, SectionTitle, TableSkeleton } from "./primitives";
-import { applyTenantOverrides, applyWorkspaceOverrides, useConsoleStore, useConsoleTenants, useTenantOverrides, useWorkspaceOverrides } from "./store";
-import { TenantSource, TraderFacts, TraderSections } from "./trader-sections";
+import { whiteLabelBranding } from "@/lib/branding";
+import { fmtDateTime } from "@/lib/format";
+import type { AuditEvent, BrokerConnection, Tenant, User, Workspace } from "@/lib/types";
+import { ConnectionStatusBadge, PlanBadge, ResultBadge, RoleBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
+import { ENVIRONMENT_LABEL, fmtDay, lastSignInLabel, METHOD_LABEL, workspaceHostFor } from "./lib";
+import { KV, TH } from "./primitives";
+import { WorkspaceControls } from "./trader-sections";
 
-const USER_COLUMNS: ColumnDef<User>[] = [
-  { accessorKey: "name", header: "Name", cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
-  { accessorKey: "email", header: "Email", cell: ({ row }) => <span className="font-mono text-xs">{maskEmail(row.original.email)}</span> },
-  { accessorKey: "role", header: "Role", cell: ({ row }) => <RoleBadge role={row.original.role} /> },
-  { accessorKey: "twoFactor", header: "2FA", cell: ({ row }) => <TwoFactorBadge enabled={row.original.twoFactor} /> },
-  { accessorKey: "lastActiveAt", header: "Last active", cell: ({ row }) => <span className="text-muted-foreground">{timeAgo(row.original.lastActiveAt, DEMO_NOW)}</span> },
-];
-
-/**
- * Full-page record for one trader's workspace. `initial` and `initialTenant` come from the server so
- * the first paint has the name, the facts and the right host.
- */
-export function TraderDetail({ initial, initialTenant }: { initial: Workspace; initialTenant: Tenant | null }) {
-  const query = useWorkspace(initial.id);
-  const overrides = useWorkspaceOverrides();
-  const tenantOverrides = useTenantOverrides();
-  const { byId: tenantById } = useConsoleTenants();
-  const users = useUsers();
-  const audit = useAudit();
-  const invited = useConsoleStore((s) => s.invitedUsers);
-  const removed = useConsoleStore((s) => s.removedUserIds);
-  const reset2fa = useConsoleStore((s) => s.reset2fa);
-
-  const workspace = React.useMemo(() => applyWorkspaceOverrides(query.data ?? initial, overrides), [query.data, initial, overrides]);
-  const tenant = React.useMemo(() => {
-    if (!workspace.tenantId) return null;
-    const fromList = tenantById.get(workspace.tenantId);
-    if (fromList) return fromList;
-    return initialTenant ? applyTenantOverrides(initialTenant, tenantOverrides) : null;
-  }, [workspace.tenantId, tenantById, initialTenant, tenantOverrides]);
-
-  const workspaceUsers = React.useMemo(
-    () =>
-      [...invited, ...(users.data ?? [])]
-        .filter((u) => u.workspaceId === workspace.id && !removed.includes(u.id))
-        .map((u) => (reset2fa.includes(u.id) ? { ...u, twoFactor: false } : u)),
-    [users.data, invited, removed, reset2fa, workspace.id],
+/** Who brought this trader: the tenant (linked to the Tenants page) or nobody. */
+function TenantSource({ workspace, tenant }: { workspace: Workspace; tenant: Tenant | null }) {
+  if (!workspace.tenantId) return <span className="text-muted-foreground">Organic, signed up directly</span>;
+  if (!tenant) return <span className="font-mono text-xs">{workspace.tenantId}</span>;
+  return (
+    <Link href="/admin/tenants" className="underline-offset-4 hover:underline">
+      {tenant.name}
+    </Link>
   );
+}
 
-  const activity = React.useMemo(() => (audit.data ?? []).filter((a) => a.target.includes(workspace.name) || a.actor.endsWith(`@${workspace.owner.email.split("@")[1]}`)), [audit.data, workspace.name, workspace.owner.email]);
+/** Full record for one trader's workspace. Everything here is read from the database on the server. */
+export function TraderDetail({
+  workspace,
+  tenant,
+  members,
+  connections,
+  events,
+}: {
+  workspace: Workspace;
+  tenant: Tenant | null;
+  members: User[];
+  connections: BrokerConnection[];
+  events: AuditEvent[];
+}) {
+  const brand = whiteLabelBranding(tenant);
+  const host = workspaceHostFor(workspace, tenant);
 
   return (
     <>
@@ -71,81 +52,160 @@ export function TraderDetail({ initial, initialTenant }: { initial: Workspace; i
             <PlanBadge plan={workspace.plan} />
           </span>
         }
-        description={
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-mono text-xs">
-              {workspace.id} · {workspaceHostFor(workspace, tenant)}
-            </span>
-            <span className="text-xs">
-              <TenantSource workspace={workspace} tenant={tenant} />
-            </span>
-          </span>
-        }
+        description={<span className="font-mono text-xs break-all">{host}</span>}
         actions={
           <>
             <Button variant="ghost" size="sm" render={<Link href="/admin/traders" />}>
               <ArrowLeft data-icon="inline-start" />
               All traders
             </Button>
-            <Button variant="outline" size="sm" onClick={() => toast(`Email drafted to ${workspace.owner.email}`)}>
-              Email owner
-            </Button>
+            {workspace.owner.email ? (
+              <Button variant="outline" size="sm" render={<a href={`mailto:${workspace.owner.email}`} />}>
+                <Mail data-icon="inline-start" />
+                Email owner
+              </Button>
+            ) : null}
           </>
         }
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
+        <Card>
           <CardHeader>
             <CardTitle>Workspace</CardTitle>
-            <CardDescription>Owner {workspace.owner.name}</CardDescription>
+            <CardDescription>{workspace.owner.name ? `Owned by ${workspace.owner.name}` : "No owner on file"}</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            <TraderFacts workspace={workspace} tenant={tenant} />
-            <div className="grid gap-2">
-              <SectionTitle>Connected brokers</SectionTitle>
-              {workspace.brokers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No broker connected yet.</p>
-              ) : (
-                <ul className="grid gap-2">
-                  {workspace.brokers.map((b) => (
-                    <li key={b} className="flex items-center gap-2 text-sm">
-                      <BrokerMark id={b} size="sm" />
-                      <span className="font-medium">{getBroker(b).name}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">{getBroker(b).mode === "aggregator" ? "Read-only sync" : "Direct API"}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          <CardContent>
+            <KV
+              items={[
+                { label: "Owner email", value: workspace.owner.email || <span className="text-muted-foreground">None</span> },
+                { label: "Tenant", value: <TenantSource workspace={workspace} tenant={tenant} /> },
+                {
+                  label: "Brand",
+                  value: brand ? (
+                    <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                      {brand.name}
+                      <WhiteLabelBadge on />
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Nasscord</span>
+                  ),
+                },
+                { label: "Members", value: workspace.seatLimit !== undefined ? `${workspace.seats} of ${workspace.seatLimit}` : `${workspace.seats}, no limit` },
+                { label: "Timezone", value: workspace.timezone },
+                { label: "Created", value: fmtDay(workspace.createdAt) },
+                { label: "Slug", value: <span className="font-mono text-xs">{workspace.slug}</span> },
+                { label: "Id", value: <span className="font-mono text-[11px] break-all">{workspace.id}</span> },
+              ]}
+            />
           </CardContent>
         </Card>
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Configuration</CardTitle>
-            <CardDescription>Changes apply immediately and are written to the audit log as {SUPER_ADMIN_EMAIL}. Branding comes from the tenant and is set on the White-label page.</CardDescription>
+            <CardTitle>Plan and status</CardTitle>
+            <CardDescription>Each change asks first, is saved to the workspace and is written to the audit log under your login.</CardDescription>
           </CardHeader>
           <CardContent>
-            <TraderSections workspace={workspace} idPrefix={`detail-${workspace.id}`} columns />
+            <WorkspaceControls workspace={workspace} />
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Users</CardTitle>
+          <CardTitle>Broker connections</CardTitle>
+          <CardDescription>Stored connections and their accounts. Balances are not shown here: they need the trader&apos;s own session at the broker.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {connections.length === 0 ? (
+            <EmptyState title="No broker connected" description="The trader has not connected IBKR or E*TRADE yet." />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className={TH}>Broker</TableHead>
+                    <TableHead className={TH}>Method</TableHead>
+                    <TableHead className={TH}>Status</TableHead>
+                    <TableHead className={`${TH} text-right`}>Accounts</TableHead>
+                    <TableHead className={TH}>Last answered</TableHead>
+                    <TableHead className={TH}>Session ends</TableHead>
+                    <TableHead className={TH}>Created</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {connections.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>
+                        <span className="flex items-center gap-2">
+                          <BrokerMark id={c.brokerId} size="sm" />
+                          <span className="grid gap-0.5">
+                            <span className="font-medium">{getBroker(c.brokerId).name}</span>
+                            <span className="text-xs text-muted-foreground">{ENVIRONMENT_LABEL[c.environment]}</span>
+                          </span>
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{METHOD_LABEL[c.method]}</TableCell>
+                      <TableCell>
+                        <span className="grid gap-1">
+                          <ConnectionStatusBadge status={c.status} />
+                          {c.statusDetail ? <span className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.statusDetail}</span> : null}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right tabular">
+                        {c.accounts.length}
+                        {c.accounts.length ? <span className="text-muted-foreground"> ({c.accounts.filter((a) => a.included).length} included)</span> : null}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{c.lastOkAt ? fmtDateTime(c.lastOkAt) : "Never"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{c.sessionExpiresAt ? fmtDateTime(c.sessionExpiresAt) : ""}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{c.connectedAt ? fmtDay(c.connectedAt) : ""}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Members</CardTitle>
           <CardDescription>
-            {workspaceUsers.length} of {workspace.seatLimit} seats in use.
+            {members.length} {members.length === 1 ? "person signs" : "people sign"} in to this workspace.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {users.isLoading ? (
-            <TableSkeleton rows={3} cols={5} />
-          ) : workspaceUsers.length === 0 ? (
-            <EmptyState title="No users in this workspace" description="The owner has not invited anyone yet." />
+          {members.length === 0 ? (
+            <EmptyState title="No members" description="Nobody has this workspace as theirs." />
           ) : (
-            <DataTable columns={USER_COLUMNS} data={workspaceUsers} searchable={workspaceUsers.length > 6} pageSize={10} />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className={TH}>Name</TableHead>
+                    <TableHead className={TH}>Email</TableHead>
+                    <TableHead className={TH}>Role</TableHead>
+                    <TableHead className={TH}>Last sign-in</TableHead>
+                    <TableHead className={TH}>Joined</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {members.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">{u.name}</TableCell>
+                      <TableCell className="font-mono text-xs">{u.email}</TableCell>
+                      <TableCell>
+                        <RoleBadge role={u.role} />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{lastSignInLabel(u)}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{fmtDay(u.createdAt)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -153,16 +213,14 @@ export function TraderDetail({ initial, initialTenant }: { initial: Workspace; i
       <Card>
         <CardHeader>
           <CardTitle>Activity</CardTitle>
-          <CardDescription>Audit events that touched this workspace or came from its users.</CardDescription>
+          <CardDescription>The latest audit events recorded for this workspace.</CardDescription>
         </CardHeader>
         <CardContent>
-          {audit.isLoading ? (
-            <ListSkeleton rows={3} />
-          ) : activity.length === 0 ? (
-            <EmptyState title="No recent activity" description="Nothing in the audit log mentions this workspace in the last 30 days." />
+          {events.length === 0 ? (
+            <EmptyState title="No activity recorded" description="Nothing in the audit log names this workspace yet." />
           ) : (
             <ul className="divide-y divide-border">
-              {activity.map((a) => (
+              {events.map((a) => (
                 <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
                   <span className="w-36 shrink-0 text-xs text-muted-foreground tabular">{fmtDateTime(a.at)}</span>
                   <span className="font-mono text-xs">{a.action}</span>

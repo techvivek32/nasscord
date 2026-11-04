@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { InvoicesCard, PlanMatrixCard } from "@/components/console/billing-page";
+import { InvoicesCard, PlanCatalogCard } from "@/components/console/billing-page";
+import { platformCounts } from "@/lib/server/console";
 
 export const metadata: Metadata = { title: "Plans & Billing · Console" };
 
-export default function BillingPage() {
+export default async function BillingPage() {
+  const counts = await platformCounts();
   return (
     <>
-      <PageHeader title="Plans & Billing" description="Plan entitlements, list prices and this cycle's invoices. Stripe is the source of truth for payments." />
-      <PlanMatrixCard />
+      <PageHeader title="Plans & Billing" description="The plan catalog and how many workspaces are on each plan. Payments appear once Stripe is connected." />
+      <PlanCatalogCard workspacesByPlan={counts.workspacesByPlan} />
       <InvoicesCard />
     </>
   );

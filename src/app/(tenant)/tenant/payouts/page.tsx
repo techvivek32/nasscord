@@ -1,14 +1,20 @@
 import type { Metadata } from "next";
-import { DemoFlag, PageHeader } from "@/components/page-header";
-import { PayoutsPage } from "@/components/tenant/payouts";
+import { EmptyState, PageHeader } from "@/components/page-header";
+import { NoTenant } from "@/components/tenant/no-tenant";
+import { loadPortal } from "@/components/tenant/scope";
 
 export const metadata: Metadata = { title: "Payouts · Tenant portal" };
 
-export default function TenantPayoutsPage() {
+export default async function TenantPayoutsPage() {
+  const { session, tenant } = await loadPortal();
   return (
     <>
-      <PageHeader title="Payouts" description="Monthly commission statements, the account they are sent to and when." actions={<DemoFlag />} />
-      <PayoutsPage />
+      <PageHeader title="Payouts" description="Commission statements and payouts on your traders' subscriptions." />
+      {tenant ? (
+        <EmptyState title="Payouts are not connected yet" description={`Billing is not connected, so no commission has been earned or paid. Your rate is ${tenant.commissionPct}% of your traders' subscriptions.`} />
+      ) : (
+        <NoTenant session={session} />
+      )}
     </>
   );
 }
