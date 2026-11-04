@@ -82,8 +82,8 @@ export interface WorkspaceFeatures {
 }
 
 /**
- * A trading workspace: one trader's desk, or a small team on one book. The unit the platform bills.
- * On screen the console calls these "Traders".
+ * A trading workspace (`public.workspaces`): one trader's desk, or a small team on one book.
+ * On screen the console calls these "Traders". Fields without a real source yet are optional.
  */
 export interface Workspace {
   id: string;
@@ -92,14 +92,19 @@ export interface Workspace {
   plan: PlanId;
   status: WorkspaceStatus;
   createdAt: string;
+  /** Members whose workspace this is. */
   seats: number;
-  seatLimit: number;
-  mrr: number;
+  /** Seats the plan allows. Absent = unlimited. */
+  seatLimit?: number;
+  /** Monthly recurring revenue. No billing source yet, so absent. */
+  mrr?: number;
+  /** Brokers with a connection in this workspace. */
   brokers: BrokerId[];
   /** The tenant this workspace came through; its users are tenant users. Absent = organic traders. */
   tenantId?: string;
   owner: { name: string; email: string };
-  features: WorkspaceFeatures;
+  /** Per-workspace feature flags. No source yet, so absent. */
+  features?: WorkspaceFeatures;
   timezone: string;
 }
 
@@ -108,6 +113,7 @@ export interface Workspace {
  *  trader = an organic user who signed up directly · tenant_user = a trader who belongs to a tenant */
 export type Role = "superadmin" | "tenant" | "trader" | "tenant_user";
 
+/** A member (`public.members`) with what Supabase Auth knows about their sign-ins. */
 export interface User {
   id: string;
   name: string;
@@ -117,47 +123,96 @@ export interface User {
   workspaceId?: string;
   /** The tenant a tenant user belongs to, or the one a tenant login runs. */
   tenantId?: string;
-  twoFactor: boolean;
-  lastActiveAt: string;
+  /** A verified second factor is enrolled in Supabase Auth. Absent when unknown. */
+  twoFactor?: boolean;
+  /** Last sign-in from Supabase Auth. Absent when the user never signed in or it is unknown. */
+  lastActiveAt?: string;
   createdAt: string;
 }
 
+/** The signed-in user: verified Supabase claims joined with their `members` row. */
 export interface Session {
+  /** auth.users.id */
   uid: string;
   name: string;
   email: string;
   role: Role;
   /** Workspace slug the terminal opens. Absent for a tenant's own login. */
   workspace?: string;
+  /** Workspace id (uuid). Absent for a tenant's own login. */
+  workspaceId?: string;
   /** The tenant a tenant user belongs to, or the one a tenant login runs. */
   tenantId?: string;
 }
 
+/** Per-user trading defaults (`public.user_settings`). */
+export interface UserSettings {
+  /** Percent of net liquidation risked per trade, 0 < x <= 5. */
+  riskPct: number;
+  paperMode: boolean;
+  extendedHours: boolean;
+  emailAlerts: boolean;
+  pushAlerts: boolean;
+  smsAlerts: boolean;
+  /** broker_accounts.id, or null when none is picked. */
+  defaultAccountId: string | null;
+  updatedAt?: string;
+}
+
 export type AccountType = "individual" | "ira" | "roth" | "margin" | "paper";
 
+/** One account under a broker connection (`public.broker_accounts`). */
 export interface BrokerAccount {
+  /** broker_accounts.id (uuid). Positions, orders and executions refer to accounts by this id. */
   id: string;
+  /** The connection this account came through. */
+  connectionId?: string;
   brokerId: BrokerId;
   label: string;
+  /** Masked number for display (broker_accounts.display_number), never the full number. */
   masked: string;
   type: AccountType;
-  netLiq: number;
-  buyingPower: number;
-  cash: number;
-  dayPnl: number;
+  /** Balances come from the broker while the connection is active, and are absent otherwise. */
+  netLiq?: number;
+  buyingPower?: number;
+  cash?: number;
+  dayPnl?: number;
+  currency?: string;
+  /** Counts toward totals and feeds positions, orders and executions. */
   included: boolean;
 }
 
-export type ConnectionStatus = "connected" | "expiring" | "disconnected" | "syncing";
+/** How a connection talks to the broker. */
+export type ConnectionMethod = "ibkr_gateway" | "ibkr_oauth" | "etrade_oauth1";
+export type ConnectionEnvironment = "production" | "sandbox" | "paper";
 
+/**
+ * DB `active` maps to `connected`, or to `expiring` when the session ends in under 2 hours.
+ * The other values match `broker_connections.status`.
+ */
+export type ConnectionStatus = "connected" | "expiring" | "pending" | "expired" | "error" | "disconnected";
+
+/** One login at one broker (`public.broker_connections`) with its accounts. */
 export interface BrokerConnection {
+  /** broker_connections.id (uuid). */
+  id: string;
   brokerId: BrokerId;
+  method: ConnectionMethod;
+  environment: ConnectionEnvironment;
   status: ConnectionStatus;
-  connectedAt: string;
+  /** Plain-language reason shown next to the status. */
+  statusDetail?: string;
+  /** When the connection was created. */
+  connectedAt?: string;
+  /** Last time the broker answered for this connection. */
+  lastOkAt?: string;
   tokenRenewsAt?: string;
   sessionExpiresAt?: string;
   accounts: BrokerAccount[];
+  /** What Nasscord may do through the connection. The first release is read-only. */
   permissions: Array<"read" | "trade" | "options">;
+  /** Workspace the connection belongs to (console views). */
+  workspaceId?: string;
   note?: string;
 }
 
@@ -203,13 +258,20 @@ export interface Alert {
 
 export interface Position {
   id: string;
+  /** broker_accounts.id of the account holding it. */
   accountId: string;
   brokerId: BrokerId;
   symbol: string;
   qty: number;
   avgCost: number;
   last: number;
-  dayPnl: number;
+  /** Today's P&L on the position, when the broker reports it per position. */
+  dayPnl?: number;
+  marketValue?: number;
+  unrealizedPnl?: number;
+  currency?: string;
+  /** Broker security type, e.g. "STK", "OPT", "EQ". */
+  secType?: string;
   alertId?: number;
 }
 
@@ -220,7 +282,8 @@ export type OrderStatus = "submitted" | "verifying" | "working" | "verified" | "
 
 export interface Order {
   id: string;
-  clientId: string;
+  /** Nasscord's own order id. Absent for orders placed outside Nasscord. */
+  clientId?: string;
   accountId: string;
   brokerId: BrokerId;
   symbol: string;
@@ -271,36 +334,61 @@ export interface Invoice {
   dueAt: string;
 }
 
-export type TenantStatus = "active" | "pending" | "paused";
+/** Matches `tenants.status`. */
+export type TenantStatus = "active" | "pending" | "suspended";
 
-/** A distributor. Brings traders to the platform and earns commission on their subscriptions. */
+/** A distributor (`public.tenants`). Brings traders to the platform and earns commission on their subscriptions. */
 export interface Tenant {
   id: string;
+  slug: string;
   name: string;
-  contact: string;
+  /** The owner's email. Absent until an owner is assigned. */
+  contact?: string;
+  ownerId?: string;
   /** Workspaces that signed up through this tenant. */
   workspaces: number;
   /** Commission on the subscription revenue of this tenant's traders, percent. */
   commissionPct: number;
-  mtdRevenue: number;
-  mtdPayout: number;
+  /** No billing source yet, so absent. */
+  mtdRevenue?: number;
+  mtdPayout?: number;
   status: TenantStatus;
-  referralCode: string;
+  /** Code a trader types at signup to join this tenant. Upper case. */
+  referralCode?: string;
   createdAt: string;
   /** Granted by the super admin from the console's White-label page. */
   whiteLabel: boolean;
   branding?: TenantBranding;
 }
 
-/** Someone asking to become a tenant. */
+export type TenantApplicationStatus = "pending" | "approved" | "declined";
+
+/** Someone asking to become a tenant (`public.tenant_applications`). */
 export interface TenantApplication {
   id: string;
+  /** The person who applied. */
   name: string;
+  company: string;
+  email: string;
+  /** Same as `email`: the address to reply to. */
   contact: string;
-  audience: string;
+  offer: TenantOfferId;
   /** Asked for white-label on top of commission. The super admin decides. */
   wantsWhiteLabel: boolean;
+  expectedTraders?: number;
+  /** "120 expected traders", when the applicant said. */
+  audience?: string;
+  notes?: string;
+  status: TenantApplicationStatus;
   submittedAt: string;
+}
+
+/** A request to support another broker (`public.broker_requests`). */
+export interface BrokerRequest {
+  id: string;
+  brokerName: string;
+  email: string;
+  createdAt: string;
 }
 
 export interface Payout {
@@ -335,14 +423,34 @@ export interface Incident {
   summary: string;
 }
 
+/** One row of `public.audit_events`. */
 export interface AuditEvent {
   id: string;
   at: string;
+  /** The actor's email, "system" (the broker service) or "anonymous" (a request nobody was signed in for). */
   actor: string;
   action: string;
+  /** What the action touched; empty when nothing specific. */
   target: string;
-  ip: string;
+  /** Client address, when known. */
+  ip?: string;
   result: "ok" | "denied" | "error";
+  workspaceId?: string;
+  meta?: Record<string, unknown>;
+}
+
+/** Platform-wide counts for the console overview, all read from the database. */
+export interface PlatformCounts {
+  workspaces: number;
+  workspacesByStatus: Record<WorkspaceStatus, number>;
+  workspacesByPlan: Record<PlanId, number>;
+  tenants: number;
+  membersByRole: Record<Role, number>;
+  connections: number;
+  connectionsByBroker: Partial<Record<BrokerId, number>>;
+  connectionsByStatus: Partial<Record<ConnectionStatus, number>>;
+  pendingApplications: number;
+  brokerRequests: number;
 }
 
 export interface BacktestStats {

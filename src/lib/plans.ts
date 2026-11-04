@@ -8,30 +8,32 @@ export const PLANS: Plan[] = [
     monthly: 0,
     yearly: 0,
     cta: "Start free",
+    // A feature that starts with "Planned: " is not in this release; the plan cards show it as planned.
     features: [
       "1 broker connection",
-      "Live positions and P&L",
-      "Alerts delayed 15 minutes",
+      "Accounts, balances and positions",
+      "Orders and executions",
       "1 seat",
-      "Email support",
+      "Planned: TradeScope alerts, delayed 15 minutes",
     ],
     limits: { brokers: 1, seats: 1, alertDelayMin: 15 },
   },
   {
     id: "pro",
     name: "Pro",
-    tagline: "For traders who act on alerts.",
+    tagline: "For traders with more than one account.",
     monthly: 49,
     yearly: 39,
     featured: true,
-    cta: "Start 14-day trial",
+    // Signup does not read a plan from the link; the plan is picked at the workspace step, so the button says sign up.
+    cta: "Sign up",
     features: [
       "Unlimited broker connections",
-      "Real-time TradeScope alerts",
-      "Verified order engine with brackets",
-      "Risk sizing and options desk",
-      "Works on your phone, with email and push alerts",
-      "Trade archive beyond the broker window",
+      "Every included account in one book",
+      "Orders and executions across brokers",
+      "1 seat",
+      "Planned: real-time TradeScope alerts",
+      "Planned: order entry from the terminal",
     ],
     limits: { brokers: "unlimited", seats: 1, alertDelayMin: 0 },
   },
@@ -41,14 +43,11 @@ export const PLANS: Plan[] = [
     tagline: "A small team on one book.",
     monthly: 149,
     yearly: 119,
-    cta: "Start 14-day trial",
+    cta: "Sign up",
     features: [
       "Everything in Pro",
-      "Up to 5 seats",
-      "Shared watchlists and alerts",
-      "Team audit log",
-      "Separate login and 2FA for each trader",
-      "Priority support",
+      "Planned: up to 5 seats on one book",
+      "Planned: a separate login for each trader",
     ],
     limits: { brokers: "unlimited", seats: 5, alertDelayMin: 0 },
   },
@@ -62,11 +61,8 @@ export const PLANS: Plan[] = [
     // White-label is not a plan feature: it is the tenant add-on the super admin grants (TENANT_OFFERS).
     features: [
       "Everything in Desk",
-      "Unlimited seats",
-      "SSO and SCIM",
-      "Dedicated broker gateway pool",
-      "Custom limits per contract",
-      "SLA and named support",
+      "Limits set per contract",
+      "Planned: unlimited seats",
     ],
     limits: { brokers: "unlimited", seats: "unlimited", alertDelayMin: 0 },
   },
@@ -88,7 +84,7 @@ export const PLAN_LABEL: Record<PlanId, string> = {
 /** Tenant commission, percent of the subscription revenue of the traders a tenant brings. The one place this number is defined. */
 export const COMMISSION_PCT = 25;
 
-/** White-label platform fee, per month, on top of per-seat pricing. */
+/** White-label platform fee, per month, on top of per-seat pricing, once billing is switched on. */
 export const WHITE_LABEL_FEE = 999;
 
 /**
@@ -99,25 +95,24 @@ export const TENANT_OFFERS: TenantOffer[] = [
   {
     id: "commission",
     name: "Commission",
-    summary: "Bring traders to Nasscord and earn a share of their subscription for as long as they stay.",
-    pricing: `${COMMISSION_PCT}% of subscription revenue, lifetime, paid monthly.`,
+    summary: "Bring traders to Nasscord with your own code and earn a share of their subscription for as long as they stay.",
+    pricing: `${COMMISSION_PCT}% of subscription revenue, lifetime, once billing is switched on.`,
     bullets: [
-      "Personal referral link and codes",
-      "Attribution tracked from first visit to paid plan",
-      "Monthly payouts by ACH, $100 minimum",
-      "Tenant portal with clicks, trials and conversions",
+      "A referral code and link of your own",
+      "The traders who signed up with your code, in the tenant portal",
+      "No billing in this release, so no commission is earned or paid out yet",
     ],
   },
   {
     id: "white_label",
     name: "White-label",
-    summary: "Your brand, domain and pricing on the terminal your traders use. Nasscord runs the engine, the broker connections and the infrastructure.",
-    pricing: `From $${WHITE_LABEL_FEE}/mo platform fee plus per-seat. Granted after review.`,
+    summary: "Your brand on the terminal your traders use. Nasscord runs the broker connections and the infrastructure.",
+    pricing: `From $${WHITE_LABEL_FEE}/mo platform fee plus per-seat, once billing is switched on. Granted after review.`,
     bullets: [
-      "Custom domain and branding, including accent color and emails",
-      "You set plans and prices for your traders",
-      "Dedicated broker gateway pool for your traders",
+      "Your name and accent colors on the terminal",
+      "Your own domain",
       "Turned on by Nasscord once your application is approved",
+      "Planned: your own plans and prices for your traders",
     ],
   },
 ];

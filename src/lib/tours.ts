@@ -24,15 +24,15 @@ const SIDEBAR_TRIGGER = '[data-slot="sidebar-trigger"]';
 const INTRO: Record<ShellNavId, TourStep> = {
   terminal: {
     title: "Welcome to the terminal",
-    body: "This is where you trade. Alerts come in, you place orders with a stop and a target attached, and every account at every broker shows up as one book. The tour takes about a minute. Anything marked Demo data is a sample.",
+    body: "This is where you see your broker accounts. Connect IBKR or E*TRADE, and every account shows up as one book with its positions, orders and executions. Order entry is off in this release. The tour takes about a minute.",
   },
   console: {
     title: "Welcome to the console",
-    body: "You run the platform from here: traders, tenants, white-label, brokers, billing and system health. Traders and tenants never see this area. The tour takes about a minute.",
+    body: "You run the platform from here: traders, tenants, white-label, brokers and system health. Traders and tenants never see this area. The tour takes about a minute.",
   },
   tenant: {
     title: "Welcome to the tenant portal",
-    body: "Track the traders you bring, the commission you earn and, once white-label is on, the branded workspaces you run. The tour takes under a minute.",
+    body: "See the traders you bring, share your referral link and, once white-label is on, set the brand your traders see. The tour takes under a minute.",
   },
 };
 
@@ -52,9 +52,9 @@ const GROUPS: Record<ShellNavId, Array<{ title: string; body: string }>> = {
   ],
   tenant: [
     { title: "Overview", body: "Start here. Your program on one page." },
-    { title: "Program", body: "The traders you bring and the commission you earn." },
+    { title: "Program", body: "The traders you bring and your referral code." },
     { title: "White-label", body: "Your brand on the terminal, once Nasscord turns white-label on for you." },
-    { title: "Account", body: "Contacts, keys and your agreement." },
+    { title: "Account", body: "Your tenant's details." },
   ],
 };
 
@@ -75,14 +75,8 @@ const EXTRA: Record<ShellNavId, TourStep[]> = {
       optional: true,
     },
     {
-      title: "Live or paper",
-      body: "Live sends orders to your real broker accounts. Paper mode sends them to a practice account. Leaving paper mode asks you to confirm first.",
-      targets: ['[data-tour="paper-mode"]', '[data-tour="paper-live"]'],
-      optional: true,
-    },
-    {
       title: "Order ticket",
-      body: "Pick an account, a symbol and a price. The quantity is sized so that a stop-out costs 1% of the account, and the stop and target go out with the order as a bracket.",
+      body: "Pick an account, a price and a stop. The ticket sizes the trade so a stop-out costs your risk per trade. Placing orders is off in this release, so place them in your broker's app.",
       targets: ["#order-ticket"],
       optional: true,
     },
@@ -92,12 +86,6 @@ const EXTRA: Record<ShellNavId, TourStep[]> = {
       title: "Search",
       body: "Find any trader workspace or user and jump straight to it. Keyboard shortcut: Ctrl K, or Cmd K on a Mac.",
       targets: ['[data-tour="console-search"]'],
-      optional: true,
-    },
-    {
-      title: "Maintenance gate",
-      body: "One switch that shows traders a maintenance page during market hours while you work on the fleet. It asks before it turns on.",
-      targets: ['[data-tour="maintenance"]'],
       optional: true,
     },
   ],

@@ -24,26 +24,26 @@ export const TERMINAL_NAV: NavGroup[] = [
   {
     label: "Trade",
     items: [
-      { title: "Alerts", href: "/app", icon: Bell, description: "Trade setups from the TradeScope scanner, each with an entry, a stop and a target. Buy loads the order ticket." },
-      { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across every connected account, with P&L. Close a position from here." },
-      { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders. Cancel an order or its whole bracket." },
-      { title: "Options", href: "/app/options", icon: Layers, description: "Call ideas on the top alerts, sized by a capital-risk preset." },
+      { title: "Alerts", href: "/app", icon: Bell, description: "TradeScope alerts, once the engine is connected to your workspace, and a ticket that sizes a trade to your risk." },
+      { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across your connected IBKR and E*TRADE accounts, with P&L." },
+      { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders from your brokers. Read only in this release." },
+      { title: "Options", href: "/app/options", icon: Layers, description: "Option ideas from TradeScope alerts. Not connected yet." },
     ],
   },
   {
     label: "Research",
     items: [
-      { title: "Watchlist", href: "/app/watchlist", icon: BookOpen, description: "Symbols you follow, with price, change and any open alert." },
-      { title: "Scanner", href: "/app/scanner", icon: Radar, description: "Run your own ADX, RSI and volume filters across the scan universe." },
-      { title: "History", href: "/app/history", icon: History, description: "Every execution by trading day, with commissions." },
-      { title: "Analysis", href: "/app/analysis", icon: LineChart, description: "Equity curve, daily P&L and the engine's backtest." },
+      { title: "Watchlist", href: "/app/watchlist", icon: BookOpen, description: "Symbols you follow on this device, and what you hold in each." },
+      { title: "Scanner", href: "/app/scanner", icon: Radar, description: "Your own TradeScope filters. Needs a market data feed, not connected yet." },
+      { title: "History", href: "/app/history", icon: History, description: "Every execution your brokers report, by trading day, with commissions." },
+      { title: "Analysis", href: "/app/analysis", icon: LineChart, description: "Equity history and daily P&L, once they are stored. Not connected yet." },
     ],
   },
   {
     label: "Account",
     items: [
-      { title: "Brokers", href: "/app/brokers", icon: PlugZap, description: "Connect brokers and choose which accounts count toward your totals." },
-      { title: "Settings", href: "/app/settings", icon: Settings, description: "Profile, notifications, risk per trade, security and billing." },
+      { title: "Brokers", href: "/app/brokers", icon: PlugZap, description: "Connect IBKR or E*TRADE and choose which accounts count toward your totals." },
+      { title: "Settings", href: "/app/settings", icon: Settings, description: "Profile, notifications, risk per trade and password reset." },
     ],
   },
 ];
@@ -51,14 +51,14 @@ export const TERMINAL_NAV: NavGroup[] = [
 /** Super admin console. */
 export const CONSOLE_NAV: NavGroup[] = [
   {
-    items: [{ title: "Overview", href: "/admin", icon: Gauge, description: "Revenue, traders, tenants and broker health at a glance." }],
+    items: [{ title: "Overview", href: "/admin", icon: Gauge, description: "Traders, tenants, users and broker connections at a glance." }],
   },
   {
     label: "Customers",
     items: [
-      { title: "Traders", href: "/admin/traders", icon: Building2, description: "Every trading workspace, organic or through a tenant. Open one to change its plan, limits or features, or to suspend it." },
-      { title: "Tenants", href: "/admin/tenants", icon: Handshake, description: "Distributors who bring traders and earn commission: applications, commission and payouts." },
-      { title: "Users", href: "/admin/users", icon: Users, description: "Everyone who can sign in: tenants, traders and tenant users. Invite, reset 2FA or remove a login." },
+      { title: "Traders", href: "/admin/traders", icon: Building2, description: "Every trading workspace, organic or through a tenant. Open one to change its plan or status." },
+      { title: "Tenants", href: "/admin/tenants", icon: Handshake, description: "Distributors who bring traders: applications, new tenants and their referral codes." },
+      { title: "Users", href: "/admin/users", icon: Users, description: "Everyone who can sign in, with their role and workspace or tenant." },
     ],
   },
   {
@@ -70,18 +70,18 @@ export const CONSOLE_NAV: NavGroup[] = [
   {
     label: "Platform",
     items: [
-      { title: "Brokers", href: "/admin/brokers", icon: PlugZap, description: "Every broker integration. Turn one on or off for all traders and watch rate limits." },
-      { title: "Plans & Billing", href: "/admin/billing", icon: CreditCard, description: "Plan prices and entitlements, and this month's invoices." },
-      { title: "Revenue", href: "/admin/revenue", icon: BarChart3, description: "Recurring revenue against infrastructure cost, and revenue by plan." },
-      { title: "Alert Engine", href: "/admin/engine", icon: Radar, description: "TradeScope scan settings and the symbol universe, for every trader." },
+      { title: "Brokers", href: "/admin/brokers", icon: PlugZap, description: "Connections per broker and the health of the broker service." },
+      { title: "Plans & Billing", href: "/admin/billing", icon: CreditCard, description: "The plan list. Billing is not connected yet." },
+      { title: "Revenue", href: "/admin/revenue", icon: BarChart3, description: "Revenue reporting. Not connected yet." },
+      { title: "Alert Engine", href: "/admin/engine", icon: Radar, description: "TradeScope scan settings, read only. Live scan status is not connected yet." },
     ],
   },
   {
     label: "Operations",
     items: [
-      { title: "System Health", href: "/admin/health", icon: Activity, description: "Service status, restarts, incidents and the maintenance gate." },
+      { title: "System Health", href: "/admin/health", icon: Activity, description: "Whether the broker service and the database answer." },
       { title: "Audit Log", href: "/admin/audit", icon: ScrollText, description: "Who did what, when and from where." },
-      { title: "Settings", href: "/admin/settings", icon: Settings, description: "Platform identity, branding defaults, security, API keys and email." },
+      { title: "Settings", href: "/admin/settings", icon: Settings, description: "The platform name and domain, read only." },
     ],
   },
 ];
@@ -89,26 +89,26 @@ export const CONSOLE_NAV: NavGroup[] = [
 /** Tenant portal: commission for every tenant, white-label pages for the ones the super admin granted it. */
 export const TENANT_NAV: NavGroup[] = [
   {
-    items: [{ title: "Overview", href: "/tenant", icon: Gauge, description: "Traders you brought, the commission they earn you and your next payout." }],
+    items: [{ title: "Overview", href: "/tenant", icon: Gauge, description: "The traders you brought and your referral link." }],
   },
   {
     label: "Program",
     items: [
-      { title: "Referrals", href: "/tenant/referrals", icon: Handshake, description: "Your referral codes and the funnel from click to paid account." },
-      { title: "Traders", href: "/tenant/traders", icon: Building2, description: "Branded workspaces you run for your traders. Needs white-label." },
-      { title: "Payouts", href: "/tenant/payouts", icon: Wallet, description: "Commission history, statements and the bank account payouts go to." },
+      { title: "Referrals", href: "/tenant/referrals", icon: Handshake, description: "Your referral code and link. Funnel tracking comes later." },
+      { title: "Traders", href: "/tenant/traders", icon: Building2, description: "The workspaces created with your code and the people who sign in to them." },
+      { title: "Payouts", href: "/tenant/payouts", icon: Wallet, description: "Commission payouts. Not connected yet." },
     ],
   },
   {
     label: "White-label",
     items: [
       { title: "Branding", href: "/tenant/branding", icon: Layers, description: "Your name, accent color, domain and emails on the terminal. Needs white-label." },
-      { title: "Plans", href: "/tenant/plans", icon: ClipboardList, description: "The plans and prices your traders see. Needs white-label." },
+      { title: "Plans", href: "/tenant/plans", icon: ClipboardList, description: "Your own plans and prices for your traders. Not connected yet." },
     ],
   },
   {
     label: "Account",
-    items: [{ title: "Settings", href: "/tenant/settings", icon: ShieldCheck, description: "Contacts, notifications, API keys and your agreement." }],
+    items: [{ title: "Settings", href: "/tenant/settings", icon: ShieldCheck, description: "Your tenant's name, code, status and commission rate." }],
   },
 ];
 
@@ -126,8 +126,8 @@ export type ShellNavId = keyof typeof SHELL_NAVS;
 
 /** The three signed-in areas, as the area switcher and the tours name them. Who may open which one is in lib/roles. */
 export const SHELL_AREAS: Record<ShellNavId, { title: string; description: string; href: string; icon: LucideIcon }> = {
-  terminal: { title: "Terminal", description: "Trade: alerts, orders and positions", href: "/app", icon: ChartCandlestick },
-  console: { title: "Console", description: "Run the platform: customers, billing, health", href: "/admin", icon: Gauge },
+  terminal: { title: "Terminal", description: "Your accounts, positions and orders", href: "/app", icon: ChartCandlestick },
+  console: { title: "Console", description: "Run the platform: traders, tenants, health", href: "/admin", icon: Gauge },
   tenant: { title: "Tenant portal", description: "Referrals, commission and white-label", href: "/tenant", icon: Handshake },
 };
 

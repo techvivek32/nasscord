@@ -1,8 +1,19 @@
 "use client";
 
-import { useQuery as useBaseQuery, type QueryKey, type UseQueryOptions, type UseQueryResult } from "@tanstack/react-query";
+import * as React from "react";
+import {
+  useMutation,
+  useQuery as useBaseQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+  type UseQueryOptions,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import * as api from "@/lib/api";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useWorkspaceId } from "@/components/workspace-scope";
+import type { BrokerConnection } from "@/lib/types";
 
 /**
  * useQuery that never hands cached data to a component that is still hydrating.
@@ -29,40 +40,122 @@ function useQuery<TData, TKey extends QueryKey>(options: UseQueryOptions<TData, 
   } as UseQueryResult<TData, Error>;
 }
 
-/* Query keys mirror the production terminal's cadence: quotes fast, alerts 20 s, stats slow. */
+/**
+ * Query keys. Broker data is keyed by workspace id (from WorkspaceScopeProvider), so one browser
+ * never mixes two workspaces' data. Everything under ["broker", workspaceId] is invalidated together.
+ */
 export const qk = {
-  connections: ["connections"] as const,
-  alerts: ["alerts"] as const,
-  positions: ["positions"] as const,
-  orders: ["orders"] as const,
-  executions: ["executions"] as const,
-  tickers: ["tickers"] as const,
-  equity: ["equity"] as const,
-  backtest: ["backtest"] as const,
-  workspaces: ["workspaces"] as const,
-  workspace: (id: string) => ["workspace", id] as const,
-  tenants: ["tenants"] as const,
-  overview: ["platform-overview"] as const,
-  users: ["users"] as const,
-  invoices: ["invoices"] as const,
-  audit: ["audit"] as const,
+  broker: (wid: string) => ["broker", wid] as const,
+  connections: (wid: string) => ["broker", wid, "connections"] as const,
+  connection: (wid: string, id: string) => ["broker", wid, "connection", id] as const,
+  positions: (wid: string) => ["broker", wid, "positions"] as const,
+  orders: (wid: string) => ["broker", wid, "orders"] as const,
+  executions: (wid: string) => ["broker", wid, "executions"] as const,
 };
 
-export const useConnections = () => useQuery({ queryKey: qk.connections, queryFn: api.fetchConnections, refetchInterval: 15_000 });
-export const useAlerts = () => useQuery({ queryKey: qk.alerts, queryFn: api.fetchAlerts, refetchInterval: 20_000 });
-export const usePositions = () => useQuery({ queryKey: qk.positions, queryFn: api.fetchPositions, refetchInterval: 15_000 });
-export const useOrders = () => useQuery({ queryKey: qk.orders, queryFn: api.fetchOrders, refetchInterval: 10_000 });
-export const useExecutions = () => useQuery({ queryKey: qk.executions, queryFn: api.fetchExecutions, refetchInterval: 10_000 });
-export const useTickers = () => useQuery({ queryKey: qk.tickers, queryFn: api.fetchTickers, refetchInterval: 3_000 });
-export const useEquityCurve = () => useQuery({ queryKey: qk.equity, queryFn: api.fetchEquityCurve, staleTime: 60_000 });
-export const useBacktest = () => useQuery({ queryKey: qk.backtest, queryFn: api.fetchBacktest, staleTime: 300_000 });
+/** Drops every cached query (call on sign-out, before the session cookie goes). */
+export function clearQueryCache(client: QueryClient) {
+  void client.cancelQueries();
+  client.clear();
+}
 
-/** Trading workspaces (the console's "Traders"). */
-export const useWorkspaces = () => useQuery({ queryKey: qk.workspaces, queryFn: api.fetchWorkspaces });
-export const useWorkspace = (id: string) => useQuery({ queryKey: qk.workspace(id), queryFn: () => api.fetchWorkspace(id), enabled: !!id });
-/** Tenants (distributors) with their payouts and applications. */
-export const useTenants = () => useQuery({ queryKey: qk.tenants, queryFn: api.fetchTenants });
-export const usePlatformOverview = () => useQuery({ queryKey: qk.overview, queryFn: api.fetchPlatformOverview, refetchInterval: 30_000 });
-export const useUsers = () => useQuery({ queryKey: qk.users, queryFn: api.fetchUsers });
-export const useInvoices = () => useQuery({ queryKey: qk.invoices, queryFn: api.fetchInvoices });
-export const useAudit = () => useQuery({ queryKey: qk.audit, queryFn: api.fetchAudit });
+/** clearQueryCache bound to the app's QueryClient. */
+export function useClearQueryCache() {
+  const client = useQueryClient();
+  return React.useCallback(() => clearQueryCache(client), [client]);
+}
+
+/* ---------------------------------------------------------------- broker data (real) */
+
+const NONE = "none";
+
+/** Cadence: the broker service caches each connection for 5 s, so polling faster buys nothing. */
+export function useConnections() {
+  const wid = useWorkspaceId();
+  return useQuery({ queryKey: qk.connections(wid ?? NONE), queryFn: api.fetchConnections, enabled: !!wid, refetchInterval: 15_000 });
+}
+
+/** Connections plus `portfolioError` when balances could not be read. Shares nothing with useConnections' cache entry. */
+export function useConnectionsResult() {
+  const wid = useWorkspaceId();
+  return useQuery({ queryKey: [...qk.connections(wid ?? NONE), "result"] as const, queryFn: api.fetchConnectionsResult, enabled: !!wid, refetchInterval: 15_000 });
+}
+
+/** One connection with fresh status. Pass `pollMs` while a login is in progress (IBKR) to watch it turn connected. */
+export function useConnection(id: string | null | undefined, opts: { pollMs?: number } = {}) {
+  const wid = useWorkspaceId();
+  return useQuery({
+    queryKey: qk.connection(wid ?? NONE, id ?? NONE),
+    queryFn: () => api.fetchConnection(id as string),
+    enabled: !!wid && !!id,
+    refetchInterval: opts.pollMs ?? false,
+  });
+}
+
+/* ---------------------------------------------------------------- broker changes */
+
+/** Invalidates every broker query of the current workspace after a change. */
+function useBrokerInvalidate() {
+  const client = useQueryClient();
+  const wid = useWorkspaceId();
+  return React.useCallback(() => client.invalidateQueries({ queryKey: qk.broker(wid ?? NONE) }), [client, wid]);
+}
+
+type ConnectionsResult = Awaited<ReturnType<typeof api.fetchConnectionsResult>>;
+
+/**
+ * Include or exclude an account. Updates both cached connection lists at once (useConnections and
+ * useConnectionsResult, which feeds every terminal page through useAccountScope) and rolls both
+ * back on failure.
+ */
+export function useSetAccountIncluded() {
+  const client = useQueryClient();
+  const wid = useWorkspaceId() ?? NONE;
+  const invalidate = useBrokerInvalidate();
+  const listKey = qk.connections(wid);
+  const resultKey = [...qk.connections(wid), "result"] as const;
+  return useMutation({
+    mutationFn: (vars: { accountId: string; included: boolean }) => api.setAccountIncluded(vars.accountId, vars.included),
+    onMutate: async (vars) => {
+      // Cancelling the list key also cancels the result key under it.
+      await client.cancelQueries({ queryKey: listKey });
+      const flip = (list: BrokerConnection[]) =>
+        list.map((c) => ({ ...c, accounts: c.accounts.map((a) => (a.id === vars.accountId ? { ...a, included: vars.included } : a)) }));
+      const previous = client.getQueryData<BrokerConnection[]>(listKey);
+      const previousResult = client.getQueryData<ConnectionsResult>(resultKey);
+      if (previous) client.setQueryData<BrokerConnection[]>(listKey, flip(previous));
+      if (previousResult) client.setQueryData<ConnectionsResult>(resultKey, { ...previousResult, connections: flip(previousResult.connections) });
+      return { previous, previousResult };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) client.setQueryData(listKey, context.previous);
+      if (context?.previousResult) client.setQueryData(resultKey, context.previousResult);
+    },
+    onSettled: () => invalidate(),
+  });
+}
+
+export function useStartEtrade() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: api.startEtrade, onSettled: () => invalidate() });
+}
+
+export function useVerifyEtrade() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: api.verifyEtrade, onSettled: () => invalidate() });
+}
+
+export function useStartIbkr() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: api.startIbkr, onSettled: () => invalidate() });
+}
+
+export function useRenewConnection() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (id: string) => api.renewConnection(id), onSettled: () => invalidate() });
+}
+
+export function useDisconnectConnection() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (id: string) => api.disconnectConnection(id), onSettled: () => invalidate() });
+}
