@@ -17,24 +17,37 @@ export const TENANT_OFFER_BADGE: Record<TenantOfferId, string> = {
 };
 
 /**
- * Miniature re-skinned terminal header. Wrapped in TenantTheme, every token-driven part (logo tile,
- * primary button, brand-soft chip) takes the tenant accent without any component knowing about tenants.
+ * The made-up brand the public pages use to illustrate white-label. Not a tenant: the accent is a chart token, so
+ * the example follows the theme instead of carrying a hardcoded color.
+ */
+export const EXAMPLE_BRANDING: TenantBranding = {
+  name: "Your Firm",
+  accent: "var(--chart-5)",
+  accentDark: "var(--chart-5)",
+  domain: "trade.yourfirm.com",
+};
+
+/**
+ * Miniature re-skinned terminal header, as an illustration. Wrapped in TenantTheme, every token-driven part (logo
+ * tile, primary button, brand-soft chip) takes the tenant accent without any component knowing about tenants.
+ * Nothing in it is interactive.
  */
 export function WhiteLabelPreview({ branding, className }: { branding: TenantBranding; className?: string }) {
   return (
     <TenantTheme branding={branding}>
-      <div className={cn("overflow-hidden border border-border bg-background", className)} aria-label={`${branding.name} preview`}>
+      <div className={cn("overflow-hidden border border-border bg-background", className)} role="img" aria-label={`Example: the terminal header in the ${branding.name} brand`}>
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <LogoMark size={20} />
           <span className="text-sm font-semibold">{branding.name}</span>
           <span className="ml-auto hidden font-mono text-[10px] text-muted-foreground sm:inline">{branding.domain}</span>
+          <span className="rounded-full border border-dashed border-input px-2 py-0.5 text-[10px] text-muted-foreground sm:ml-2">Example</span>
         </div>
         <div className="flex items-center gap-2 px-3 py-2.5">
-          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-primary">Score 100</span>
-          <span className="font-mono text-xs font-semibold">AVGO</span>
-          <span className="truncate text-[11px] text-muted-foreground">Strong uptrend (ADX 31)</span>
+          <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-primary">Positions</span>
+          <span className="text-[11px] text-muted-foreground">Orders</span>
+          <span className="text-[11px] text-muted-foreground">History</span>
           <Button size="xs" className="pointer-events-none ml-auto" tabIndex={-1} aria-hidden="true">
-            Buy
+            Connect a broker
           </Button>
         </div>
       </div>

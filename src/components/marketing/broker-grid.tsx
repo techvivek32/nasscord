@@ -1,5 +1,5 @@
-import { BROKER_STATUS } from "@/lib/brokers";
-import type { Broker, BrokerStatus } from "@/lib/types";
+import { BROKER_STATUS, BROKER_STATUS_ORDER } from "@/lib/brokers";
+import type { Broker } from "@/lib/types";
 import { BrokerMark, BrokerStatusBadge } from "@/components/brokers/broker-mark";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
@@ -24,14 +24,12 @@ export function BrokerGrid({ brokers, className, compact = false }: { brokers: B
   );
 }
 
-const ORDER: BrokerStatus[] = ["live", "beta", "sync", "soon"];
-
-/** Status legend built from BROKER_STATUS so labels never drift from the badges. */
+/** Status legend built from BROKER_STATUS so labels never drift from the badges. Only statuses in use are listed. */
 export function BrokerLegend({ className }: { className?: string }) {
   return (
     <div className={cn("grid gap-4 text-sm", className)}>
       <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
-        {ORDER.map((s) => (
+        {BROKER_STATUS_ORDER.map((s) => (
           <div key={s} className="flex items-start gap-3">
             <dt className="shrink-0 pt-px">
               <BrokerStatusBadge status={s} className="rounded-[2px] font-mono text-[0.65rem] tracking-wide uppercase" />
@@ -41,8 +39,8 @@ export function BrokerLegend({ className }: { className?: string }) {
         ))}
       </dl>
       <p className="max-w-[44rem] text-sm text-muted-foreground">
-        Fidelity and Robinhood publish no trading API, so Nasscord syncs their positions and balances read-only through a licensed aggregator.
-        Orders for those accounts still go through the broker&apos;s own app.
+        Order entry is switched off in this release for every broker, so you keep placing orders in your broker&apos;s own app. Nasscord shows
+        what is there: accounts, balances, positions, orders and executions.
       </p>
     </div>
   );

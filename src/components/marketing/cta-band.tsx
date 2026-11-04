@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { TRADING_BROKERS } from "@/lib/brokers";
+import { CONNECTABLE_BROKERS } from "@/lib/brokers";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { LogoMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
@@ -14,16 +14,17 @@ interface Action {
 }
 
 /**
- * The cord, held still: trading brokers on either side joined to the Nasscord mark by dashed lines. Decorative; the
- * headline under it says the same thing in words. Phones show two brokers a side.
+ * The cord, held still: the brokers that connect today on either side, joined to the Nasscord mark by dashed lines.
+ * Decorative; the headline under it says the same thing in words.
  */
 function StillCord() {
-  const left = TRADING_BROKERS.slice(0, 4);
-  const right = TRADING_BROKERS.slice(4, 8);
+  const half = Math.ceil(CONNECTABLE_BROKERS.length / 2);
+  const left = CONNECTABLE_BROKERS.slice(0, half);
+  const right = CONNECTABLE_BROKERS.slice(half);
   const side = (brokers: typeof left, align: "left" | "right") => (
     <div className={cn("flex items-center gap-2", align === "right" && "flex-row-reverse")}>
-      {brokers.map((b, i) => (
-        <BrokerMark key={b.id} id={b.id} size="md" className={cn("rounded-[9px]", i < 2 && "hidden sm:inline-grid")} />
+      {brokers.map((b) => (
+        <BrokerMark key={b.id} id={b.id} size="md" className="rounded-[9px]" />
       ))}
     </div>
   );
@@ -45,13 +46,13 @@ function StillCord() {
 export function CtaBand({
   title = (
     <>
-      Two minutes to your first <em>broker</em>.
+      Your brokers, on one <em>screen</em>.
     </>
   ),
   lede,
   primary = { label: "Start free", href: "/signup" },
   secondary = { label: "Become a tenant", href: "/tenants" },
-  note = "Starter is free · No card required · 14-day trial on paid plans",
+  note = "Starter is free · No card required · Nothing is charged in this release",
 }: {
   title?: React.ReactNode;
   lede?: string;
@@ -69,7 +70,7 @@ export function CtaBand({
           <StillCord />
           <h2 className="max-w-3xl text-5xl leading-[0.98] text-balance sm:text-7xl [&_em]:italic">{title}</h2>
           <p className="max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
-            {lede ?? "Connect your first broker and Starter is yours, free. Upgrade when the alerts earn it."}
+            {lede ?? "Sign up, connect Interactive Brokers or E*TRADE, and see every account, position, order and execution in one place."}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
             <Button size="lg" className="group/cta h-12 rounded-[2px] px-7 text-base" render={<Link href={primary.href} />}>

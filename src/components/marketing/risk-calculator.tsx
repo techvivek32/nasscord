@@ -6,11 +6,12 @@ import { fmtMoney, fmtPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * "Try it": how the terminal sizes a trade. Account size, entry and ATR in; stop, target and quantity out, using the
- * same engine functions as the order ticket (stop 2.2x ATR, target 0.72 R, 1% of net liquidation at risk).
+ * "Try it": how a trade is sized. Account size, entry and ATR in; stop, target and quantity out, using the same
+ * sizing function as the order ticket at its default risk (1% of net liquidation at risk, 95% cap; the ticket uses the
+ * risk per trade saved in Settings) and TradeScope's levels (stop 2.2x ATR, target 0.72 R). The starting values are a made-up example passed in by the page, not anyone's account.
  */
 export function RiskCalculator({ defaults }: { defaults: { netLiq: number; entry: number; atr: number; symbol: string } }) {
-  // Start from the exact account and alert values so the numbers match the alert shown elsewhere on the page.
+  // Start from the example values the page passes in; every slider then changes them.
   const [netLiq, setNetLiq] = React.useState(defaults.netLiq);
   const [entry, setEntry] = React.useState(defaults.entry);
   const [atrPct, setAtrPct] = React.useState((defaults.atr / defaults.entry) * 100);
@@ -26,7 +27,7 @@ export function RiskCalculator({ defaults }: { defaults: { netLiq: number; entry
         <div className="grid gap-2">
           <p className="text-sm leading-relaxed text-muted-foreground">
             With <strong className="font-medium text-foreground">{fmtMoney(netLiq, { digits: 0 })}</strong> in the account and {defaults.symbol} at{" "}
-            <strong className="font-medium text-foreground">${fmtPrice(entry)}</strong>, the ticket buys
+            <strong className="font-medium text-foreground">${fmtPrice(entry)}</strong>, the ticket sizes the trade at
           </p>
           <p className="text-[clamp(3.5rem,8vw,5.5rem)] leading-none tracking-[-0.035em] tabular" aria-live="polite">
             <span key={size.qty} className="inline-block animate-site-rise">
@@ -64,7 +65,8 @@ export function RiskCalculator({ defaults }: { defaults: { netLiq: number; entry
           <span className="text-foreground">FIG. 1</span>
           <span>
             Stop at {ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry ({fmtPrice(lv.stop)}), target at {ENGINE_DEFAULTS.rewardToRisk} R ({fmtPrice(lv.target)}). Quantity is sized so a
-            stop-out costs 1% of net liquidation, capped at 95% of it{size.cappedByCash ? " (the cap applies here)" : ""}. Illustration, not advice.
+            stop-out costs 1% of net liquidation, the default risk per trade, capped at 95% of it{size.cappedByCash ? " (the cap applies here)" : ""}. Example values, not advice. In this release the
+            order ticket shows a size like this but does not place the order.
           </span>
         </figcaption>
       </figure>

@@ -1,23 +1,32 @@
 import { Check, Minus } from "lucide-react";
-import { BROKERS } from "@/lib/brokers";
+import { BROKERS, isConnectable } from "@/lib/brokers";
 import type { Broker } from "@/lib/types";
 import { BrokerMark, BrokerStatusBadge } from "@/components/brokers/broker-mark";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-const CAPS: Array<{ key: keyof Broker["capabilities"]; label: string }> = [
-  { key: "trading", label: "Trading" },
-  { key: "options", label: "Options" },
-  { key: "extendedHours", label: "Extended hours" },
-  { key: "paper", label: "Paper" },
+type CellValue = boolean | string;
+
+/**
+ * What a connection does in this release, straight from the registry: the read-only views come with every
+ * connectable broker, order entry follows `capabilities.trading` (off for every broker), paper follows
+ * `capabilities.paper`.
+ */
+const CAPS: Array<{ key: string; label: string; value: (b: Broker) => CellValue }> = [
+  { key: "balances", label: "Accounts and balances", value: (b) => isConnectable(b.id) },
+  { key: "positions", label: "Positions", value: (b) => isConnectable(b.id) },
+  { key: "orders", label: "Orders and executions", value: (b) => isConnectable(b.id) },
+  { key: "entry", label: "Order entry", value: (b) => (b.capabilities.trading ? true : isConnectable(b.id) ? "Off in this release" : false) },
+  { key: "paper", label: "Paper login", value: (b) => isConnectable(b.id) && b.capabilities.paper },
 ];
 
-function Mark({ on, broker, cap }: { on: boolean; broker: string; cap: string }) {
+function Mark({ value, broker, cap }: { value: CellValue; broker: string; cap: string }) {
+  if (typeof value === "string") return <span className="text-xs text-muted-foreground">{value}</span>;
   return (
     <span className="inline-flex items-center justify-center">
-      {on ? <Check aria-hidden="true" className="size-4 text-site-accent-ink" /> : <Minus aria-hidden="true" className="size-4 text-muted-foreground/60" />}
+      {value ? <Check aria-hidden="true" className="size-4 text-site-accent-ink" /> : <Minus aria-hidden="true" className="size-4 text-muted-foreground/60" />}
       <span className="sr-only">
-        {cap} {on ? "supported" : "not supported"} at {broker}
+        {cap} {value ? "available" : "not available"} at {broker}
       </span>
     </span>
   );
@@ -27,7 +36,7 @@ function Mark({ on, broker, cap }: { on: boolean; broker: string; cap: string })
 export function CapabilityMatrix({ brokers = BROKERS, className }: { brokers?: Broker[]; className?: string }) {
   return (
     <div className={cn("overflow-x-auto border-t border-b border-foreground", className)}>
-      <Table className="min-w-[40rem]">
+      <Table className="min-w-[48rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="site-caption text-muted-foreground">Broker</TableHead>
@@ -53,7 +62,7 @@ export function CapabilityMatrix({ brokers = BROKERS, className }: { brokers?: B
               </TableCell>
               {CAPS.map((c) => (
                 <TableCell key={c.key} className="text-center">
-                  <Mark on={b.capabilities[c.key]} broker={b.name} cap={c.label} />
+                  <Mark value={c.value(b)} broker={b.name} cap={c.label} />
                 </TableCell>
               ))}
             </TableRow>

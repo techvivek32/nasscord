@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Ban } from "lucide-react";
-import { BROKERS, BROKER_STATUS } from "@/lib/brokers";
+import { BROKERS, BROKER_STATUS, CONNECTABLE_BROKERS, PLANNED_BROKERS } from "@/lib/brokers";
 import type { BrokerStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Container, PageHero, PaperCard, Section, SectionHead } from "@/components/marketing/container";
@@ -13,57 +13,53 @@ import { BrokerStatusCard } from "@/components/marketing/page-visuals";
 import { RequestBrokerForm } from "@/components/marketing/request-broker-form";
 import { NumberedSteps } from "@/components/marketing/steps";
 
+const COUNT_WORD = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+
+const andList = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
 export const metadata: Metadata = {
   title: "Brokers",
-  description: "Twelve US brokers, one connection each. Trading through Interactive Brokers, Schwab, E*TRADE, tastytrade, Tradier, Alpaca and TradeStation; Webull in beta; Fidelity and Robinhood as read-only portfolio sync.",
+  description: `${andList(CONNECTABLE_BROKERS.map((b) => b.name))} connect today, read-only: accounts, balances, positions, orders and executions. ${PLANNED_BROKERS.length} more brokers are listed and do not connect yet.`,
 };
 
+/** One section per status in use. Only "live" and "soon" have brokers in this release. */
 const GROUPS: Array<{ status: BrokerStatus; title: string; intro: string }> = [
   {
     status: "live",
-    title: "Trading (Live)",
-    intro: "Orders, brackets and cancels route through the broker's own API and are verified in its order book before Nasscord reports them.",
-  },
-  {
-    status: "beta",
-    title: "Beta",
-    intro: "The connection works end to end, but the broker's API still limits which order types are available. We say so on the order ticket.",
-  },
-  {
-    status: "sync",
-    title: "Portfolio sync",
-    intro: "Positions and balances arrive read-only through a licensed aggregator so they count in your combined book. Orders stay in the broker's own app.",
+    title: "Connect today",
+    intro: "Read-only in this release. Nasscord shows your accounts, balances, positions, orders and executions from these brokers; order entry is switched off, so you keep placing orders in the broker's own app.",
   },
   {
     status: "soon",
-    title: "Coming soon",
-    intro: "Integration planned. Request it below and we will email you when it ships.",
+    title: "Not available yet",
+    intro: "Listed so you can see what is planned. None of these connect in this release, and we do not give dates. Request the one you hold below.",
   },
 ];
 
 const CONNECT_STEPS = [
   {
-    title: "OAuth redirect",
-    body: "Click Connect in the terminal and the broker's own sign-in page opens. You authenticate there, including any second factor the broker requires. Nasscord never sees the password.",
+    title: "IBKR: start from the terminal",
+    body: "On the Brokers page, choose Interactive Brokers, then Live or Paper. Nasscord starts a Client Portal gateway that serves this connection alone.",
   },
   {
-    title: "Permissions",
-    body: "The broker shows the scopes Nasscord is asking for: read, trade and, where supported, options. You approve them on the broker's page and can revoke them there at any time.",
+    title: "IBKR: log in on IBKR's page",
+    body: "A new tab names the Nasscord workspace the login joins, then opens IBKR's own login page. You sign in there with your second factor. The session lasts about a day. IBKR allows one session per username, so opening TWS or the IBKR mobile app with the same username can end it; a separate IBKR username for Nasscord avoids that.",
   },
   {
-    title: "Token refresh",
-    body: "The broker returns a short-lived access token plus a refresh token. Both are stored encrypted with your workspace's key and refreshed by the gateway before they expire, so you are not asked to sign in again unless the broker requires it.",
+    title: "E*TRADE: bring your own key",
+    body: "E*TRADE gives API keys to individuals for their own account only. You create a consumer key on developer.etrade.com and paste the key and secret into Nasscord. The broker service stores them encrypted.",
   },
   {
-    title: "One IBKR gateway session per login",
-    body: "Interactive Brokers works differently: each login runs its own Client Portal gateway process behind a proxy that keeps the browser and the keepalive worker on one session. IBKR sessions renew daily with your login and second factor by design.",
+    title: "E*TRADE: approve, then reconnect daily",
+    body: "You approve Nasscord on E*TRADE's page and paste the verification code back. E*TRADE ends every session at midnight Eastern, so you reconnect once a day.",
   },
 ];
 
 const NEVER = [
+  "Place, change or cancel an order in this release.",
   "Move money in or out of a brokerage account.",
   "Change the account owner, beneficiaries or bank links.",
-  "Act after you revoke the grant at the broker.",
+  "Keep reading after you disconnect it.",
   "Share a session with another workspace or another user.",
 ];
 
@@ -74,10 +70,10 @@ export default function BrokersPage() {
         eyebrow="Brokers"
         title={
           <>
-            Every broker you hold, one <em>connection</em> each.
+            {COUNT_WORD[CONNECTABLE_BROKERS.length] ?? CONNECTABLE_BROKERS.length} brokers today. More on the <em>list</em>.
           </>
         }
-        lede={`${BROKERS.length} brokers in the registry today. The status on each one tells you exactly what the connection can do, and the capability matrix below says it in one table.`}
+        lede={`${andList(CONNECTABLE_BROKERS.map((b) => b.name))} connect today, read-only. The other ${PLANNED_BROKERS.length} brokers in the registry are listed so you can see what is planned; none of them connect yet.`}
         actions={
           <>
             <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/signup" />}>
@@ -97,6 +93,7 @@ export default function BrokersPage() {
 
       {GROUPS.map((g, i) => {
         const list = BROKERS.filter((b) => b.status === g.status);
+        if (list.length === 0) return null;
         return (
           <Section key={g.status} id={g.status} tone={i % 2 === 1 ? "band" : "plain"} className="py-16 sm:py-20">
             <Container className="grid gap-10 lg:grid-cols-[minmax(0,22rem)_1fr] lg:gap-16">
@@ -109,11 +106,7 @@ export default function BrokersPage() {
                 <p className="font-medium">{BROKER_STATUS[g.status].description}</p>
                 <p className="leading-relaxed text-muted-foreground">{g.intro}</p>
               </div>
-              {list.length > 0 ? (
-                <BrokerGrid brokers={list} compact className="h-fit content-start lg:grid-cols-2 xl:grid-cols-2" />
-              ) : (
-                <p className="border border-dashed border-input px-6 py-10 text-center text-muted-foreground">No brokers in this group right now.</p>
-              )}
+              <BrokerGrid brokers={list} compact={g.status !== "live"} className="h-fit content-start lg:grid-cols-2 xl:grid-cols-2" />
             </Container>
           </Section>
         );
@@ -121,21 +114,21 @@ export default function BrokersPage() {
 
       <Section>
         <Container className="grid gap-12">
-          <SectionHead index={5} eyebrow="Capabilities" title={<>What each connection can <em>do</em>.</>} lede="Trading, options, extended hours and paper accounts, straight from the broker registry the terminal uses." className="mb-0 sm:mb-0" />
+          <SectionHead index={GROUPS.length + 1} eyebrow="Capabilities" title={<>What each connection can <em>do</em>.</>} lede="What a connection shows in this release, straight from the broker registry the terminal uses." className="mb-0 sm:mb-0" />
           <div {...reveal(100)}>
             <CapabilityMatrix />
           </div>
           <p className="max-w-2xl font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
-            Extended hours means orders between 04:00 and 09:30 or 16:00 and 20:00 ET. Outside regular hours Nasscord forces limit orders regardless of the broker. Paper means the broker
-            offers a simulated account. In the terminal, paper mode sends the order ticket to your paper accounts only, so practice orders never reach a live account.
+            Order entry is switched off in this release for every broker. Paper login means you can connect a paper account the same way as a live one (IBKR Paper). E*TRADE
+            also accepts sandbox developer keys when this server allows them; the sandbox returns E*TRADE&apos;s sample data, not a paper account.
           </p>
         </Container>
       </Section>
 
-      <Section tone="band">
+      <Section id="how" tone="band">
         <Container className="grid gap-14 lg:grid-cols-[1fr_minmax(0,24rem)] lg:gap-20">
           <div className="grid gap-12">
-            <SectionHead index={6} eyebrow="How it works" title={<>How a connection <em>works</em>.</>} lede="Four steps, all of them on the broker's terms." className="mb-0 sm:mb-0" />
+            <SectionHead index={GROUPS.length + 2} eyebrow="How it works" title={<>How a connection <em>works</em>.</>} lede="Two brokers, two ways in, both on the broker's terms. Neither one gives Nasscord your broker password." className="mb-0 sm:mb-0" />
             <NumberedSteps steps={CONNECT_STEPS} />
           </div>
           <PaperCard className="h-fit p-6 lg:sticky lg:top-28" {...reveal(150, "scale")}>
@@ -155,14 +148,14 @@ export default function BrokersPage() {
 
       <Section id="request">
         <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
-          <SectionHead index={7} eyebrow="Missing one?" title={<>Request a <em>broker</em>.</>} lede="We prioritize by how many traders ask and by whether the broker publishes an API." className="mb-0 sm:mb-0" />
+          <SectionHead index={GROUPS.length + 3} eyebrow="Missing one?" title={<>Request a <em>broker</em>.</>} lede="Every request is saved and counted. We prioritize by how many traders ask and by whether the broker publishes an API." className="mb-0 sm:mb-0" />
           <div {...reveal(100)}>
             <RequestBrokerForm />
           </div>
         </Container>
       </Section>
 
-      <CtaBand title={<>Connect your first broker in about two <em>minutes</em>.</>} lede="Starter includes one broker connection, free. Pro connects them all." />
+      <CtaBand title={<>Connect your first <em>broker</em>.</>} lede="Starter is free and no card is asked for. Connect Interactive Brokers or E*TRADE, read-only." />
     </>
   );
 }

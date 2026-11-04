@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { CalendarClock, ClipboardCheck, FileClock, KeyRound, Lock, ScanSearch, ServerCog, XCircle } from "lucide-react";
+import { Ban, FileClock, Gauge, KeyRound, Lock, ServerCog, ShieldCheck, Unplug } from "lucide-react";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
 
@@ -12,69 +12,72 @@ export interface SecurityControl {
   detail: string;
 }
 
-/** The control list is shared by the home #security section and the /security page. Statements only, no certifications. */
+/**
+ * The control list is shared by the home #security section and the /security page. Statements only, no
+ * certifications, and only controls that exist in this release (docs/real-backend.md sections 5 to 8).
+ */
 export const SECURITY_CONTROLS: SecurityControl[] = [
   {
-    id: "oauth",
+    id: "passwords",
     icon: KeyRound,
-    title: "OAuth per broker",
-    body: "You sign in on the broker's own page. Nasscord receives a scoped token, never your password.",
+    title: "No broker passwords stored",
+    body: "You log in to IBKR on IBKR's own page and approve E*TRADE on E*TRADE's page. Nasscord stores no broker password.",
     detail:
-      "Each connection is a separate OAuth grant with the broker. Nasscord asks for read, trade and options scopes explicitly and shows the grant before redirecting. Revoking access at the broker ends the connection immediately.",
+      "For Interactive Brokers, the login page comes from IBKR's Client Portal gateway that runs for your connection, and the session lives in that process; nothing secret about it is written to the database. For E*TRADE, you approve Nasscord on E*TRADE's site and paste back a verification code; Nasscord keeps the resulting access token, not your password.",
   },
   {
     id: "encryption",
     icon: Lock,
     title: "Tokens encrypted at rest",
-    body: "Refresh tokens and session cookies are encrypted with per-workspace keys and decrypted only inside the broker gateway.",
+    body: "Your E*TRADE key and tokens are encrypted with AES-256-GCM by the broker service. The web app never holds them.",
     detail:
-      "Broker tokens are written encrypted with a key that belongs to your workspace. The web tier never holds a decrypted token; only the gateway process that talks to the broker does, in memory, for the life of the request.",
+      "Each secret is encrypted with a random 12-byte IV and the connection id as additional data, under a key that exists only on the broker service, a separate server from the web app. The web app holds no broker secrets at all.",
   },
   {
     id: "gateway",
     icon: ServerCog,
-    title: "Dedicated broker gateway per workspace",
-    body: "Each workspace gets its own gateway processes. Broker sessions are never shared across customers.",
+    title: "Dedicated IBKR gateway per connection",
+    body: "Every IBKR connection runs its own gateway process on its own port. Broker sessions are never shared.",
     detail:
-      "For Interactive Brokers, each login runs its own Client Portal gateway process. A reverse proxy in front of it strips forwarding headers so the browser and the keepalive worker present as one client and share one session instead of fighting over it.",
+      "The gateway listens on the broker service's own machine only (127.0.0.1). Its slot is released when you disconnect, when the process exits, or 30 minutes after the session expires.",
   },
   {
-    id: "verify",
-    icon: ScanSearch,
-    title: "Order verification before confirmation",
-    body: "An order is reported as placed only after Nasscord finds it in the broker's order book.",
+    id: "workspace",
+    icon: ShieldCheck,
+    title: "Workspace checked on every call",
+    body: "Every call from the app to the broker service carries a signed token, valid for 60 seconds, that names your workspace.",
     detail:
-      "After submitting, the engine answers the broker's confirmation prompts, then polls the live order list for the returned id and matches symbol, side, quantity and price. If the order is not found within the verification window, you see a failure, not a guess.",
+      "The broker service checks every connection id against that workspace before it uses it, so one workspace can never read another's connection. An IBKR login link from the app is seconds old and opens only for someone signed in to the same workspace.",
   },
   {
-    id: "cancel",
-    icon: XCircle,
-    title: "Working orders cancelled before closing",
-    body: "Closing a position first cancels its brackets and any other working orders on that symbol.",
+    id: "read-only",
+    icon: Ban,
+    title: "Read-only in this release",
+    body: "Order entry is switched off. Nothing Nasscord does in this release can place, change or cancel an order.",
     detail:
-      "This prevents the classic double exposure where a stop or target fills after the position was already closed manually. Cancels are verified in the order book the same way placements are.",
+      "The order ticket still works out a size from your stop, then shows why it cannot place the order. Accounts, balances, positions, orders and executions are read from the broker; nothing is sent back.",
+  },
+  {
+    id: "rate-limits",
+    icon: Gauge,
+    title: "Rate limits per broker",
+    body: "Calls are limited per IBKR username and per E*TRADE connection, and a short cache lets many open tabs share one broker call.",
+    detail: "The limits are 8 requests a second per IBKR username and 2 a second per E*TRADE module, with a 5-second cache per connection. An E*TRADE rate-limit reply makes the service back off instead of retrying.",
   },
   {
     id: "audit",
     icon: FileClock,
     title: "Audit log",
-    body: "Every order, cancel, connection change and settings change is recorded with actor, time and result.",
-    detail: "The log is append-only from the application's point of view and is reviewed by the Nasscord super admin in the console. Your own orders, cancels and fills are always in the terminal, under Orders and History.",
+    body: "Connecting, renewing and disconnecting a broker, every IBKR login link and every console action are recorded with who and when.",
+    detail: "The log is append-only from the application's point of view and is reviewed by the Nasscord super admin in the console. Tenant applications are recorded the same way.",
   },
   {
-    id: "2fa",
-    icon: ClipboardCheck,
-    title: "2FA on sign-in",
-    body: "Time-based one-time codes on every account. A Desk workspace can require it for every seat.",
-    detail: "Sessions expire after 12 hours of inactivity and are revoked when a password changes. New device sign-ins are announced by email.",
-  },
-  {
-    id: "maintenance",
-    icon: CalendarClock,
-    title: "Maintenance gate",
-    body: "No planned changes are deployed between 09:30 and 16:00 ET on weekdays.",
+    id: "disconnect",
+    icon: Unplug,
+    title: "Disconnect ends access",
+    body: "Disconnecting revokes the E*TRADE token and stops the IBKR gateway for that connection.",
     detail:
-      "Planned releases and migrations run outside regular trading hours. Emergency fixes during the session are limited to the affected component and announced on the status page.",
+      "E*TRADE also ends every session at midnight Eastern on its own, and IBKR sessions last about a day. After either, the connection shows as expired until you reconnect.",
   },
 ];
 

@@ -6,6 +6,7 @@ import { LogOutIcon, SettingsIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useClearQueryCache } from "@/hooks/queries";
 import { signOut } from "@/lib/auth-actions";
 import { initials } from "@/lib/format";
 
@@ -16,9 +17,13 @@ export interface ShellUser {
   roleLabel?: string;
 }
 
-/** Avatar menu used by every area: identity, the area's settings page, sign out (server action through a form). */
+/**
+ * Avatar menu used by every area: identity, the area's settings page, sign out (server action through
+ * a form). Signing out drops every cached query first, so the next account never sees this one's data.
+ */
 export function UserMenu({ user, settingsHref }: { user: ShellUser; settingsHref: string }) {
   const signOutForm = React.useRef<HTMLFormElement>(null);
+  const clearQueryCache = useClearQueryCache();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="rounded-full" aria-label={`Account menu for ${user.name}`} data-tour="user-menu" />}>
@@ -42,7 +47,13 @@ export function UserMenu({ user, settingsHref }: { user: ShellUser; settingsHref
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <form ref={signOutForm} action={signOut}>
-          <DropdownMenuItem variant="destructive" onClick={() => signOutForm.current?.requestSubmit()}>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => {
+              clearQueryCache();
+              signOutForm.current?.requestSubmit();
+            }}
+          >
             <LogOutIcon />
             Sign out
           </DropdownMenuItem>

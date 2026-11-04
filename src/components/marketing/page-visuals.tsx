@@ -1,4 +1,4 @@
-import { BROKERS, BROKER_STATUS } from "@/lib/brokers";
+import { BROKERS, BROKER_STATUS, BROKER_STATUS_ORDER } from "@/lib/brokers";
 import type { BrokerStatus } from "@/lib/types";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { PaperCard } from "@/components/marketing/container";
@@ -25,12 +25,11 @@ function CardHead({ left, right }: { left: string; right: string }) {
 
 /** Broker count by status, with every monogram underneath. */
 export function BrokerStatusCard({ className }: { className?: string }) {
-  const order: BrokerStatus[] = ["live", "beta", "sync", "soon"];
   return (
     <PaperCard className={cn("px-5 pt-4 pb-5", className)}>
       <CardHead left="Broker registry" right={`${BROKERS.length} brokers`} />
       <dl>
-        {order.map((s) => (
+        {BROKER_STATUS_ORDER.map((s) => (
           <div key={s} className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm">
             <dt className="flex items-center gap-2.5">
               <span aria-hidden="true" className={cn("size-2.5", STATUS_DOT[s])} />
@@ -45,7 +44,7 @@ export function BrokerStatusCard({ className }: { className?: string }) {
       <div aria-hidden="true" className="mt-4 flex flex-wrap gap-1.5">
         {BROKERS.map((b, i) => (
           <span key={b.id} className="animate-site-rise" style={{ "--d": `${500 + i * 45}ms` } as React.CSSProperties}>
-            <BrokerMark id={b.id} size="sm" />
+            <BrokerMark id={b.id} size="sm" className={cn(b.status === "soon" && "opacity-50")} />
           </span>
         ))}
       </div>
@@ -57,7 +56,7 @@ export function BrokerStatusCard({ className }: { className?: string }) {
 export function CommissionCard({ pct, notes, className }: { pct: number; notes: string[]; className?: string }) {
   return (
     <PaperCard className={cn("px-5 pt-4 pb-2", className)}>
-      <CardHead left="Tenant commission" right="Lifetime" />
+      <CardHead left="Tenant commission" right="Program terms" />
       <div className="flex items-end justify-between gap-4 border-b border-border py-5">
         <CountUp value={pct} suffix="%" className="text-8xl leading-[0.8] tracking-[-0.05em] tabular" />
         <span className="pb-1 text-right font-serif text-2xl leading-tight italic">
@@ -82,7 +81,7 @@ export function RequestPath({ steps, className }: { steps: Array<{ name: string;
   return (
     <PaperCard className={cn("px-5 pt-4 pb-3", className)}>
       <style>{"@keyframes path-signal{0%{top:0;opacity:0}8%,92%{opacity:1}100%{top:100%;opacity:0}}"}</style>
-      <CardHead left="Request path" right="Per login" />
+      <CardHead left="Request path" right="Every request" />
       <ol className="relative" aria-label="Request path">
         <span aria-hidden="true" className="absolute top-4 bottom-4 left-[0.95rem] w-px bg-border">
           <span className="absolute left-1/2 size-2 -translate-x-1/2 bg-site-accent" style={{ animation: "path-signal 3.6s ease-in-out infinite" }} />

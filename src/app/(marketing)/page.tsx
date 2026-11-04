@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { fetchAlerts, fetchConnections, fetchPositions, fetchTenant } from "@/lib/api";
-import { BROKERS, PLANNED_BROKERS, SYNC_BROKERS, TRADING_BROKERS } from "@/lib/brokers";
-import { ENGINE_DEFAULTS } from "@/lib/engine";
+import { BROKERS, CONNECTABLE_BROKERS, PLANNED_BROKERS } from "@/lib/brokers";
 import { COMMISSION_PCT, getPlan } from "@/lib/plans";
-import { whiteLabelBranding } from "@/lib/tenant";
 import { Button } from "@/components/ui/button";
 import { Container, Eyebrow, Section, SectionHead, Statement } from "@/components/marketing/container";
 import { BrokerGrid, BrokerLegend } from "@/components/marketing/broker-grid";
@@ -20,84 +17,69 @@ import { CountUp } from "@/components/marketing/reveal";
 import { RiskCalculator } from "@/components/marketing/risk-calculator";
 import { SecurityControlList, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
 import { TenantProgram } from "@/components/marketing/tenant-program";
-import { programFor } from "@/components/tenant/program";
 import { TerminalPreview } from "@/components/marketing/terminal-preview";
-
-export const metadata: Metadata = {
-  title: { absolute: "Nasscord · One terminal for every US broker" },
-  description:
-    "Connect Interactive Brokers, Schwab, E*TRADE and more in minutes. TradeScope alerts, a verified order engine, risk sizing and one combined account view.",
-};
-
-
-/** "Live positions and P&L" -> "live positions and P&L": lower-case the first letter only. */
-const lcFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** "A, B and C". */
 const andList = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
+const CONNECTABLE_NAMES = andList(CONNECTABLE_BROKERS.map((b) => b.name));
+
+export const metadata: Metadata = {
+  title: { absolute: "Nasscord · One terminal for your US brokers" },
+  description: `Connect ${CONNECTABLE_NAMES} and see your accounts, balances, positions, orders and executions in one place. Read-only in this release; custody stays at your broker.`,
+};
+
+/** A made-up starting point for the sizing example. Not anyone's account and not a recommendation. */
+const SIZING_EXAMPLE = { netLiq: 50_000, entry: 100, atr: 1.8, symbol: "the stock" };
+
 function buildFaq(): FaqItem[] {
   const starter = getPlan("starter");
-  const pro = getPlan("pro");
-  const live = TRADING_BROKERS.filter((b) => b.status === "live").map((b) => b.name);
-  const beta = TRADING_BROKERS.filter((b) => b.status === "beta").map((b) => b.name);
   return [
     {
-      q: "Which brokers can place orders?",
+      q: "Which brokers can I connect?",
       a: (
         <>
-          Orders route through the broker API at {live.slice(0, -1).join(", ")} and {live.at(-1)}. {beta.join(", ")} is in beta with limit and market orders.{" "}
-          {SYNC_BROKERS.map((b) => b.name).join(" and ")} publish no trading API, so their positions and balances sync read-only.{" "}
-          {PLANNED_BROKERS.map((b) => b.name).join(" and ")} are planned. The{" "}
+          {CONNECTABLE_NAMES}, read-only. The other {PLANNED_BROKERS.length} brokers in the registry ({andList(PLANNED_BROKERS.map((b) => b.name))}) are listed but do not connect
+          yet. The{" "}
           <Link href="/brokers" className="site-link">
             brokers page
           </Link>{" "}
-          has the capability matrix.
+          shows what each connection can do and takes requests.
         </>
       ),
+    },
+    {
+      q: "Can I place orders from Nasscord?",
+      a: "Not in this release. Order entry is switched off: the order ticket works out a size from your stop and shows why it cannot place the order, and nothing is sent to your broker. Keep placing orders in your broker's own app for now.",
     },
     {
       q: "Do you store my broker password?",
-      a: "No. Every broker connection is an OAuth grant made on the broker's own sign-in page; Nasscord receives a scoped token and stores it encrypted with a per-workspace key. Interactive Brokers additionally requires its own gateway login with a second factor, which you complete on IBKR's page each session. Revoking access at the broker ends the connection immediately.",
+      a: "No. For Interactive Brokers you log in on IBKR's own page, served by a gateway that runs for your connection alone, with IBKR's second factor; the session lives in that gateway and nothing secret is written to the database. For E*TRADE you approve Nasscord on E*TRADE's page; Nasscord keeps your developer key and the access token, encrypted with AES-256-GCM, never your password.",
     },
     {
-      q: "Can I use my own brand?",
-      a: (
-        <>
-          Yes, as a tenant with white-label. It puts your name, domain, accent color and email templates on the terminal your traders use while Nasscord
-          runs the engine and the broker connections, and you set the plans and prices they see. White-label is an add-on that Nasscord turns on after
-          reviewing your application; every tenant earns {COMMISSION_PCT}% commission either way. See{" "}
-          <Link href="/tenants#white-label" className="site-link">
-            white-label for tenants
-          </Link>
-          .
-        </>
-      ),
+      q: "Why do I reconnect so often?",
+      a: "Because the brokers say so. E*TRADE ends every session at midnight Eastern, so you reconnect once a day. An IBKR session lasts about a day, and IBKR allows one session per username: opening TWS or the IBKR mobile app with the same username can end Nasscord's session. A separate IBKR username for Nasscord avoids that. The terminal shows when each session ends and has a Reconnect button.",
     },
     {
-      q: "What does the alert engine actually do?",
-      a: `TradeScope scans ${ENGINE_DEFAULTS.universeSize} US large caps on ${ENGINE_DEFAULTS.timeframe} bars and scores each one on trend strength (ADX), momentum (RSI), relative volume and breakout structure. A setup becomes an alert only when its score clears ${ENGINE_DEFAULTS.minScore}, and never more than ${ENGINE_DEFAULTS.maxOpen} are open at once. Each alert carries an entry, a stop at ${ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry and a target at ${ENGINE_DEFAULTS.rewardToRisk} times the risk, and the stop trails to breakeven once price moves in your favor. The terminal shows the full backtest, including drawdowns and losing streaks, before you turn alerts on.`,
-    },
-    {
-      q: "Can I practice before using real money?",
-      a: `Yes. Switch the terminal to paper mode and the order ticket only offers your paper accounts, so practice orders never reach a live one; leaving paper mode asks you to confirm. ${andList(BROKERS.filter((b) => b.capabilities.paper).map((b) => b.name))} offer paper accounts, and they connect like any other account.`,
+      q: "Can I connect a paper account?",
+      a: "Yes, for Interactive Brokers: choose Paper when you connect and log in with your paper username. E*TRADE accepts sandbox developer keys when this server allows them; the sandbox returns E*TRADE's sample data rather than a paper account.",
     },
     {
       q: "Is there a free plan?",
-      a: `Yes. ${starter.name} is $${starter.monthly} for as long as you like: ${lcFirst(starter.features[0])}, ${lcFirst(starter.features[1])} and ${lcFirst(starter.features[2])}. ${pro.name} is $${pro.monthly}/mo (or $${pro.yearly}/mo billed yearly) with a 14-day trial, and it unlocks real-time alerts, the verified order engine and unlimited broker connections.`,
+      a: `Yes. ${starter.name} is $${starter.monthly}. Billing is not switched on in this release, so no plan is charged, no card is asked for and plan limits are not enforced yet.`,
     },
     {
-      q: "What happens if a broker session drops?",
-      a: "The connection shows as Expiring or Disconnected in the terminal and you get a push notification. Working orders are not affected: they live in the broker's order book, not in Nasscord, so brackets keep protecting the position. Alerts keep flowing. Reconnect from Brokers in the terminal; for Interactive Brokers that means a fresh login with your second factor, because IBKR sessions renew daily by design.",
+      q: "What about TradeScope alerts and the scanner?",
+      a: "Not in this release. TradeScope alerts are not served yet, and the scanner, watchlist prices and options ideas need a market data feed this release does not have. Those pages in the terminal say so instead of showing numbers.",
     },
   ];
 }
 
-const STATS = [
-  { value: BROKERS.length, label: "US brokers" },
-  { value: ENGINE_DEFAULTS.universeSize, label: "Symbols scanned" },
-  { value: ENGINE_DEFAULTS.atrStopMultiple, decimals: 1, suffix: "x", label: "ATR stop" },
-  { value: COMMISSION_PCT, suffix: "%", label: "Tenant commission" },
+const STATS: Array<{ value: number; label: string; suffix?: string; decimals?: number }> = [
+  { value: CONNECTABLE_BROKERS.length, label: "Brokers you can connect today" },
+  { value: 0, label: "Broker passwords stored" },
+  { value: 1, label: "Gateway per IBKR connection" },
+  { value: 256, label: "Bit key on stored E*TRADE tokens" },
 ];
 
 /** Hairlines for the 2x2 (phone) / 1x4 (wider) stat strip. */
@@ -112,11 +94,8 @@ function statCell(i: number) {
     .join(" ");
 }
 
-export default async function HomePage() {
-  const [alerts, positions, connections, acme] = await Promise.all([fetchAlerts(), fetchPositions(), fetchConnections(), fetchTenant("t_acme")]);
+export default function HomePage() {
   const faq = buildFaq();
-  const lead = alerts.open[0];
-  const account = connections[0]?.accounts[0];
 
   return (
     <>
@@ -125,27 +104,27 @@ export default async function HomePage() {
         <Container className="grid gap-14 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] lg:items-center lg:gap-12">
           <div className="grid content-center gap-8">
             <span className="animate-site-rise">
-              <Eyebrow>One terminal · Every US broker</Eyebrow>
+              <Eyebrow>One terminal · Your US brokers</Eyebrow>
             </span>
             <h1 className="text-[clamp(3.75rem,8vw,6.5rem)] leading-[0.88] tracking-[-0.015em]">
               <span className="block animate-site-rise" style={delay(80)}>
-                Every broker.
+                Your brokers.
               </span>
               <span className="block animate-site-rise" style={delay(200)}>
                 One <em className="italic">terminal</em>.
               </span>
             </h1>
             <p className="max-w-[34rem] animate-site-rise text-lg leading-relaxed text-pretty text-muted-foreground sm:text-xl" style={delay(320)}>
-              Connect Interactive Brokers, Schwab, E*TRADE and more in minutes. Act on alerts with verified, risk-sized orders, and see every position in one book.
-              Custody stays at your broker.
+              Connect {CONNECTABLE_NAMES}, then see every account, balance, position, order and execution in one place. Read-only in this release: custody
+              and order entry stay at your broker.
             </p>
             <div className="flex animate-site-rise flex-wrap items-center gap-x-8 gap-y-4" style={delay(420)}>
               <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/signup" />}>
                 Start free
                 <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-1" />
               </Button>
-              <Link href="/app" className="site-link text-base">
-                See the terminal
+              <Link href="#features" className="site-link text-base">
+                What works today
                 <ArrowRight aria-hidden="true" className="size-4" />
               </Link>
             </div>
@@ -166,14 +145,14 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      <Statement caption="No broker passwords · Orders verified at the broker · Custody stays put">
+      <Statement caption="No broker passwords stored · Read-only in this release · Custody stays put">
         Most trading tools are built around one broker. Nasscord is built around <em>you</em>.
       </Statement>
 
       {/* 01 Who it is for */}
       <Section>
         <Container>
-          <SectionHead index={1} eyebrow="Who it's for" title={<>One platform, three ways <em>in</em>.</>} lede="Traders sign up directly. Tenants bring traders and earn on every one. The traders a tenant brings get the same terminal, in the tenant's brand when white-label is on." />
+          <SectionHead index={1} eyebrow="Who it's for" title={<>One platform, three ways <em>in</em>.</>} lede="Traders sign up directly. Tenants bring traders with their own code. The traders a tenant brings get the same terminal, in the tenant's brand when white-label is on." />
           <Audiences />
         </Container>
       </Section>
@@ -182,43 +161,46 @@ export default async function HomePage() {
       <Section id="platform">
         <Container>
           <div className="mb-14 grid gap-8 lg:grid-cols-2 lg:items-end">
-            <SectionHead index={2} eyebrow="The platform" title={<>One signup. Four systems. About two <em>minutes</em>.</>} className="mb-0 sm:mb-0" />
+            <SectionHead index={2} eyebrow="The platform" title={<>One signup. Every account on one <em>screen</em>.</>} className="mb-0 sm:mb-0" />
             <div className="grid gap-5 lg:justify-self-end" {...reveal(120)}>
               <p className="max-w-[30rem] text-lg leading-relaxed text-muted-foreground">
-                A broker gateway, a proxy, a terminal and an alert engine used to be four separate installs. Now they are one account, and Nasscord runs all four.
+                A broker gateway, a login proxy, a place for your keys and a terminal used to be separate installs. Now they are one account, and Nasscord runs them.
               </p>
-              <Link href="/app" className="site-link w-fit">
-                Open the live demo
+              <Link href="/signup" className="site-link w-fit">
+                Create your account
                 <ArrowRight aria-hidden="true" className="size-4" />
               </Link>
             </div>
           </div>
-          <PlatformSetup brokerCount={connections.length} accountCount={connections.reduce((n, c) => n + c.accounts.length, 0)} />
+          <PlatformSetup />
         </Container>
       </Section>
 
-      {/* 03 Try it */}
-      {lead && account ? (
-        <Section id="try-it">
-          <Container>
-            <SectionHead index={3} eyebrow="Try it" title={<>What a 1% risk actually <em>buys</em>.</>} lede="The same arithmetic the order ticket runs. Move the account size, the price or the volatility and watch the stop, target and quantity follow." />
-            <div {...reveal(100)}>
-              <RiskCalculator defaults={{ netLiq: account.netLiq, entry: lead.entry, atr: lead.atr, symbol: lead.symbol }} />
-            </div>
-          </Container>
-        </Section>
-      ) : null}
-
-      {/* 04 Features */}
-      <Section>
+      {/* 03 Features */}
+      <Section id="features">
         <Container>
           <div className="mb-12 grid gap-8 sm:mb-16 lg:grid-cols-2 lg:items-end">
-            <SectionHead index={4} eyebrow="Features" title={<>Everything the desk needs, nothing it <em>doesn&apos;t</em>.</>} className="mb-0 sm:mb-0" />
+            <SectionHead index={3} eyebrow="Features" title={<>What works today, and what does <em>not</em> yet.</>} className="mb-0 sm:mb-0" />
             <p className="max-w-[34rem] text-lg leading-relaxed text-muted-foreground lg:justify-self-end" {...reveal(120)}>
-              Every number below comes from the same engine that runs the terminal, so what you read here is what you get.
+              This release is read-only. Rows marked Today work for everyone who signs up; rows marked Not yet are switched off, and the terminal says so where they would be.
             </p>
           </div>
           <FeaturesGrid />
+        </Container>
+      </Section>
+
+      {/* 04 Try it */}
+      <Section id="try-it">
+        <Container>
+          <SectionHead
+            index={4}
+            eyebrow="Try it"
+            title={<>How a 1% risk <em>sizes</em> a trade.</>}
+            lede="The sizing rule the order ticket uses: quantity follows from the stop, so a stop-out costs 1% of net liquidation at the default risk per trade (you can change it in Settings). The starting values are a made-up example; move them and the stop, target and quantity follow."
+          />
+          <div {...reveal(100)}>
+            <RiskCalculator defaults={SIZING_EXAMPLE} />
+          </div>
         </Container>
       </Section>
 
@@ -233,10 +215,10 @@ export default async function HomePage() {
       {/* 06 Terminal */}
       <Section>
         <Container className="grid gap-12">
-          <SectionHead index={6} eyebrow="The terminal" title={<>This is the screen you <em>trade</em> from.</>} lede="Live alerts with their levels, and every position across every broker in one table." className="mb-0 sm:mb-0" />
-          <TerminalPreview alerts={alerts.open.slice(0, 2)} positions={positions.slice(0, 5)} brokerCount={connections.length} />
+          <SectionHead index={6} eyebrow="The terminal" title={<>Every account, one <em>book</em>.</>} lede="Each connected account with its balances, and every position across them in one table, with the broker on every row." className="mb-0 sm:mb-0" />
+          <TerminalPreview />
           <p className="max-w-xl font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
-            FIG. 2 · Demo data from a three-broker workspace. Stops sit at {ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry; targets at {ENGINE_DEFAULTS.rewardToRisk} times the risk.
+            FIG. 2 · An example with made-up figures, not a real account. Once you connect a broker, the terminal shows your own accounts from the broker.
           </p>
         </Container>
       </Section>
@@ -244,7 +226,13 @@ export default async function HomePage() {
       {/* 07 Brokers */}
       <Section id="brokers" tone="band">
         <Container className="grid gap-12">
-          <SectionHead index={7} eyebrow="Brokers" title={<>Every broker you hold, one <em>connection</em> each.</>} lede={`${BROKERS.length} brokers today. The status on each tells you exactly what the connection can do.`} className="mb-0 sm:mb-0" />
+          <SectionHead
+            index={7}
+            eyebrow="Brokers"
+            title={<>Two that connect today. More on the <em>list</em>.</>}
+            lede={`${CONNECTABLE_NAMES} connect today, read-only. The other ${PLANNED_BROKERS.length} brokers are listed so you can see what is planned; none of them connect yet.`}
+            className="mb-0 sm:mb-0"
+          />
           <BrokerGrid brokers={BROKERS} />
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end" {...reveal()}>
             <BrokerLegend />
@@ -259,7 +247,7 @@ export default async function HomePage() {
       {/* 08 Pricing */}
       <Section id="pricing">
         <Container className="grid gap-12">
-          <SectionHead index={8} eyebrow="Pricing" title={<>Simple plans. Your broker bills the <em>commissions</em>.</>} lede="Start free with one broker. Upgrade when you want real-time alerts and the order engine." className="mb-0 sm:mb-0" />
+          <SectionHead index={8} eyebrow="Pricing" title={<>Simple plans. Your broker bills the <em>commissions</em>.</>} lede="Starter is free. Billing is not switched on in this release, so no plan is charged and no card is asked for." className="mb-0 sm:mb-0" />
           <PricingPlans />
           <Link href="/pricing" className="site-link w-fit">
             Compare every plan feature
@@ -275,7 +263,8 @@ export default async function HomePage() {
             <SectionHead index={9} eyebrow="Tenants" title={<>Bring traders. Earn on <em>every one</em>.</>} className="mb-0 sm:mb-0" />
             <div className="grid gap-6 lg:justify-self-end" {...reveal(120)}>
               <p className="max-w-[30rem] text-lg leading-relaxed text-muted-foreground">
-                Newsletters, educators, communities and advisory firms earn {COMMISSION_PCT}% of the subscriptions of the traders they bring, for as long as those traders stay. White-label is the add-on.
+                Newsletters, educators, communities and advisory firms give traders their own code. Once billing is on, they earn {COMMISSION_PCT}% of those traders&apos; subscriptions for as
+                long as they stay. White-label is the add-on.
               </p>
               <div className="flex flex-wrap items-center gap-x-7 gap-y-3">
                 <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/tenants#apply" />}>
@@ -289,7 +278,7 @@ export default async function HomePage() {
               </div>
             </div>
           </div>
-          <TenantProgram preview={whiteLabelBranding(acme)} funnel={acme ? programFor(acme, []).funnel : undefined} tenantName={acme?.name} />
+          <TenantProgram />
         </Container>
       </Section>
 

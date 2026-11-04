@@ -26,15 +26,6 @@ export function PageHeader({
   );
 }
 
-export function DemoFlag({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full border border-dashed border-input px-2.5 py-0.5 text-xs text-muted-foreground", className)}>
-      <span className="size-1.5 rounded-full bg-muted-foreground/60" />
-      Demo data
-    </span>
-  );
-}
-
 export function EmptyState({ title, description, action, className }: { title: string; description?: string; action?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-input px-6 py-10 text-center", className)}>

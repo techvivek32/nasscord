@@ -10,7 +10,8 @@ import { PricingPlans } from "@/components/marketing/pricing-plans";
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "Starter is free. Pro is $49/mo, Desk is $149/mo, both cheaper billed yearly. Enterprise is a custom contract with SSO, a dedicated gateway pool and an SLA. Broker commissions are never marked up.",
+  description:
+    "Starter is free. Pro is $49/mo and Desk is $149/mo at list price, less billed yearly. Billing is not switched on in this release, so no plan is charged. Broker commissions are never marked up.",
 };
 
 function buildFaq(): FaqItem[] {
@@ -19,24 +20,24 @@ function buildFaq(): FaqItem[] {
   const desk = getPlan("desk");
   return [
     {
-      q: "Can I change plans later?",
-      a: `Yes, at any time from Settings. Upgrades take effect immediately and are prorated. Downgrades take effect at the end of the current period. Moving from ${desk.name} to ${pro.name} keeps your data; seats beyond ${pro.limits.seats} become read-only until you remove them.`,
+      q: "Is anything charged today?",
+      a: `No. Billing is not switched on in this release, so no plan is charged and no card is asked for. You pick a plan at signup and it is saved on your workspace. The prices on this page are what ${pro.name} and ${desk.name} cost once billing is on.`,
+    },
+    {
+      q: "What do I get in this release?",
+      a: "Every plan connects Interactive Brokers and E*TRADE read-only: your accounts, balances, positions, orders and executions in one place, with a switch for which accounts count. Items marked Planned, such as TradeScope alerts, order entry and extra seats, are not switched on yet.",
     },
     {
       q: "What counts as a seat?",
-      a: `A seat is a person who can sign in. ${starter.name} and ${pro.name} include ${pro.limits.seats}; ${desk.name} includes up to ${desk.limits.seats}, all trading the same book. Broker accounts are not seats: one person can connect any number of accounts on a paid plan.`,
+      a: `A seat is a person who can sign in to the workspace. Inviting more people is not in this release, so every workspace has one seat today. ${desk.name} is planned to allow up to ${desk.limits.seats}. Broker accounts are not seats: one person can connect any number of accounts.`,
     },
     {
       q: "Do you charge per broker connection?",
-      a: `No. ${starter.name} allows ${starter.limits.brokers} broker connection. ${pro.name} and above allow unlimited connections at no extra cost, whether that is two accounts at one broker or one account at seven.`,
-    },
-    {
-      q: "What happens when the 14-day trial ends?",
-      a: `If you added a card, the plan you chose starts billing. If you did not, the workspace drops to ${starter.name}: your connections, history and settings stay, alerts return to a ${starter.limits.alertDelayMin}-minute delay, and only the first connected broker remains active until you pick a plan.`,
+      a: `No. A connection never costs extra. Once billing is on, ${starter.name} covers ${starter.limits.brokers} broker connection and ${pro.name} and above have no connection limit, whether that is two accounts at one broker or one at each. Plan limits are not enforced in this release.`,
     },
     {
       q: "Can I put my own brand on the terminal?",
-      a: `Not through a plan. Your own name, domain and accent color is white-label, which is part of the tenant program: tenants bring traders, earn ${COMMISSION_PCT}% of their subscriptions, and can apply for white-label on top. Nasscord turns it on after reviewing the application.`,
+      a: `Not through a plan. Your own name, domain and accent color is white-label, which is part of the tenant program: tenants bring traders, earn ${COMMISSION_PCT}% of their subscriptions once billing is on, and can apply for white-label on top. Nasscord turns it on after reviewing the application.`,
     },
     {
       q: "Do you take a cut of trades?",
@@ -55,7 +56,7 @@ export default function PricingPage() {
             Simple plans. Your broker bills the <em>commissions</em>.
           </>
         }
-        lede="Start free with one broker connection. Upgrade when you want real-time alerts and the verified order engine. Cancel any time."
+        lede="Pick a plan when you sign up. Billing is not switched on in this release, so nothing is charged and no card is asked for."
       />
 
       <section className="py-16 sm:py-20">
@@ -66,7 +67,7 @@ export default function PricingPage() {
 
       <Section tone="band">
         <Container className="grid gap-12">
-          <SectionHead index={1} eyebrow="Compare" title={<>Every feature, every <em>plan</em>.</>} lede="Limits come straight from the plan definitions the billing system uses." className="mb-0 sm:mb-0" />
+          <SectionHead index={1} eyebrow="Compare" title={<>Every feature, every <em>plan</em>.</>} lede="What works in this release, and what is planned. Limits come straight from the plan definitions." className="mb-0 sm:mb-0" />
           <div {...reveal(100)}>
             <ComparisonTable />
           </div>
@@ -82,14 +83,14 @@ export default function PricingPage() {
 
       <Section>
         <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
-          <SectionHead index={2} eyebrow="Pricing questions" title={<>Billing, seats and <em>trials</em>.</>} className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
+          <SectionHead index={2} eyebrow="Pricing questions" title={<>Billing, seats and <em>limits</em>.</>} className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
           <div {...reveal(100)}>
             <FaqList items={buildFaq()} />
           </div>
         </Container>
       </Section>
 
-      <CtaBand title={<>Start on Starter. Upgrade when the alerts <em>earn it</em>.</>} lede="No card for the free plan. Paid plans include a 14-day trial." />
+      <CtaBand title={<>Start on Starter. Connect your first <em>broker</em>.</>} lede="No card for any plan in this release. Connections are read-only." />
     </>
   );
 }

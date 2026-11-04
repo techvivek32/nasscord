@@ -1,68 +1,91 @@
 import type { Metadata } from "next";
 import { ArrowRight, Mail } from "lucide-react";
 import { SHELL_AREAS } from "@/lib/nav";
-import { ROLES, ROLE_DESCRIPTION, ROLE_LABEL, areasForRole } from "@/lib/roles";
+import { ROLES, ROLE_LABEL, areasForRole } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 import { Container, PageHero, PaperCard, Section, SectionHead } from "@/components/marketing/container";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { reveal } from "@/components/marketing/motion";
 import { RequestPath } from "@/components/marketing/page-visuals";
-import { SecurityControlDetails, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
+import { SECURITY_CONTROLS, SecurityControlDetails, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
 
 export const metadata: Metadata = {
   title: "Security",
-  description: "How Nasscord isolates broker connections, verifies orders, handles data and secures accounts. Plain statements, no certification claims. Terms and privacy summaries.",
+  description:
+    "How Nasscord isolates broker connections, stores credentials and secures accounts in this read-only release. Plain statements, no certification claims. Terms and privacy summaries.",
 };
 
 const PIPELINE = [
-  { name: "Browser, desktop or phone", note: "Your session, 2FA, no broker credentials" },
-  { name: "Nasscord web tier", note: "Workspace and brand resolution, auth, audit log" },
-  { name: "Proxy", note: "Strips forwarding headers so browser and keepalive share one session" },
-  { name: "Gateway process (per login)", note: "Holds the decrypted broker token in memory only" },
-  { name: "Broker API", note: "Orders, positions, balances; custody stays here" },
+  { name: "Your browser", note: "Your Nasscord sign-in. No broker credentials." },
+  { name: "Nasscord app", note: "Checks your session and workspace on every request. Holds no broker secrets." },
+  { name: "Broker service", note: "A separate server: the encryption key and every call to IBKR and E*TRADE" },
+  { name: "Gateway or broker API", note: "Your IBKR gateway on localhost, or E*TRADE's API" },
+  { name: "Your broker", note: "Accounts, balances, positions, orders; custody stays here" },
 ];
 
 const ISOLATION = [
   {
-    title: "Dedicated gateway process per login",
-    body: "Every login that connects Interactive Brokers gets its own Client Portal gateway process. Processes are pooled per workspace, never across workspaces, and a white-label tenant gets a pool of its own for its traders.",
+    title: "Dedicated gateway process per connection",
+    body: "Every Interactive Brokers connection gets its own Client Portal gateway process on its own port, reachable only from the broker service's own machine. Two connections never share a gateway, and a gateway never serves another workspace.",
   },
   {
-    title: "Proxy keeps one session",
-    body: "A reverse proxy in front of each gateway strips X-Forwarded-For and related headers. The browser and the keepalive worker therefore present as the same client and share one broker session instead of invalidating each other.",
+    title: "A login host that passes only the login",
+    body: "The IBKR login opens on a separate login host. A one-time ticket, valid for 2 minutes, opens a page that names the Nasscord workspace the login joins. After you continue, the host forwards IBKR's login pages and nothing else; every other gateway path is refused.",
   },
   {
-    title: "Session init throttled",
-    body: "The gateway's ssodh/init call is throttled to once per minute per session. Reconnect storms cannot hammer the broker, and a flapping network degrades to a visible Expiring state rather than repeated logins.",
+    title: "Forwarding headers stripped",
+    body: "The login host removes X-Forwarded-For, X-Real-IP and X-Forwarded-Host, rewrites cookies to host-only and opens a fresh loopback connection for every request, so the browser and the keepalive share one IBKR session.",
   },
   {
-    title: "Orders verified in the order book",
-    body: "After an order is submitted and the broker's confirmation prompts are answered, the engine polls the live order list for the returned id and checks symbol, side, quantity and price before it reports success.",
+    title: "Signed calls, scoped to your workspace",
+    body: "The app calls the broker service with a token signed for your workspace that lives 60 seconds. The service checks every connection id against it before use, so another workspace's connection answers as not found.",
   },
 ];
 
 const STORE = [
-  "Your name, email, hashed password and 2FA secret",
-  "Encrypted broker refresh tokens and gateway session cookies, per workspace key",
-  "Which accounts you connected, masked account numbers and their inclusion in the combined book",
-  "Orders you placed through Nasscord, their verification results and fills",
-  "Alert history and your settings",
-  "An audit log of actions with actor, time, IP and result",
+  "Your name, email and role; your password is held as a hash by the sign-in provider (Supabase Auth)",
+  "Your workspace, its plan and your settings",
+  "For tenants: the tenant's name, referral code and branding",
+  "Your broker connections: broker, environment, status and when the session ends",
+  "Your broker accounts as the broker labels them, with the masked account number shown on screen and whether each one counts in your book",
+  "The broker's account identifier (your IBKR account number, or E*TRADE's account key), which Nasscord needs to read the account. Screens only ever show the masked number",
+  "For E*TRADE: your consumer key and secret, and the request or access token, encrypted with AES-256-GCM",
+  "An audit log of sign-in, connection, tenant and console actions with who and when, and the IP address for the actions the app records itself (sign-in, settings, account choices, console changes)",
+  "What you send through the public forms: tenant applications (name, company, email, expected traders, notes) and broker requests (broker name, email)",
 ];
 
 const NEVER = [
   "Broker passwords or second-factor codes",
-  "Full account numbers (only the broker's masked form)",
+  "Positions, balances, orders or executions: they are read from the broker when you open a page and kept in memory for a few seconds",
   "Bank details, Social Security numbers or tax documents",
-  "Card numbers (handled by the payment processor)",
-  "Positions or balances from accounts you did not connect",
+  "Card numbers: billing is not switched on in this release",
 ];
 
 const ACCOUNT = [
-  { title: "Two-factor authentication", body: "Time-based one-time codes on every account. A Desk workspace can require it for every seat. Recovery codes are shown once at setup." },
-  { title: "Session expiry", body: "Sessions expire after 12 hours of inactivity and are revoked when the password changes. Every signed-in device is listed in Settings, where you can sign it out, or sign out everywhere at once." },
-  { title: "New device notices", body: "A sign-in from a device we have not seen sends an email with the time, approximate location and a one-click revoke link." },
-  { title: "Roles", body: "Every login has exactly one of four roles, and the role decides which areas it can open. A tenant's login never opens the terminal, and only the super admin opens the console." },
+  {
+    title: "Email and password",
+    body: "You sign in with your email and a password. Your address is confirmed by email first. A password needs at least 8 characters and two of: upper and lower case letters, a number, a symbol.",
+  },
+  { title: "Password reset", body: "A reset link goes to your confirmed address. It works once and expires after an hour." },
+  {
+    title: "Two-factor sign-in",
+    body: "Not in this release: signing in to Nasscord has no second factor yet. Your broker's own second factor still protects the IBKR and E*TRADE logins.",
+  },
+  {
+    title: "Roles",
+    body: "Every login has exactly one of four roles, and the role decides which areas it can open. A tenant's login never opens the terminal, and only the super admin opens the console.",
+  },
 ];
+
+/** What each role does in this release. Written here so the public page matches the read-only product. */
+const ROLE_TODAY: Record<Role, string> = {
+  superadmin: "Owns the platform. Runs the console, creates tenants, grants white-label and has a terminal of their own.",
+  tenant: "A distributor. Sees its code, its link and the traders who joined with them, and its branding once white-label is granted.",
+  trader: "Signed up directly. Connects brokers and sees them in the terminal.",
+  tenant_user: "Joined with a tenant's code. Uses the terminal, in the tenant's brand when white-label is on.",
+};
+
+const COUNT_WORD = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 
 export default function SecurityPage() {
   return (
@@ -74,7 +97,7 @@ export default function SecurityPage() {
             Built like <em>infrastructure</em>.
           </>
         }
-        lede="This page describes how the system behaves. It makes no certification claims; it states controls you can check against the terminal."
+        lede="This page describes how the system behaves in this release, which is read-only. It makes no certification claims; it states controls you can check against the terminal."
         aside={<RequestPath steps={PIPELINE} />}
       >
         <p className="max-w-xl border-l-2 border-site-accent py-1 pl-4 font-medium">{SOFTWARE_DISCLAIMER}</p>
@@ -82,14 +105,14 @@ export default function SecurityPage() {
 
       <Section>
         <Container className="grid gap-12">
-          <SectionHead index={1} eyebrow="Controls" title={<>Eight controls, in <em>detail</em>.</>} className="mb-0 sm:mb-0" />
+          <SectionHead index={1} eyebrow="Controls" title={<>{COUNT_WORD[SECURITY_CONTROLS.length] ?? SECURITY_CONTROLS.length} controls, in <em>detail</em>.</>} className="mb-0 sm:mb-0" />
           <SecurityControlDetails />
         </Container>
       </Section>
 
       <Section id="isolation" tone="band">
         <Container className="grid gap-14">
-          <SectionHead index={2} eyebrow="Architecture" title={<>How the broker connection is <em>isolated</em>.</>} lede="The path an order takes, and the four properties that hold along it." className="mb-0 sm:mb-0" />
+          <SectionHead index={2} eyebrow="Architecture" title={<>How the broker connection is <em>isolated</em>.</>} lede="The path a request takes, and the four properties that hold along it." className="mb-0 sm:mb-0" />
           <ol className="grid border-t border-foreground sm:grid-cols-5" aria-label="Request path">
             {PIPELINE.map((step, i) => (
               <li key={step.name} className="group/pipe relative grid content-start gap-2 border-b border-border py-5 transition-colors hover:bg-site-raised sm:border-b-0 sm:border-l sm:px-4 sm:first:border-l-0 sm:first:pl-0" {...reveal(i * 90)}>
@@ -119,7 +142,7 @@ export default function SecurityPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <PaperCard className="p-6 sm:p-8" {...reveal(0, "scale")}>
               <h3 className="text-3xl">What we store</h3>
-              <p className="mt-2 text-sm text-muted-foreground">Encrypted at rest, in a US region, with per-workspace keys for broker material.</p>
+              <p className="mt-2 text-sm text-muted-foreground">In the Nasscord database. Broker secrets are encrypted by the broker service before they are written.</p>
               <ul className="mt-5 border-t border-foreground">
                 {STORE.map((s) => (
                   <li key={s} className="flex gap-3 border-b border-border py-3 text-sm">
@@ -133,7 +156,7 @@ export default function SecurityPage() {
               <h3 className="text-3xl">
                 What we <em className="italic">never</em> store
               </h3>
-              <p className="mt-2 text-sm text-muted-foreground">If it is not on this list and not on the left, we do not have it.</p>
+              <p className="mt-2 text-sm text-muted-foreground">None of this is written to the Nasscord database.</p>
               <ul className="mt-5 border-t border-foreground">
                 {NEVER.map((s) => (
                   <li key={s} className="flex gap-3 border-b border-border py-3 text-sm">
@@ -145,8 +168,8 @@ export default function SecurityPage() {
             </PaperCard>
           </div>
           <p className="max-w-2xl leading-relaxed text-muted-foreground">
-            Deleting your account removes broker tokens immediately and the rest of your data within 30 days. Order and audit records required for
-            regulatory retention are kept in an isolated archive for the period the rules require and nothing longer.
+            Disconnecting a broker revokes its E*TRADE token or stops its IBKR gateway at once. Because positions, orders and executions are never
+            written to the database, there is no trading history of yours to keep once a connection is gone.
           </p>
         </Container>
       </Section>
@@ -174,7 +197,7 @@ export default function SecurityPage() {
                     <span className="font-serif text-3xl">{ROLE_LABEL[role]}</span>
                     <span className="font-mono text-[0.7rem] text-muted-foreground">Opens {areasForRole(role).map((a) => SHELL_AREAS[a].title.toLowerCase()).join(", ")}</span>
                   </dt>
-                  <dd className="text-sm leading-relaxed text-muted-foreground">{ROLE_DESCRIPTION[role]}</dd>
+                  <dd className="text-sm leading-relaxed text-muted-foreground">{ROLE_TODAY[role]}</dd>
                 </div>
               ))}
             </dl>
@@ -208,8 +231,8 @@ export default function SecurityPage() {
               <p className="site-caption mt-2 text-muted-foreground">Summary</p>
               <ul className="mt-5 grid gap-3 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">
                 <li>Nasscord is software. It is not a broker-dealer or investment adviser and does not hold your assets or execute trades on its own behalf.</li>
-                <li>Alerts are information, not recommendations. You decide what to trade and you carry the risk of every order you place.</li>
-                <li>Subscriptions bill monthly or yearly in USD and can be cancelled at any time; the plan stays active until the period ends.</li>
+                <li>Nothing Nasscord shows is a recommendation. You decide what to trade and you carry the risk of every order you place at your broker.</li>
+                <li>Billing is not switched on in this release. Once it is, subscriptions bill monthly or yearly in USD and can be cancelled at any time.</li>
                 <li>You may not use the service to violate a broker&apos;s terms, to trade on behalf of others without authority, or to attack the platform.</li>
                 <li>Either party can end the agreement; we give 30 days notice for material changes to these terms.</li>
               </ul>
@@ -218,10 +241,10 @@ export default function SecurityPage() {
               <h3 className="text-3xl">Privacy policy</h3>
               <p className="site-caption mt-2 text-muted-foreground">Summary</p>
               <ul className="mt-5 grid gap-3 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">
-                <li>We collect what the data handling section above lists, and only to run the service, bill you and keep the audit log.</li>
-                <li>We do not sell personal data and do not share broker data with anyone except the broker it came from and the aggregator you authorized.</li>
-                <li>Payment processing, email delivery and error monitoring use vendors under data processing agreements.</li>
-                <li>You can export or delete your data from Settings. Deletion removes broker tokens immediately.</li>
+                <li>We collect what the data handling section above lists, plus the sign-in records Supabase Auth keeps, and use it only to run the service, answer what you sent us and keep the audit log.</li>
+                <li>We do not sell personal data and do not share broker data with anyone except the broker it came from.</li>
+                <li>Sign-in and the database run on Supabase, and sign-in emails go through an email provider.</li>
+                <li>Disconnecting a broker in the terminal ends Nasscord&apos;s access to it at once.</li>
                 <li>White-label tenants are controllers of their traders&apos; data; Nasscord processes it on their instructions.</li>
               </ul>
             </PaperCard>
@@ -229,7 +252,7 @@ export default function SecurityPage() {
         </Container>
       </Section>
 
-      <CtaBand title={<>Read the controls, then connect a <em>broker</em>.</>} lede="Much of this page you can watch happen in the terminal: the verification step on every order, the status of every broker session, and every order and fill." />
+      <CtaBand title={<>Read the controls, then connect a <em>broker</em>.</>} lede="Some of this you can check yourself in the terminal: the status of every broker connection, when its session ends, and which accounts count in your book." />
     </>
   );
 }

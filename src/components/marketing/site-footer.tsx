@@ -43,9 +43,9 @@ export function SiteFooter() {
           <div className="grid content-start gap-5">
             <LogoMark size={40} className="rounded-[10px]" />
             <p className="max-w-md font-serif text-3xl leading-tight">
-              One terminal for every broker you hold, then <em className="italic">trade it well</em>.
+              Every account you hold, in <em className="italic">one book</em>.
             </p>
-            <p className="site-caption opacity-60">OAuth per broker · Orders verified · Custody stays at your broker</p>
+            <p className="site-caption opacity-60">No broker passwords stored · Read-only in this release · Custody stays at your broker</p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
             {COLUMNS.map((col) => (
@@ -67,8 +67,8 @@ export function SiteFooter() {
         </div>
         <div className="flex flex-col gap-4 border-t border-current/20 pt-6 sm:flex-row sm:items-start sm:justify-between">
           <p className="max-w-2xl text-xs leading-relaxed opacity-60">
-            Trading involves risk, including the loss of principal. Nasscord is software, not a broker-dealer or investment adviser. Alerts are information, not
-            recommendations. Alerts, quotes, positions and account figures shown on this site are demo data.
+            Trading involves risk, including the loss of principal. Nasscord is software, not a broker-dealer or investment adviser, and nothing on this site is a
+            recommendation. Account figures and prices shown on this site are made-up examples, not anyone&apos;s account.
           </p>
           <p className="shrink-0 font-mono text-[0.7rem] opacity-60">© 2026 Nasscord. Built to be traded on.</p>
         </div>

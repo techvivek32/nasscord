@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Check, Minus } from "lucide-react";
 import { PLANS } from "@/lib/plans";
 import type { Plan } from "@/lib/types";
@@ -12,21 +13,32 @@ interface Row {
 }
 
 const paid = (p: Plan) => p.id !== "starter";
-const team = (p: Plan) => p.id === "desk" || p.id === "enterprise";
+const limit = (n: number | "unlimited") => (n === "unlimited" ? "Unlimited" : String(n));
 
-/** Rows derive from PLANS.limits where a limit exists, so the table can never disagree with the plan cards. */
-const ROWS: Row[] = [
-  { label: "Broker connections", value: (p) => (p.limits.brokers === "unlimited" ? "Unlimited" : String(p.limits.brokers)) },
-  { label: "Seats", value: (p) => (p.limits.seats === "unlimited" ? "Unlimited" : String(p.limits.seats)) },
-  { label: "Alert latency", value: (p) => (p.limits.alertDelayMin === 0 ? "Real-time" : `Delayed ${p.limits.alertDelayMin} min`) },
-  { label: "Order engine", value: (p) => (paid(p) ? "Verified, with brackets" : false) },
-  { label: "Options desk", value: paid },
-  { label: "Risk sizing", value: paid },
-  { label: "Trade archive", value: (p) => (paid(p) ? "Beyond the broker window" : "Broker window only") },
-  { label: "Audit log", value: (p) => (team(p) ? "Team, exportable" : paid(p) ? "Personal" : false) },
-  { label: "Dedicated gateway pool", value: (p) => p.id === "enterprise" },
-  { label: "SSO", value: (p) => (p.id === "enterprise" ? "SSO and SCIM" : false) },
-  { label: "Support", value: (p) => ({ starter: "Email", pro: "Email, 1 business day", desk: "Priority", enterprise: "Named, with SLA" })[p.id] },
+/**
+ * Rows derive from PLANS.limits where a limit exists, so the table can never disagree with the plan cards. The
+ * first group is what works in this release; the second is planned and not switched on yet.
+ */
+const GROUPS: Array<{ title: string; note?: string; rows: Row[] }> = [
+  {
+    title: "In this release",
+    rows: [
+      { label: "Connect IBKR and E*TRADE", value: () => true },
+      { label: "Accounts, balances and positions", value: () => true },
+      { label: "Orders and executions", value: () => true },
+      { label: "Choose which accounts count", value: () => true },
+    ],
+  },
+  {
+    title: "Planned",
+    note: "Not switched on in this release.",
+    rows: [
+      { label: "Broker connection limit", value: (p) => limit(p.limits.brokers) },
+      { label: "TradeScope alerts", value: (p) => (p.limits.alertDelayMin === 0 ? "Real-time" : `Delayed ${p.limits.alertDelayMin} min`) },
+      { label: "Order entry", value: paid },
+      { label: "Seats", value: (p) => limit(p.limits.seats) },
+    ],
+  },
 ];
 
 function Cell({ value, plan }: { value: CellValue; plan: string }) {
@@ -53,7 +65,7 @@ export function ComparisonTable({ className }: { className?: string }) {
       <Table className="min-w-[44rem]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-48 site-caption text-muted-foreground">Feature</TableHead>
+            <TableHead className="w-56 site-caption text-muted-foreground">Feature</TableHead>
             {PLANS.map((p) => (
               <TableHead key={p.id} className={cn("site-caption text-center", p.featured ? "text-site-accent-ink" : "text-muted-foreground")}>
                 {p.name}
@@ -62,15 +74,25 @@ export function ComparisonTable({ className }: { className?: string }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {ROWS.map((row) => (
-            <TableRow key={row.label} className="transition-colors hover:bg-site-band/60">
-              <TableCell className="font-medium">{row.label}</TableCell>
-              {PLANS.map((p) => (
-                <TableCell key={p.id} className={cn("text-center text-sm", p.featured && "bg-site-band")}>
-                  <Cell value={row.value(p)} plan={p.name} />
+          {GROUPS.map((g) => (
+            <Fragment key={g.title}>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={PLANS.length + 1} className="pt-6">
+                  <span className="site-label">{g.title}</span>
+                  {g.note ? <span className="ml-3 text-xs text-muted-foreground">{g.note}</span> : null}
                 </TableCell>
+              </TableRow>
+              {g.rows.map((row) => (
+                <TableRow key={row.label} className="transition-colors hover:bg-site-band/60">
+                  <TableCell className={cn("font-medium", g.note && "text-muted-foreground")}>{row.label}</TableCell>
+                  {PLANS.map((p) => (
+                    <TableCell key={p.id} className={cn("text-center text-sm", p.featured && "bg-site-band", g.note && "text-muted-foreground")}>
+                      <Cell value={row.value(p)} plan={p.name} />
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
-            </TableRow>
+            </Fragment>
           ))}
         </TableBody>
       </Table>

@@ -1,14 +1,15 @@
-import { getBroker } from "@/lib/brokers";
-import type { BrokerId } from "@/lib/types";
+import { CONNECTABLE_BROKER_IDS, getBroker } from "@/lib/brokers";
 import { cn } from "@/lib/utils";
 
-const LEFT: BrokerId[] = ["ibkr", "schwab", "etrade", "tastytrade", "alpaca", "tradestation"];
-const OUTPUTS = ["Alerts", "Verified orders", "Positions & P&L"];
+/** The brokers that connect today, and what this read-only release shows from them. */
+const LEFT = CONNECTABLE_BROKER_IDS;
+const OUTPUTS = ["Accounts & balances", "Positions", "Orders & executions"];
+const NODE_GAP = 132;
 
 const NODE = 44;
 const NODE_X = 28;
 const HUB = { cx: 300, cy: 210, size: 80 };
-const PILL = { x: 412, w: 150, h: 40 };
+const PILL = { x: 396, w: 178, h: 40 };
 
 /* Scoped to the SVG. Transforms use the element's own box so pop and ring animations stay centred. */
 const CORD_CSS = `
@@ -26,14 +27,15 @@ const CORD_CSS = `
 `;
 
 /**
- * The "cord" chart: six broker monograms feed one Nasscord hub, which fans out into alerts, verified orders and the
- * combined positions view. Wires draw themselves in, signals flow along them, the hub pulses and each output lights
- * up as a signal arrives. Colors come from tokens (the broker tiles use the registry colors), so it follows the theme.
+ * The "cord" chart: the brokers that connect today feed one Nasscord hub, which fans out into the read-only views of
+ * this release. Wires draw themselves in, signals flow along them, the hub pulses and each output lights up as a
+ * signal arrives. Decorative motion only; it shows the shape of the product, not live traffic. Colors come from tokens
+ * (the broker tiles use the registry colors), so it follows the theme.
  */
 export function CordDiagram({ className }: { className?: string }) {
   const hubLeft = HUB.cx - HUB.size / 2;
   const hubRight = HUB.cx + HUB.size / 2;
-  const leftYs = LEFT.map((_, i) => 46 + i * 66);
+  const leftYs = LEFT.map((_, i) => HUB.cy + (i - (LEFT.length - 1) / 2) * NODE_GAP);
   const rightYs = [128, 210, 292];
 
   const inPath = (y: number) => `M${NODE_X + NODE} ${y} C ${NODE_X + NODE + 96} ${y}, ${hubLeft - 84} ${HUB.cy}, ${hubLeft} ${HUB.cy}`;
@@ -43,7 +45,7 @@ export function CordDiagram({ className }: { className?: string }) {
     <svg viewBox="0 0 580 420" role="img" aria-labelledby="cord-title cord-desc" className={cn("block h-auto w-full overflow-visible", className)}>
       <title id="cord-title">How Nasscord connects your brokers</title>
       <desc id="cord-desc">
-        Six broker connections flow into one Nasscord hub, which produces alerts, verified orders and a combined positions and P&amp;L view.
+        Interactive Brokers and E*TRADE connect to one Nasscord hub, which shows accounts and balances, positions, and orders and executions in one place.
       </desc>
       <style>{CORD_CSS}</style>
 
@@ -94,7 +96,7 @@ export function CordDiagram({ className }: { className?: string }) {
         Nasscord
       </text>
       <text x={HUB.cx} y={HUB.cy + HUB.size / 2 + 41} textAnchor="middle" fontSize={10.5} fill="var(--muted-foreground)" className="font-sans">
-        one session per broker
+        read-only in this release
       </text>
 
       {/* output pills, lit in turn as the signal arrives */}
@@ -105,7 +107,7 @@ export function CordDiagram({ className }: { className?: string }) {
             <rect x={PILL.x} y={y - PILL.h / 2} width={PILL.w} height={PILL.h} rx={PILL.h / 2} fill="var(--card)" stroke="var(--border)" />
             <rect x={PILL.x} y={y - PILL.h / 2} width={PILL.w} height={PILL.h} rx={PILL.h / 2} fill="none" stroke="var(--primary)" strokeWidth={1.5} className="cord-lit" style={{ animationDelay: `${1.9 + i * 0.7}s` }} />
             <circle cx={PILL.x + 20} cy={y} r={4} fill="var(--primary)" />
-            <text x={PILL.x + 34} y={y + 4.5} fontSize={13} fontWeight={500} fill="var(--foreground)" className="font-sans">
+            <text x={PILL.x + 34} y={y + 4.5} fontSize={12.5} fontWeight={500} fill="var(--foreground)" className="font-sans">
               {label}
             </text>
           </g>

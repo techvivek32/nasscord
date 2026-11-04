@@ -41,13 +41,16 @@ export function PricingToggle({ value, onChange, className }: { value: Billing; 
   );
 }
 
+/** Billing is not switched on in this release: paid prices are list prices and nothing is charged. */
 function priceHint(plan: Plan, billing: Billing) {
   const price = billing === "yearly" ? plan.yearly : plan.monthly;
-  if (price === null) return "Annual agreement, invoiced";
+  if (price === null) return "Annual agreement";
   if (price === 0) return "Free, no card required";
-  if (billing === "yearly") return `Billed yearly at $${(price * 12).toLocaleString("en-US")}`;
-  return "Billed monthly, cancel anytime";
+  if (billing === "yearly") return `List price, $${(price * 12).toLocaleString("en-US")} a year. Not charged in this release`;
+  return "List price. Not charged in this release";
 }
+
+const PLANNED = "Planned: ";
 
 export function PlanCard({ plan, billing, className }: { plan: Plan; billing: Billing; className?: string }) {
   const price = billing === "yearly" ? plan.yearly : plan.monthly;
@@ -59,7 +62,7 @@ export function PlanCard({ plan, billing, className }: { plan: Plan; billing: Bi
       <div className="grid gap-2">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-4xl">{plan.name}</h3>
-          {plan.featured ? <span className="site-caption border border-site-accent px-2 py-0.5 text-site-accent-ink">Most popular</span> : null}
+          {plan.featured ? <span className="site-caption border border-site-accent px-2 py-0.5 text-site-accent-ink">Recommended</span> : null}
         </div>
         <p className="text-sm text-muted-foreground">{plan.tagline}</p>
       </div>
@@ -85,13 +88,26 @@ export function PlanCard({ plan, billing, className }: { plan: Plan; billing: Bi
         {plan.cta}
         <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-0.5" />
       </Button>
+      {plan.id === "pro" || plan.id === "desk" ? (
+        <p className="-mt-4 font-mono text-[0.7rem] text-muted-foreground">You pick {plan.name} when you set up your workspace.</p>
+      ) : null}
       <ul className="grid gap-2.5 border-t border-border pt-5 text-sm">
-        {plan.features.map((f) => (
-          <li key={f} className="flex gap-2.5">
-            <span aria-hidden="true" className="mt-[0.45rem] size-1.5 shrink-0 bg-site-accent" />
-            <span>{f}</span>
-          </li>
-        ))}
+        {plan.features.map((f) =>
+          f.startsWith(PLANNED) ? (
+            <li key={f} className="flex gap-2.5 text-muted-foreground">
+              <span aria-hidden="true" className="mt-[0.45rem] size-1.5 shrink-0 border border-muted-foreground/60" />
+              <span>
+                <span className="site-caption mr-1.5 tracking-wide">Planned</span>
+                {f.slice(PLANNED.length)}
+              </span>
+            </li>
+          ) : (
+            <li key={f} className="flex gap-2.5">
+              <span aria-hidden="true" className="mt-[0.45rem] size-1.5 shrink-0 bg-site-accent" />
+              <span>{f}</span>
+            </li>
+          ),
+        )}
       </ul>
     </div>
   );
@@ -113,8 +129,10 @@ export function PricingPlans({ className, footnote = true }: { className?: strin
       </div>
       {footnote ? (
         <p className="max-w-2xl font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
-          Prices in USD. Broker commissions, exchange fees and regulatory fees are charged by your broker, never by Nasscord. Paid plans include a 14-day
-          trial; Starter stays free. Want the terminal under your own brand? That is white-label, part of the tenant program.
+          Prices in USD. Billing is not switched on in this release, so no plan is charged and no card is asked for; the prices are what each plan
+          costs once it is. Plan limits, such as one broker connection on Starter, are not enforced until then either. Items marked Planned are not
+          in this release. Broker commissions and fees are charged by your broker, never by Nasscord.
+          Want the terminal under your own brand? That is white-label, part of the tenant program.
         </p>
       ) : null}
     </div>

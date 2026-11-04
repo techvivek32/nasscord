@@ -153,7 +153,7 @@ export function RevenueCalculator({ className }: { className?: string }) {
             </div>
           </dl>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Estimate only. Commission is worked out on collected revenue after refunds and paid monthly by ACH once the balance reaches $100.
+            Estimate only, at list prices. Billing is not switched on in this release, so no commission is earned or paid out yet.
           </p>
         </aside>
       </div>
