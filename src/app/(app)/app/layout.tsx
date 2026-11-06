@@ -9,6 +9,9 @@ import { PLAN_LABEL } from "@/lib/plans";
 import { ROLE_LABEL, TERMINAL_ROLES, areasForRole } from "@/lib/roles";
 import { getCurrentBranding, getCurrentWorkspace, workspaceHost } from "@/lib/server/workspace";
 
+/** Every request reads the session cookies: never prerender this area at build time. */
+export const dynamic = "force-dynamic";
+
 /**
  * Trader terminal shell, for traders, tenant users and the super admin's own desk.
  * Workspace-scoped: WorkspaceScopeProvider puts the session's workspace id into every client query key,

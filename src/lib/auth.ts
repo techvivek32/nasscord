@@ -1,5 +1,6 @@
 import { cache } from "react";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
+import { connection } from "next/server";
 import { homeForRole, isRole } from "@/lib/roles";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -28,6 +29,10 @@ export interface AuthUser {
 /** Verified identity for this request, or null when signed out or Supabase is not configured. */
 export const getAuthUser = cache(async (): Promise<AuthUser | null> => {
   if (!isSupabaseConfigured()) return null;
+  // Identity depends on this request's cookies: never let `next build` prerender a page that asks.
+  // Without this, the build rendered /app, /admin and /tenant once with no cookies, and the
+  // "signed out" redirect it produced was served to everyone (a /login <-> /app loop).
+  await connection();
   try {
     const supabase = await createClient();
     const { data } = await supabase.auth.getClaims();
@@ -42,7 +47,9 @@ export const getAuthUser = cache(async (): Promise<AuthUser | null> => {
       ...(typeof meta.tenant_code === "string" && meta.tenant_code ? { tenantCode: meta.tenant_code } : {}),
       ...(isRole(role) ? { claimRole: role } : {}),
     };
-  } catch {
+  } catch (err) {
+    // Let Next.js's own signals (dynamic usage, redirect, notFound) through; only auth failures mean signed out.
+    unstable_rethrow(err);
     return null;
   }
 });

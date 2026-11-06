@@ -4,6 +4,9 @@ import { ConsoleHeader } from "@/components/console/console-header";
 import { requireRole } from "@/lib/auth";
 import { CONSOLE_ROLES, ROLE_LABEL, areasForRole } from "@/lib/roles";
 
+/** Every request reads the session cookies: never prerender this area at build time. */
+export const dynamic = "force-dynamic";
+
 /** Which deployment this is, from the host's own variables. */
 function deploymentLabel() {
   const vercel = process.env.VERCEL_ENV;

@@ -6,6 +6,9 @@ import { loadPortal, tenantKindLabel } from "@/components/tenant/scope";
 import { requireRole } from "@/lib/auth";
 import { ROLE_LABEL, TENANT_PORTAL_ROLES, areasForRole } from "@/lib/roles";
 
+/** Every request reads the session cookies: never prerender this area at build time. */
+export const dynamic = "force-dynamic";
+
 /** Tenant portal: tenants, and the super admin when they belong to one. The pages show the tenant's own records. */
 export default async function TenantLayout({ children }: { children: React.ReactNode }) {
   const session = await requireRole(TENANT_PORTAL_ROLES, "/tenant");
