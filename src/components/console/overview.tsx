@@ -87,7 +87,7 @@ export function Overview({ counts, service, recent, checkedAt }: { counts: Platf
           </CardHeader>
           <CardContent className="grid gap-4">
             {counts.connections === 0 ? (
-              <EmptyState title="No broker connections yet" description="Counts appear once a trader connects IBKR or E*TRADE." />
+              <EmptyState title="No broker connections yet" description="Counts appear once a trader connects a broker." />
             ) : (
               <>
                 <ul className="grid gap-2">
@@ -113,7 +113,7 @@ export function Overview({ counts, service, recent, checkedAt }: { counts: Platf
         <Card>
           <CardHeader>
             <CardTitle>Broker service</CardTitle>
-            <CardDescription>The process that holds broker sessions and talks to IBKR and E*TRADE.</CardDescription>
+            <CardDescription>The process that holds broker sessions and keys and makes every call to the brokers.</CardDescription>
             <CardAction>
               <Button variant="ghost" size="sm" render={<Link href="/admin/health" />}>
                 System health

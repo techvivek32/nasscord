@@ -85,7 +85,7 @@ export function OrderTicket({ riskPct, className }: { riskPct: number; className
               <>
                 Sizing uses an account&apos;s net liquidation.{" "}
                 <Link href="/app/brokers" className="text-primary underline-offset-2 hover:underline">
-                  Connect IBKR or E*TRADE
+                  Connect a broker
                 </Link>{" "}
                 to size against your own account.
               </>

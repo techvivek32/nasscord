@@ -4,13 +4,14 @@ import * as React from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { useConnections } from "@/hooks/queries";
 import { BrokerMark } from "@/components/brokers/broker-mark";
-import { ConnectBrokers, CONNECT_HOW } from "@/components/brokers/connect/connect-brokers";
+import { ConnectBrokers } from "@/components/brokers/connect/connect-brokers";
 import { CONNECTION_TONE, connectionName } from "@/components/brokers/connect/status";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceScopeProvider, type WorkspaceScope } from "@/components/workspace-scope";
-import { CONNECTABLE_BROKERS, type ConnectableBrokerId } from "@/lib/brokers";
+import { connectSpecs } from "@/lib/broker-connect";
+import { RELEASED_BROKERS } from "@/lib/brokers";
 import { getBrokerScope } from "@/lib/server/terminal-actions-extra";
 import { StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { useSignupStore } from "@/components/onboarding/store";
@@ -18,9 +19,11 @@ import { useSignupStore } from "@/components/onboarding/store";
 type ScopeState = { status: "loading" } | { status: "ready"; scope: WorkspaceScope } | { status: "none" };
 
 /**
- * Step 3: connect IBKR or E*TRADE with the same dialogs as the terminal's Brokers page, or skip and
- * connect later. The workspace exists by now (step 2), so the broker routes work; this step only
- * needs the workspace scope that the terminal layout would otherwise provide.
+ * Step 3: connect a broker with the same dialogs as the terminal's Brokers page, or skip and connect
+ * later. Which brokers connect comes from the broker service (ConnectBrokers asks GET
+ * /api/broker/options). The workspace exists by now (step 2), so the broker routes work; this step
+ * only needs the workspace scope that the terminal layout would otherwise provide. Without it, the
+ * step names the brokers of this release (the static registry) and sends the user to the terminal.
  */
 export function StepBrokers() {
   const navigated = useSignupStore((s) => s.navigated);
@@ -45,7 +48,7 @@ export function StepBrokers() {
     <StepShell
       step={3}
       title="Connect a broker"
-      description="Connect IBKR or E*TRADE now, or continue and connect later from Brokers in your terminal."
+      description="Connect a broker now, or continue and connect later from Brokers in your terminal."
       footer={
         <>
           {created ? (
@@ -75,12 +78,12 @@ export function StepBrokers() {
       ) : (
         <>
           <ul className="grid gap-3" aria-label="Brokers you can connect from the terminal">
-            {CONNECTABLE_BROKERS.map((b) => (
+            {RELEASED_BROKERS.map((b) => (
               <li key={b.id} className="flex items-start gap-3 rounded-xl border border-border px-3 py-3">
                 <BrokerMark id={b.id} size="md" />
                 <div className="grid min-w-0 gap-0.5">
                   <span className="text-sm font-semibold">{b.name}</span>
-                  <span className="text-xs leading-relaxed text-muted-foreground">{CONNECT_HOW[b.id as ConnectableBrokerId]}</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">{connectSpecs(b.id)[0]?.summary ?? b.blurb}</span>
                 </div>
               </li>
             ))}

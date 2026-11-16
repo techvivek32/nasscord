@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { BROKERS, CONNECTABLE_BROKERS, PLANNED_BROKERS } from "@/lib/brokers";
 import { COMMISSION_PCT, getPlan } from "@/lib/plans";
+import { andList, brokerNames, publicBrokers, type PublicAvailability, type PublicBroker } from "@/lib/server/broker-availability";
 import { Button } from "@/components/ui/button";
 import { Container, Eyebrow, Section, SectionHead, Statement } from "@/components/marketing/container";
-import { BrokerGrid, BrokerLegend } from "@/components/marketing/broker-grid";
+import { AvailabilityLegend } from "@/components/marketing/broker-availability";
+import { BrokerGrid } from "@/components/marketing/broker-grid";
 import { CordCard } from "@/components/marketing/cord-diagram";
 import { CtaBand } from "@/components/marketing/cta-band";
 import { FaqList, type FaqItem } from "@/components/marketing/faq";
@@ -19,28 +20,93 @@ import { SecurityControlList, SOFTWARE_DISCLAIMER } from "@/components/marketing
 import { TenantProgram } from "@/components/marketing/tenant-program";
 import { TerminalPreview } from "@/components/marketing/terminal-preview";
 
-/** "A, B and C". */
-const andList = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/*
+ * Which brokers connect today comes from the broker service's own answer (publicBrokers), kept a few
+ * minutes, like every other public page: the home page never names a broker as connectable while it
+ * is gated, not built or waiting for an approval, and never leaves out one that connects.
+ */
 
-const CONNECTABLE_NAMES = andList(CONNECTABLE_BROKERS.map((b) => b.name));
+const COUNT_WORD = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
 
-export const metadata: Metadata = {
-  title: { absolute: "Nasscord · One terminal for your US brokers" },
-  description: `Connect ${CONNECTABLE_NAMES} and see your accounts, balances, positions, orders and executions in one place. Read-only in this release; custody stays at your broker.`,
-};
+/** "Interactive Brokers, E*TRADE and Alpaca", or a neutral phrase when nothing connects. */
+function connectNames(a: PublicAvailability): string {
+  return a.today.length ? brokerNames(a.today, { max: 6 }) : "your broker";
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const a = await publicBrokers();
+  return {
+    title: { absolute: "Nasscord · One terminal for your US brokers" },
+    description: `Connect ${connectNames(a)} and see your accounts, balances, positions, orders and executions in one place. Read-only in this release; custody stays at your broker.`,
+  };
+}
 
 /** A made-up starting point for the sizing example. Not anyone's account and not a recommendation. */
 const SIZING_EXAMPLE = { netLiq: 50_000, entry: 100, atr: 1.8, symbol: "the stock" };
 
-function buildFaq(): FaqItem[] {
+const has = (list: PublicBroker[], id: string) => list.some((b) => b.id === id);
+const verb = (list: unknown[], one: string, many: string) => (list.length === 1 ? one : many);
+
+/** "Which brokers can I connect?": what connects today, how, and what waits. */
+function whichBrokers(a: PublicAvailability): string {
+  const out: string[] = [];
+  if (a.direct.length) out.push(`${andList(a.direct.map((b) => b.name))} ${verb(a.direct, "connects", "connect")} directly, read-only.`);
+  if (a.sync.length) out.push(`${andList(a.sync.map((b) => b.name))} ${verb(a.sync, "connects", "connect")} read-only through SnapTrade, a data intermediary.`);
+  if (!a.today.length) out.push("No broker connects yet.");
+  if (a.soon.length) {
+    out.push(
+      `The other ${a.soon.length} ${verb(a.soon, "broker", "brokers")} in the registry (${andList(a.soon.map((b) => b.name))}) ${verb(a.soon, "is", "are")} listed but ${verb(a.soon, "does", "do")} not connect yet.`,
+    );
+  }
+  return out.join(" ");
+}
+
+/** "Do you store my broker password?": one sentence per way in that is open today. */
+function passwordAnswer(a: PublicAvailability): string {
+  const out = ["No."];
+  if (has(a.direct, "ibkr")) {
+    out.push(
+      "For Interactive Brokers you log in on IBKR's own page, served by a gateway that runs for your connection alone, with IBKR's second factor; the session lives in that gateway and nothing secret is written to the database.",
+    );
+  }
+  if (has(a.direct, "etrade")) out.push("For E*TRADE you approve Nasscord on E*TRADE's page; Nasscord keeps your developer key and the access token, encrypted with AES-256-GCM, never your password.");
+  const keyed = a.direct.filter((b) => b.open[0]?.flow === "api_key");
+  if (keyed.length) out.push(`For ${andList(keyed.map((b) => b.name))} you paste an API key of your own account; it is kept encrypted the same way, and order calls are blocked in code.`);
+  const signIn = a.direct.filter((b) => b.open[0]?.flow === "oauth2_platform" || b.open[0]?.flow === "oauth2_user_app");
+  if (signIn.length) out.push(`For ${andList(signIn.map((b) => b.name))} you sign in on the broker's own page, and Nasscord keeps only the encrypted access token.`);
+  if (a.sync.length) out.push("Through SnapTrade you log in on the broker's own page inside SnapTrade's connection page; Nasscord never sees that password.");
+  return out.join(" ");
+}
+
+/** "Why do I reconnect so often?": the session rules of the brokers that connect today. */
+function reconnectAnswer(a: PublicAvailability): string {
+  const out = ["Because the brokers say so."];
+  if (has(a.direct, "etrade")) out.push("E*TRADE ends every session at midnight Eastern, so you reconnect once a day.");
+  if (has(a.direct, "ibkr")) {
+    out.push(
+      "An IBKR session lasts about a day, and IBKR allows one session per username: opening TWS or the IBKR mobile app with the same username can end Nasscord's session. A separate IBKR username for Nasscord avoids that.",
+    );
+  }
+  out.push("The terminal shows when each session ends and has a Reconnect button.");
+  return out.join(" ");
+}
+
+/** "Can I connect a paper account?": the user's own paper accounts that connect today; never sample data. */
+function paperAnswer(a: PublicAvailability): string {
+  const paper = a.today.filter((b) => b.paperToday);
+  const never = "Sample-data environments, such as a broker's sandbox, are for Nasscord's developers only and never connect on this site.";
+  if (!paper.length) return `Not yet: no broker that connects today offers your own paper account through Nasscord. ${never}`;
+  return `Yes, your own paper account at ${andList(paper.map((b) => b.name))}: choose Paper when you connect. ${never}`;
+}
+
+function buildFaq(a: PublicAvailability): FaqItem[] {
   const starter = getPlan("starter");
   return [
     {
       q: "Which brokers can I connect?",
       a: (
         <>
-          {CONNECTABLE_NAMES}, read-only. The other {PLANNED_BROKERS.length} brokers in the registry ({andList(PLANNED_BROKERS.map((b) => b.name))}) are listed but do not connect
-          yet. The{" "}
+          {whichBrokers(a)} The{" "}
           <Link href="/brokers" className="site-link">
             brokers page
           </Link>{" "}
@@ -54,15 +120,15 @@ function buildFaq(): FaqItem[] {
     },
     {
       q: "Do you store my broker password?",
-      a: "No. For Interactive Brokers you log in on IBKR's own page, served by a gateway that runs for your connection alone, with IBKR's second factor; the session lives in that gateway and nothing secret is written to the database. For E*TRADE you approve Nasscord on E*TRADE's page; Nasscord keeps your developer key and the access token, encrypted with AES-256-GCM, never your password.",
+      a: passwordAnswer(a),
     },
     {
       q: "Why do I reconnect so often?",
-      a: "Because the brokers say so. E*TRADE ends every session at midnight Eastern, so you reconnect once a day. An IBKR session lasts about a day, and IBKR allows one session per username: opening TWS or the IBKR mobile app with the same username can end Nasscord's session. A separate IBKR username for Nasscord avoids that. The terminal shows when each session ends and has a Reconnect button.",
+      a: reconnectAnswer(a),
     },
     {
       q: "Can I connect a paper account?",
-      a: "Yes, for Interactive Brokers: choose Paper when you connect and log in with your paper username. E*TRADE accepts sandbox developer keys when this server allows them; the sandbox returns E*TRADE's sample data rather than a paper account.",
+      a: paperAnswer(a),
     },
     {
       q: "Is there a free plan?",
@@ -75,12 +141,14 @@ function buildFaq(): FaqItem[] {
   ];
 }
 
-const STATS: Array<{ value: number; label: string; suffix?: string; decimals?: number }> = [
-  { value: CONNECTABLE_BROKERS.length, label: "Brokers you can connect today" },
-  { value: 0, label: "Broker passwords stored" },
-  { value: 1, label: "Gateway per IBKR connection" },
-  { value: 256, label: "Bit key on stored E*TRADE tokens" },
-];
+function stats(a: PublicAvailability): Array<{ value: number; label: string; suffix?: string; decimals?: number }> {
+  return [
+    { value: a.today.length, label: "Brokers you can connect today" },
+    { value: 0, label: "Broker passwords stored" },
+    { value: 1, label: "Gateway per IBKR connection" },
+    { value: 256, label: "Bit key on stored broker tokens" },
+  ];
+}
 
 /** Hairlines for the 2x2 (phone) / 1x4 (wider) stat strip. */
 function statCell(i: number) {
@@ -94,8 +162,11 @@ function statCell(i: number) {
     .join(" ");
 }
 
-export default function HomePage() {
-  const faq = buildFaq();
+export default async function HomePage() {
+  const a = await publicBrokers();
+  const faq = buildFaq(a);
+  const names = connectNames(a);
+  const word = COUNT_WORD[a.today.length] ?? String(a.today.length);
 
   return (
     <>
@@ -115,7 +186,7 @@ export default function HomePage() {
               </span>
             </h1>
             <p className="max-w-[34rem] animate-site-rise text-lg leading-relaxed text-pretty text-muted-foreground sm:text-xl" style={delay(320)}>
-              Connect {CONNECTABLE_NAMES}, then see every account, balance, position, order and execution in one place. Read-only in this release: custody
+              Connect {names}, then see every account, balance, position, order and execution in one place. Read-only in this release: custody
               and order entry stay at your broker.
             </p>
             <div className="flex animate-site-rise flex-wrap items-center gap-x-8 gap-y-4" style={delay(420)}>
@@ -129,7 +200,7 @@ export default function HomePage() {
               </Link>
             </div>
             <dl className="mt-4 grid animate-site-rise grid-cols-2 border-t border-foreground sm:grid-cols-4" style={delay(520)}>
-              {STATS.map((s, i) => (
+              {stats(a).map((s, i) => (
                 <div key={s.label} className={statCell(i)}>
                   <dd className="text-4xl leading-none tracking-[-0.03em] tabular sm:text-5xl">
                     <CountUp value={s.value} decimals={s.decimals} suffix={s.suffix} />
@@ -229,13 +300,26 @@ export default function HomePage() {
           <SectionHead
             index={7}
             eyebrow="Brokers"
-            title={<>Two that connect today. More on the <em>list</em>.</>}
-            lede={`${CONNECTABLE_NAMES} connect today, read-only. The other ${PLANNED_BROKERS.length} brokers are listed so you can see what is planned; none of them connect yet.`}
+            title={
+              <>
+                {word} that {a.today.length === 1 ? "connects" : "connect"} today. More on the <em>list</em>.
+              </>
+            }
+            lede={[
+              a.today.length ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today, read-only.` : "No broker connects yet.",
+              a.soon.length
+                ? a.soon.length === 1
+                  ? "The other broker is listed so you can see what is planned; it does not connect yet."
+                  : `The other ${a.soon.length} brokers are listed so you can see what is planned; none of them connect yet.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             className="mb-0 sm:mb-0"
           />
-          <BrokerGrid brokers={BROKERS} />
+          <BrokerGrid brokers={a.brokers} />
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end" {...reveal()}>
-            <BrokerLegend />
+            <AvailabilityLegend availability={a} />
             <Link href="/brokers" className="site-link w-fit">
               All brokers and capabilities
               <ArrowRight aria-hidden="true" className="size-4" />

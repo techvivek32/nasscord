@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { Check, Minus } from "lucide-react";
 import { PLANS } from "@/lib/plans";
+import { brokerNames, publicBrokers } from "@/lib/server/broker-availability";
 import type { Plan } from "@/lib/types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -17,13 +18,14 @@ const limit = (n: number | "unlimited") => (n === "unlimited" ? "Unlimited" : St
 
 /**
  * Rows derive from PLANS.limits where a limit exists, so the table can never disagree with the plan cards. The
- * first group is what works in this release; the second is planned and not switched on yet.
+ * first group is what works in this release (the brokers are the ones that connect for everyone today, see
+ * publicBrokers); the second is planned and not switched on yet.
  */
-const GROUPS: Array<{ title: string; note?: string; rows: Row[] }> = [
+const groups = (connectLabel: string): Array<{ title: string; note?: string; rows: Row[] }> => [
   {
     title: "In this release",
     rows: [
-      { label: "Connect IBKR and E*TRADE", value: () => true },
+      { label: connectLabel, value: () => true },
       { label: "Accounts, balances and positions", value: () => true },
       { label: "Orders and executions", value: () => true },
       { label: "Choose which accounts count", value: () => true },
@@ -59,7 +61,9 @@ function Cell({ value, plan }: { value: CellValue; plan: string }) {
   return <span>{value}</span>;
 }
 
-export function ComparisonTable({ className }: { className?: string }) {
+export async function ComparisonTable({ className }: { className?: string }) {
+  const { today } = await publicBrokers();
+  const GROUPS = groups(today.length ? `Connect ${brokerNames(today, { short: true, max: 3 })}` : "Connect your brokers");
   return (
     <div className={cn("overflow-x-auto border-t border-b border-foreground", className)}>
       <Table className="min-w-[44rem]">

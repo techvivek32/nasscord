@@ -1,18 +1,8 @@
-import { BROKERS, BROKER_STATUS, BROKER_STATUS_ORDER } from "@/lib/brokers";
-import type { BrokerStatus } from "@/lib/types";
-import { BrokerMark } from "@/components/brokers/broker-mark";
 import { PaperCard } from "@/components/marketing/container";
 import { CountUp } from "@/components/marketing/reveal";
 import { cn } from "@/lib/utils";
 
 /* Cards for the inner-page heroes, shown on a dot-grid panel. Each page states the same facts in text. */
-
-const STATUS_DOT: Record<BrokerStatus, string> = {
-  live: "bg-gain",
-  beta: "bg-warn",
-  sync: "bg-site-accent-soft",
-  soon: "bg-muted-foreground/50",
-};
 
 function CardHead({ left, right }: { left: string; right: string }) {
   return (
@@ -20,35 +10,6 @@ function CardHead({ left, right }: { left: string; right: string }) {
       <span>{left}</span>
       <span className="text-muted-foreground">{right}</span>
     </div>
-  );
-}
-
-/** Broker count by status, with every monogram underneath. */
-export function BrokerStatusCard({ className }: { className?: string }) {
-  return (
-    <PaperCard className={cn("px-5 pt-4 pb-5", className)}>
-      <CardHead left="Broker registry" right={`${BROKERS.length} brokers`} />
-      <dl>
-        {BROKER_STATUS_ORDER.map((s) => (
-          <div key={s} className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm">
-            <dt className="flex items-center gap-2.5">
-              <span aria-hidden="true" className={cn("size-2.5", STATUS_DOT[s])} />
-              {BROKER_STATUS[s].label}
-            </dt>
-            <dd className="font-mono tabular">
-              <CountUp value={BROKERS.filter((b) => b.status === s).length} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div aria-hidden="true" className="mt-4 flex flex-wrap gap-1.5">
-        {BROKERS.map((b, i) => (
-          <span key={b.id} className="animate-site-rise" style={{ "--d": `${500 + i * 45}ms` } as React.CSSProperties}>
-            <BrokerMark id={b.id} size="sm" className={cn(b.status === "soon" && "opacity-50")} />
-          </span>
-        ))}
-      </div>
-    </PaperCard>
   );
 }
 

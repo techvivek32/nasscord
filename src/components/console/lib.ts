@@ -1,4 +1,5 @@
 import { hostFor } from "@/lib/branding";
+import { METHOD_LABEL as BROKER_METHOD_LABEL } from "@/lib/broker-connect";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import type {
   ConnectionEnvironment,
@@ -49,11 +50,8 @@ export const CONNECTION_STATUS: Record<ConnectionStatus, { label: string; tone: 
   disconnected: { label: "Disconnected", tone: "neutral" },
 };
 
-export const METHOD_LABEL: Record<ConnectionMethod, string> = {
-  ibkr_gateway: "IBKR Client Portal Gateway",
-  ibkr_oauth: "IBKR OAuth",
-  etrade_oauth1: "E*TRADE OAuth 1.0a",
-};
+/** Every connect method in a sentence (one map for the app: src/lib/broker-connect). */
+export const METHOD_LABEL: Readonly<Record<ConnectionMethod, string>> = BROKER_METHOD_LABEL;
 
 export const ENVIRONMENT_LABEL: Record<ConnectionEnvironment, string> = {
   production: "Production",

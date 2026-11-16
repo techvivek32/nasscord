@@ -3,11 +3,11 @@ import type { LucideIcon } from "lucide-react";
 import { ArrowRight, BookOpenCheck, Eye, Handshake, Landmark, LineChart, Scale, Store } from "lucide-react";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
 import { COMMISSION_PCT } from "@/lib/plans";
+import { brokerNames, publicBrokers, type PublicAvailability, type PublicBroker } from "@/lib/server/broker-availability";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
 
 interface Feature {
-  code: string;
   title: string;
   body: string;
   /** "today" works in this release; "later" is not switched on yet and says why. */
@@ -17,34 +17,77 @@ interface Feature {
 
 const STATUS_LABEL: Record<Feature["status"], string> = { today: "Today", later: "Not yet" };
 
-/** What the product does in this release, and what it does not do yet. Engine numbers come from lib/engine. */
-const FEATURES: Feature[] = [
-  { code: "F/01", status: "today", title: "Connect IBKR", body: "Log in on IBKR's own page, live or paper. Nasscord runs a dedicated gateway session for your connection.", href: "/brokers#how" },
-  { code: "F/02", status: "today", title: "Connect E*TRADE", body: "Use your own E*TRADE developer key and approve Nasscord on E*TRADE. Sessions end at midnight Eastern.", href: "/brokers#how" },
-  { code: "F/03", status: "today", title: "One combined book", body: "Accounts, balances and positions from every connected account in one view, with the broker on every row.", href: "/signup" },
-  { code: "F/04", status: "today", title: "Orders and executions", body: "Your orders and executions straight from your brokers, read-only, next to the account they belong to.", href: "/signup" },
-  { code: "F/05", status: "today", title: "Risk sizing", body: "The order ticket works out a quantity from your stop and your net liquidation. It does not place the order.", href: "#try-it" },
-  { code: "F/06", status: "later", title: "Order entry", body: "Placing orders from Nasscord is switched off in this release. Use your broker's own app for now." },
-  {
-    code: "F/07",
-    status: "later",
-    title: "TradeScope alerts",
-    body: `The alert engine (${ENGINE_DEFAULTS.universeSize} large caps on ${ENGINE_DEFAULTS.timeframe} bars, scores of ${ENGINE_DEFAULTS.minScore} and up) is not served in this release.`,
-  },
-  { code: "F/08", status: "later", title: "Prices, scanner and options ideas", body: "These need a market data feed, which this release does not have." },
-  { code: "F/09", status: "later", title: "More brokers", body: "Schwab, tastytrade and the rest of the registry are listed but do not connect yet.", href: "/brokers#soon" },
-];
+/** What connecting each broker means, for the brokers with a line of their own. Others use their connect spec's summary. */
+const BROKER_LINE: Partial<Record<PublicBroker["id"], string>> = {
+  ibkr: "Log in on IBKR's own page, live or paper. Nasscord runs a dedicated gateway session for your connection.",
+  etrade: "Use your own E*TRADE developer key and approve Nasscord on E*TRADE. Sessions end at midnight Eastern.",
+};
+
+/** At most this many brokers get a "Connect <broker>" row of their own; the rest share one. */
+const MAX_BROKER_ROWS = 3;
+
+/**
+ * What the product does in this release, and what it does not do yet. The broker rows follow what connects for
+ * everyone today (publicBrokers). Engine numbers come from lib/engine.
+ */
+function features(a: PublicAvailability): Feature[] {
+  const own = a.direct.slice(0, MAX_BROKER_ROWS);
+  const others = a.direct.slice(MAX_BROKER_ROWS);
+  const brokerRows: Feature[] = own.map((b) => ({
+    status: "today",
+    title: `Connect ${b.short}`,
+    body: BROKER_LINE[b.id] ?? `${b.open[0]?.summary ?? ""} Read-only in this release.`.trim(),
+    href: "/brokers#how",
+  }));
+  if (others.length) {
+    brokerRows.push({ status: "today", title: "More direct brokers", body: `${brokerNames(others)} connect directly too, read-only.`, href: "/brokers#live" });
+  }
+  if (a.sync.length) {
+    brokerRows.push({
+      status: "today",
+      title: "Read-only through SnapTrade",
+      body: `${brokerNames(a.sync)}: log in on the broker's own page through SnapTrade, a data intermediary. The data follows SnapTrade's sync.`,
+      href: "/brokers#sync",
+    });
+  }
+  const later: Feature[] = a.soon.length
+    ? [
+        {
+          status: "later",
+          title: "More brokers",
+          body: `${brokerNames(a.soon, { max: 3 })} ${a.soon.length === 1 ? "is" : "are"} listed and ${a.soon.length === 1 ? "waits" : "wait"} for an approval from the broker or from SnapTrade.`,
+          href: "/brokers#soon",
+        },
+      ]
+    : [];
+  return [
+    ...brokerRows,
+    { status: "today", title: "One combined book", body: "Accounts, balances and positions from every connected account in one view, with the broker on every row.", href: "/signup" },
+    { status: "today", title: "Orders and executions", body: "Your orders and executions straight from your brokers, read-only, next to the account they belong to.", href: "/signup" },
+    { status: "today", title: "Risk sizing", body: "The order ticket works out a quantity from your stop and your net liquidation. It does not place the order.", href: "#try-it" },
+    { status: "later", title: "Order entry", body: "Placing orders from Nasscord is switched off in this release. Use your broker's own app for now." },
+    {
+      status: "later",
+      title: "TradeScope alerts",
+      body: `The alert engine (${ENGINE_DEFAULTS.universeSize} large caps on ${ENGINE_DEFAULTS.timeframe} bars, scores of ${ENGINE_DEFAULTS.minScore} and up) is not served in this release.`,
+    },
+    { status: "later", title: "Prices, scanner and options ideas", body: "These need a market data feed, which this release does not have." },
+    ...later,
+  ];
+}
 
 /** Features as ruled rows: mono code and status, serif title, one line, an arrow that slides on hover when it links. */
-export function FeaturesGrid({ className }: { className?: string }) {
+export async function FeaturesGrid({ className }: { className?: string }) {
+  const list = features(await publicBrokers());
   const row = "grid grid-cols-[4.5rem_1fr_auto] items-baseline gap-x-4 gap-y-1 border-b border-border py-6 md:grid-cols-[6rem_minmax(0,22rem)_1fr_auto] md:gap-x-8";
   return (
     <ul className={cn("border-t border-foreground", className)}>
-      {FEATURES.map((f, i) => {
+      {list.map((f, i) => {
+        const code = `F/${String(i + 1).padStart(2, "0")}`;
         const inner = (
           <>
             <span className="row-span-2 grid content-start gap-1.5 md:row-span-1">
-              <span className="font-mono text-xs text-site-accent-ink">{f.code}</span>
+              <span className="font-mono text-xs text-site-accent-ink">{code}</span>
               <span className={cn("site-caption w-fit border px-1.5 py-px", f.status === "today" ? "border-site-accent text-site-accent-ink" : "border-border text-muted-foreground")}>
                 {STATUS_LABEL[f.status]}
               </span>
@@ -65,7 +108,7 @@ export function FeaturesGrid({ className }: { className?: string }) {
           </>
         );
         return (
-          <li key={f.code} {...reveal(i * 60)}>
+          <li key={code} {...reveal(i * 60)}>
             {f.href ? (
               <Link href={f.href} className={cn("group/f transition-colors hover:bg-site-band/60 hover:no-underline", row)}>
                 {inner}
@@ -90,7 +133,7 @@ interface Principle {
 const PRINCIPLES: Principle[] = [
   { icon: Landmark, label: "Custody stays put", body: "Your money never leaves your broker. Nasscord stores no broker password, has no way to move funds and, in this release, places no orders.", link: { label: "How connections work", href: "/brokers#how" } },
   { icon: Eye, label: "Honest numbers", body: "Every balance, position, order and execution in the terminal comes from your broker. Where there is no source yet, the page says so instead of filling in numbers.", link: { label: "What works today", href: "/#features" } },
-  { icon: BookOpenCheck, label: "One book, every account", body: "Every account you include at IBKR and E*TRADE rolls up into one set of positions, with the broker on every row.", link: { label: "Browse brokers", href: "/brokers" } },
+  { icon: BookOpenCheck, label: "One book, every account", body: "Every account you include, at every broker you connect, rolls up into one set of positions, with the broker on every row.", link: { label: "Browse brokers", href: "/brokers" } },
   { icon: Scale, label: "Risk first", body: "The order ticket starts from the stop. Quantity follows from what you are willing to lose, not from a hunch.", link: { label: "Try the sizing", href: "#try-it" } },
 ];
 
@@ -127,7 +170,7 @@ const AUDIENCES: Audience[] = [
     icon: LineChart,
     label: "Traders",
     title: <>See every account on <em>one</em> screen.</>,
-    body: "Sign up, connect Interactive Brokers or E*TRADE, and see your accounts, balances, positions, orders and executions in one place. Starter is free.",
+    body: "Sign up, connect the brokers you hold, and see your accounts, balances, positions, orders and executions in one place. Starter is free.",
     link: { label: "Start free", href: "/signup" },
   },
   {

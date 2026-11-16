@@ -1,10 +1,11 @@
-import { CONNECTABLE_BROKER_IDS, getBroker } from "@/lib/brokers";
+import { andList, publicBrokers, type PublicBroker } from "@/lib/server/broker-availability";
 import { cn } from "@/lib/utils";
 
-/** The brokers that connect today, and what this read-only release shows from them. */
-const LEFT = CONNECTABLE_BROKER_IDS;
+/** What this read-only release shows from the brokers that connect today. */
 const OUTPUTS = ["Accounts & balances", "Positions", "Orders & executions"];
 const NODE_GAP = 132;
+/** At most this many broker nodes on the left; past it the last node says "+N". */
+const MAX_NODES = 5;
 
 const NODE = 44;
 const NODE_X = 28;
@@ -26,16 +27,29 @@ const CORD_CSS = `
 @media (prefers-reduced-motion: reduce){.cord-flow,.cord-wire,.cord-pop,.cord-ring,.cord-lit{animation:none}.cord-lit{opacity:0}}
 `;
 
+type Node = { kind: "broker"; broker: PublicBroker } | { kind: "more"; count: number };
+
+/** The left column: every broker that connects today, or the first ones and a "+N" node. */
+function leftNodes(today: PublicBroker[]): Node[] {
+  if (today.length <= MAX_NODES) return today.map((broker) => ({ kind: "broker", broker }));
+  const shown = today.slice(0, MAX_NODES - 1);
+  return [...shown.map((broker): Node => ({ kind: "broker", broker })), { kind: "more", count: today.length - shown.length }];
+}
+
 /**
- * The "cord" chart: the brokers that connect today feed one Nasscord hub, which fans out into the read-only views of
- * this release. Wires draw themselves in, signals flow along them, the hub pulses and each output lights up as a
- * signal arrives. Decorative motion only; it shows the shape of the product, not live traffic. Colors come from tokens
- * (the broker tiles use the registry colors), so it follows the theme.
+ * The "cord" chart: the brokers that connect today (the broker service's answer, see publicBrokers) feed one Nasscord
+ * hub, which fans out into the read-only views of this release. Wires draw themselves in, signals flow along them, the
+ * hub pulses and each output lights up as a signal arrives. Decorative motion only; it shows the shape of the product,
+ * not live traffic. Colors come from tokens (the broker tiles use the registry colors), so it follows the theme.
  */
-export function CordDiagram({ className }: { className?: string }) {
+export async function CordDiagram({ className }: { className?: string }) {
+  const { today } = await publicBrokers();
+  const LEFT = leftNodes(today);
+  const gap = LEFT.length > 1 ? Math.min(NODE_GAP, 300 / (LEFT.length - 1)) : NODE_GAP;
   const hubLeft = HUB.cx - HUB.size / 2;
   const hubRight = HUB.cx + HUB.size / 2;
-  const leftYs = LEFT.map((_, i) => HUB.cy + (i - (LEFT.length - 1) / 2) * NODE_GAP);
+  const leftYs = LEFT.map((_, i) => HUB.cy + (i - (LEFT.length - 1) / 2) * gap);
+  const keyOf = (n: Node) => (n.kind === "broker" ? n.broker.id : "more");
   const rightYs = [128, 210, 292];
 
   const inPath = (y: number) => `M${NODE_X + NODE} ${y} C ${NODE_X + NODE + 96} ${y}, ${hubLeft - 84} ${HUB.cy}, ${hubLeft} ${HUB.cy}`;
@@ -45,13 +59,13 @@ export function CordDiagram({ className }: { className?: string }) {
     <svg viewBox="0 0 580 420" role="img" aria-labelledby="cord-title cord-desc" className={cn("block h-auto w-full overflow-visible", className)}>
       <title id="cord-title">How Nasscord connects your brokers</title>
       <desc id="cord-desc">
-        Interactive Brokers and E*TRADE connect to one Nasscord hub, which shows accounts and balances, positions, and orders and executions in one place.
+        {today.length ? `${andList(today.map((b) => b.name))} ${today.length === 1 ? "connects" : "connect"} to one Nasscord hub` : "Your brokers connect to one Nasscord hub"}, which shows accounts and balances, positions, and orders and executions in one place.
       </desc>
       <style>{CORD_CSS}</style>
 
       {/* inbound cords */}
       {leftYs.map((y, i) => (
-        <g key={LEFT[i]}>
+        <g key={keyOf(LEFT[i])}>
           <path d={inPath(y)} fill="none" stroke="var(--input)" strokeWidth={1.5} className="cord-wire" style={{ animationDelay: `${0.15 + i * 0.08}s` }} />
           <path d={inPath(y)} fill="none" stroke="var(--primary)" strokeWidth={2.5} strokeLinecap="round" className="cord-flow" style={{ animationDelay: `${i * 0.55}s` }} />
         </g>
@@ -66,11 +80,24 @@ export function CordDiagram({ className }: { className?: string }) {
       ))}
 
       {/* broker nodes */}
-      {LEFT.map((id, i) => {
-        const b = getBroker(id);
+      {LEFT.map((node, i) => {
         const y = leftYs[i];
+        if (node.kind === "more") {
+          return (
+            <g key="more" className="cord-pop" style={{ animationDelay: `${i * 0.07}s` }}>
+              <rect x={NODE_X} y={y - NODE / 2} width={NODE} height={NODE} rx={11} fill="var(--muted)" stroke="var(--border)" />
+              <text x={NODE_X + NODE / 2} y={y + 5} textAnchor="middle" fontSize={13} fontWeight={600} fill="var(--muted-foreground)" className="font-sans">
+                +{node.count}
+              </text>
+              <text x={NODE_X + NODE / 2} y={y + NODE / 2 + 14} textAnchor="middle" fontSize={10} fill="var(--muted-foreground)" className="font-sans">
+                more
+              </text>
+            </g>
+          );
+        }
+        const b = node.broker;
         return (
-          <g key={id} className="cord-pop" style={{ animationDelay: `${i * 0.07}s` }}>
+          <g key={b.id} className="cord-pop" style={{ animationDelay: `${i * 0.07}s` }}>
             <rect x={NODE_X} y={y - NODE / 2} width={NODE} height={NODE} rx={11} fill={b.color} />
             <text x={NODE_X + NODE / 2} y={y + 5} textAnchor="middle" fontSize={14} fontWeight={700} letterSpacing="-0.02em" className="fill-white font-sans">
               {b.monogram}

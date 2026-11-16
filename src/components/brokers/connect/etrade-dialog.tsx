@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { BrokerConnection } from "@/lib/types";
+import { ETRADE_CONNECT } from "@/lib/broker-connect/etrade";
+import type { BrokerConnection, ConnectEnvironmentOption } from "@/lib/types";
 import { AccountIncludeList } from "@/components/brokers/connect/account-switches";
 import { EnvironmentChoice } from "@/components/brokers/connect/environment-choice";
 
@@ -27,10 +28,10 @@ export interface EtradeResume {
  * offered to developers (NEXT_PUBLIC_ETRADE_SANDBOX=1). Production deployments connect real accounts only.
  */
 const SANDBOX_ENABLED = process.env.NEXT_PUBLIC_ETRADE_SANDBOX === "1";
-const ENVIRONMENTS = [
-  { value: "production" as const, label: "Production", hint: "Your real E*TRADE account." },
-  ...(SANDBOX_ENABLED ? [{ value: "sandbox" as const, label: "Sandbox (developers)", hint: "E*TRADE sample data, not your account." }] : []),
-];
+/** The spec's environments (labels shared with every other broker, "Sandbox · sample data"), sandbox only for developers. */
+const ENVIRONMENTS = (ETRADE_CONNECT[0]?.environments ?? [])
+  .filter((e): e is ConnectEnvironmentOption & { value: Environment } => e.value === "production" || (e.value === "sandbox" && SANDBOX_ENABLED))
+  .map((e) => ({ value: e.value, label: e.label, hint: e.hint }));
 
 /** The authorize page comes from the broker service; only an https link is offered to open. */
 function safeHttps(url: string): string | null {

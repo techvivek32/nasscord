@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CircleAlertIcon, PlugZapIcon } from "lucide-react";
 import { BrokerMark } from "@/components/brokers/broker-mark";
+import { useConnectableNames } from "@/components/brokers/connect/connect-brokers";
 import { CONNECTION_TONE, connectionName, sessionLine } from "@/components/brokers/connect/status";
 import { EmptyState } from "@/components/page-header";
 import { StatusDot } from "@/components/status-dot";
@@ -17,12 +18,16 @@ import { CardSkeleton } from "@/components/terminal/skeletons";
 
 export { CONNECTION_TONE } from "@/components/brokers/connect/status";
 
-/** Shown wherever broker data would be when the workspace has no connection yet. */
+/**
+ * Shown wherever broker data would be when the workspace has no connection yet. The brokers it names
+ * are the ones the broker service offers this user right now.
+ */
 export function NoBrokerState({ className }: { className?: string }) {
+  const names = useConnectableNames();
   return (
     <EmptyState
       title="No broker connected"
-      description="Connect IBKR or E*TRADE to see your accounts here."
+      description={`Connect ${names ?? "a broker"} to see your accounts here.`}
       className={className}
       action={
         <Button size="sm" render={<Link href="/app/brokers" />}>

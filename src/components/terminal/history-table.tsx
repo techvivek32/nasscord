@@ -76,7 +76,7 @@ export function HistoryTable() {
         accessorFn: (e) => (e.provisional ? "provisional" : ""),
         cell: ({ row }) =>
           row.original.provisional ? (
-            <Badge variant="secondary" className={TONE_BADGE.warn} title="The commission is the broker's estimate until its statement confirms it">
+            <Badge variant="secondary" className={TONE_BADGE.warn} title="The commission and fees are not final until the broker books them">
               Provisional
             </Badge>
           ) : null,
@@ -98,7 +98,7 @@ export function HistoryTable() {
 
   const footnote = (
     <p className="text-xs text-muted-foreground">
-      Nasscord reads executions from the broker each time and does not keep its own archive yet. IBKR returns the last 7 days. E*TRADE executions come from filled orders and are marked Provisional, because their commission is E*TRADE&apos;s estimate.
+      Nasscord reads executions from the broker each time and does not keep its own archive yet. IBKR returns the last 7 days. A row marked Provisional has a commission that is not final yet: E*TRADE&apos;s estimate on a filled order, a fill that Tradier, SnapTrade or another broker has not booked with its fees yet, or an Alpaca fill, whose regulatory fees Alpaca charges as separate entries.
     </p>
   );
   const alerts = <BrokerErrors errors={errors} error={error} stale={stale} connections={scope.connections} />;

@@ -5,12 +5,13 @@ import { BrokerMark } from "@/components/brokers/broker-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { environmentLabel, METHOD_LABEL } from "@/lib/broker-connect";
 import { getBroker } from "@/lib/brokers";
 import { whiteLabelBranding } from "@/lib/branding";
 import { fmtDateTime } from "@/lib/format";
 import type { AuditEvent, BrokerConnection, Tenant, User, Workspace } from "@/lib/types";
 import { ConnectionStatusBadge, PlanBadge, ResultBadge, RoleBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
-import { ENVIRONMENT_LABEL, fmtDay, lastSignInLabel, METHOD_LABEL, workspaceHostFor } from "./lib";
+import { fmtDay, lastSignInLabel, workspaceHostFor } from "./lib";
 import { KV, TH } from "./primitives";
 import { WorkspaceControls } from "./trader-sections";
 
@@ -115,11 +116,14 @@ export function TraderDetail({
       <Card>
         <CardHeader>
           <CardTitle>Broker connections</CardTitle>
-          <CardDescription>Stored connections and their accounts. Balances are not shown here: they need the trader&apos;s own session at the broker.</CardDescription>
+          <CardDescription>
+            Stored connections and their accounts, for every broker and way of connecting. Data as of is when SnapTrade last synced a connection read through it.
+            Balances are not shown here: they need the trader&apos;s own session at the broker.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {connections.length === 0 ? (
-            <EmptyState title="No broker connected" description="The trader has not connected IBKR or E*TRADE yet." />
+            <EmptyState title="No broker connected" description="The trader has not connected a broker yet." />
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -130,6 +134,7 @@ export function TraderDetail({
                     <TableHead className={TH}>Status</TableHead>
                     <TableHead className={`${TH} text-right`}>Accounts</TableHead>
                     <TableHead className={TH}>Last answered</TableHead>
+                    <TableHead className={TH}>Data as of</TableHead>
                     <TableHead className={TH}>Session ends</TableHead>
                     <TableHead className={TH}>Created</TableHead>
                   </TableRow>
@@ -142,11 +147,16 @@ export function TraderDetail({
                           <BrokerMark id={c.brokerId} size="sm" />
                           <span className="grid gap-0.5">
                             <span className="font-medium">{getBroker(c.brokerId).name}</span>
-                            <span className="text-xs text-muted-foreground">{ENVIRONMENT_LABEL[c.environment]}</span>
+                            <span className="text-xs text-muted-foreground">{environmentLabel(c.brokerId, c.environment, c.method)}</span>
                           </span>
                         </span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{METHOD_LABEL[c.method]}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        <span className="grid gap-0.5">
+                          <span>{METHOD_LABEL[c.method] ?? c.method}</span>
+                          {c.scope ? <span className="font-mono text-[11px]">Scope: {c.scope}</span> : null}
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <span className="grid gap-1">
                           <ConnectionStatusBadge status={c.status} />
@@ -158,6 +168,7 @@ export function TraderDetail({
                         {c.accounts.length ? <span className="text-muted-foreground"> ({c.accounts.filter((a) => a.included).length} included)</span> : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{c.lastOkAt ? fmtDateTime(c.lastOkAt) : "Never"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{c.dataAsOf ? fmtDateTime(c.dataAsOf) : ""}</TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{c.sessionExpiresAt ? fmtDateTime(c.sessionExpiresAt) : ""}</TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{c.connectedAt ? fmtDay(c.connectedAt) : ""}</TableCell>
                     </TableRow>

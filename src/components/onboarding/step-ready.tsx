@@ -77,11 +77,11 @@ export function StepReady({ tenantName, brandActive }: { tenantName: string | nu
         <ol className="grid gap-1.5 text-sm text-muted-foreground">
           <li className="flex gap-2">
             <span aria-hidden="true">1.</span>
-            Connect Interactive Brokers or E*TRADE from the Brokers page in the terminal.
+            Connect a broker from the Brokers page in the terminal. It lists the brokers you can connect today.
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true">2.</span>
-            IBKR asks you to sign in on its own page about once a day. E*TRADE ends every session at midnight Eastern, so you reconnect once a day.
+            Some brokers ask you to log in again every day or every few days. The Brokers page shows when each session ends and has a Reconnect button.
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true">3.</span>

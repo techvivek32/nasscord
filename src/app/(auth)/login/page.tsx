@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { BookOpenIcon, KeyRoundIcon, WalletIcon } from "lucide-react";
 import { AuthHeader } from "@/app/(auth)/auth-header";
 import { NotConfigured } from "@/app/(auth)/not-configured";
 import { LoginForm } from "@/app/(auth)/login/login-form";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { getAuthUser, getSession } from "@/lib/auth";
-import { CONNECTABLE_BROKERS } from "@/lib/brokers";
+import { brokerNames, publicBrokers, type PublicBroker } from "@/lib/server/broker-availability";
 import { homeForRole } from "@/lib/roles";
 import { isSupabaseConfigured, safeNextPath } from "@/lib/supabase/env";
 
@@ -15,23 +16,26 @@ export const metadata: Metadata = {
   description: "Sign in to your Nasscord terminal.",
 };
 
-const VALUE_LINES = [
-  {
-    icon: WalletIcon,
-    title: "Your accounts, one book",
-    body: "Positions, balances, orders and executions from Interactive Brokers and E*TRADE, read straight from the broker.",
-  },
-  {
-    icon: KeyRoundIcon,
-    title: "Your broker login stays with the broker",
-    body: "You sign in to IBKR on IBKR's own page. E*TRADE uses a key you create and can revoke. Nasscord never sees a broker password.",
-  },
-  {
-    icon: BookOpenIcon,
-    title: "Read-only to start",
-    body: "This release reads your accounts. Placing orders from Nasscord comes in a later release.",
-  },
-];
+/** The value lines beside the form. `brokers` names the brokers that connect for everyone today. */
+function valueLines(brokers: string | null) {
+  return [
+    {
+      icon: WalletIcon,
+      title: "Your accounts, one book",
+      body: `Positions, balances, orders and executions from ${brokers ?? "your brokers"}, read straight from the broker.`,
+    },
+    {
+      icon: KeyRoundIcon,
+      title: "Your broker login stays with the broker",
+      body: "You log in on your broker's own page, or use a key you create and can revoke. Nasscord never sees a broker password.",
+    },
+    {
+      icon: BookOpenIcon,
+      title: "Read-only to start",
+      body: "This release reads your accounts. Placing orders from Nasscord comes in a later release.",
+    },
+  ];
+}
 
 const ERRORS: Record<string, string> = {
   link: "That link has expired or was already used. Sign in, or sign up again to get a new one.",
@@ -68,43 +72,62 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <NotConfigured title="Sign in" />
           )}
 
-          <aside className="hidden lg:block" aria-label="About Nasscord">
-            <div className="grid gap-8 border-l border-border pl-10">
-              <div className="grid gap-3">
-                <span className="text-xs font-semibold tracking-wide text-primary uppercase">The cord</span>
-                <h2 className="text-3xl font-semibold tracking-tight">One cord to every broker.</h2>
-                <p className="max-w-md text-base leading-relaxed text-muted-foreground">
-                  Nasscord sits between you and your brokers: one login, every account in one place. Your money and your broker passwords never leave the broker.
-                </p>
-              </div>
-              <ul className="grid gap-5">
-                {VALUE_LINES.map((v) => (
-                  <li key={v.title} className="flex gap-3">
-                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-primary">
-                      <v.icon className="size-4" aria-hidden="true" />
-                    </span>
-                    <div className="grid gap-0.5">
-                      <span className="text-sm font-semibold">{v.title}</span>
-                      <span className="text-sm leading-relaxed text-muted-foreground">{v.body}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <div className="grid gap-2">
-                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Connect today</span>
-                <div className="flex flex-wrap items-center gap-3">
-                  {CONNECTABLE_BROKERS.map((b) => (
-                    <span key={b.id} className="inline-flex items-center gap-1.5 text-sm">
-                      <BrokerMark id={b.id} size="sm" />
-                      {b.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </aside>
+          {/* The form never waits on the broker service: the aside streams in once its answer is there. */}
+          <Suspense fallback={<AboutNasscord today={[]} />}>
+            <AboutNasscordToday />
+          </Suspense>
         </div>
       </main>
     </div>
+  );
+}
+
+/** The aside with the brokers that connect for everyone today: the broker service's answer, kept a few minutes. */
+async function AboutNasscordToday() {
+  const { today } = await publicBrokers();
+  return <AboutNasscord today={today} />;
+}
+
+/** The aside beside the form (wide screens only). Without `today` it names no broker. */
+function AboutNasscord({ today }: { today: PublicBroker[] }) {
+  const lines = valueLines(today.length ? brokerNames(today, { max: 3 }) : null);
+  return (
+    <aside className="hidden lg:block" aria-label="About Nasscord">
+      <div className="grid gap-8 border-l border-border pl-10">
+        <div className="grid gap-3">
+          <span className="text-xs font-semibold tracking-wide text-primary uppercase">The cord</span>
+          <h2 className="text-3xl font-semibold tracking-tight">One cord to every broker.</h2>
+          <p className="max-w-md text-base leading-relaxed text-muted-foreground">
+            Nasscord sits between you and your brokers: one login, every account in one place. Your money and your broker passwords never leave the broker.
+          </p>
+        </div>
+        <ul className="grid gap-5">
+          {lines.map((v) => (
+            <li key={v.title} className="flex gap-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-soft text-primary">
+                <v.icon className="size-4" aria-hidden="true" />
+              </span>
+              <div className="grid gap-0.5">
+                <span className="text-sm font-semibold">{v.title}</span>
+                <span className="text-sm leading-relaxed text-muted-foreground">{v.body}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {today.length ? (
+          <div className="grid gap-2">
+            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Connect today</span>
+            <div className="flex flex-wrap items-center gap-3">
+              {today.map((b) => (
+                <span key={b.id} className="inline-flex items-center gap-1.5 text-sm">
+                  <BrokerMark id={b.id} size="sm" />
+                  {b.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </aside>
   );
 }

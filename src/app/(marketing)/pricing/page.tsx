@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { COMMISSION_PCT, getPlan } from "@/lib/plans";
+import { brokerNames, publicBrokers, type PublicAvailability } from "@/lib/server/broker-availability";
 import { Container, PageHero, Section, SectionHead } from "@/components/marketing/container";
 import { ComparisonTable } from "@/components/marketing/comparison-table";
 import { CtaBand } from "@/components/marketing/cta-band";
@@ -14,7 +15,13 @@ export const metadata: Metadata = {
     "Starter is free. Pro is $49/mo and Desk is $149/mo at list price, less billed yearly. Billing is not switched on in this release, so no plan is charged. Broker commissions are never marked up.",
 };
 
-function buildFaq(): FaqItem[] {
+/** The brokers every plan connects today (the broker service's answer, see publicBrokers). */
+function connectsToday(a: PublicAvailability): string {
+  if (!a.today.length || a.today.length > 6) return "Every plan connects the brokers the Brokers page lists as connecting today, read-only";
+  return `Every plan connects ${brokerNames(a.today, { max: 6 })} read-only`;
+}
+
+function buildFaq(a: PublicAvailability): FaqItem[] {
   const starter = getPlan("starter");
   const pro = getPlan("pro");
   const desk = getPlan("desk");
@@ -25,7 +32,7 @@ function buildFaq(): FaqItem[] {
     },
     {
       q: "What do I get in this release?",
-      a: "Every plan connects Interactive Brokers and E*TRADE read-only: your accounts, balances, positions, orders and executions in one place, with a switch for which accounts count. Items marked Planned, such as TradeScope alerts, order entry and extra seats, are not switched on yet.",
+      a: `${connectsToday(a)}: your accounts, balances, positions, orders and executions in one place, with a switch for which accounts count. Items marked Planned, such as TradeScope alerts, order entry and extra seats, are not switched on yet.`,
     },
     {
       q: "What counts as a seat?",
@@ -46,7 +53,8 @@ function buildFaq(): FaqItem[] {
   ];
 }
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const a = await publicBrokers();
   return (
     <>
       <PageHero
@@ -85,7 +93,7 @@ export default function PricingPage() {
         <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
           <SectionHead index={2} eyebrow="Pricing questions" title={<>Billing, seats and <em>limits</em>.</>} className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
           <div {...reveal(100)}>
-            <FaqList items={buildFaq()} />
+            <FaqList items={buildFaq(a)} />
           </div>
         </Container>
       </Section>

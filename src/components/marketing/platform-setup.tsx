@@ -1,5 +1,5 @@
 import { Check } from "lucide-react";
-import { CONNECTABLE_BROKERS } from "@/lib/brokers";
+import { brokerNames, connectHow, publicBrokers, type PublicAvailability } from "@/lib/server/broker-availability";
 import { BrokerMark } from "@/components/brokers/broker-mark";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
@@ -9,17 +9,29 @@ import { cn } from "@/lib/utils";
  *  1. getting started as a timeline on a dot-grid card: a track that fills as it scrolls in and three milestones that
  *     light up in turn. No clock: how long it takes depends on the broker (an E*TRADE key is made on E*TRADE's site);
  *  2. the systems Nasscord runs for you, each with what you no longer have to do yourself.
- * Server component. Motion waits for the reveal and stops under reduced motion.
+ * Server component. The brokers in step 2 are the ones that connect for everyone today (publicBrokers). Motion waits
+ * for the reveal and stops under reduced motion.
  */
 
-const STEPS = [
-  { title: "Create your account", body: "Email and a password. Confirm your address from the email we send, then name your workspace. Starter is free and needs no card." },
-  {
-    title: "Connect a broker",
-    body: "Interactive Brokers: log in on IBKR's own page. E*TRADE: paste your own developer key, approve on E*TRADE and paste back the code. Then pick the accounts that count.",
-  },
-  { title: "See it in one place", body: "Accounts, balances, positions, orders and executions from every connection, read-only, in one terminal." },
-];
+/** At most this many monograms under step 2. */
+const MAX_MARKS = 6;
+
+/** "Interactive Brokers: log in on IBKR's own page. E*TRADE: ..." for the brokers that connect today. */
+function connectBody(a: PublicAvailability): string {
+  if (a.today.length === 0) return "No broker connects yet. Once one does, you connect it here and pick the accounts that count.";
+  const direct = a.direct.slice(0, 4).map((b) => `${b.name}: ${connectHow(b)}.`);
+  const sync = a.sync.length ? [`${brokerNames(a.sync, { max: 3 })}: log in on the broker's own page through SnapTrade.`] : [];
+  const more = a.direct.length > 4 ? [`And ${a.direct.length - 4} more.`] : [];
+  return [...direct, ...more, ...sync, "Then pick the accounts that count."].join(" ");
+}
+
+function steps(a: PublicAvailability) {
+  return [
+    { title: "Create your account", body: "Email and a password. Confirm your address from the email we send, then name your workspace. Starter is free and needs no card." },
+    { title: "Connect a broker", body: connectBody(a) },
+    { title: "See it in one place", body: "Accounts, balances, positions, orders and executions from every connection, read-only, in one terminal." },
+  ];
+}
 
 const STEP_CHIPS = [["Email", "Password", "Confirm link"], null, ["Accounts", "Positions", "Orders", "Executions"]] as const;
 
@@ -38,7 +50,7 @@ const SYSTEMS = [
   },
   {
     name: "Broker service",
-    now: "Holds the key that encrypts your E*TRADE tokens and makes every call to IBKR and E*TRADE.",
+    now: "Holds the key that encrypts your broker keys and tokens, and makes every call to your brokers through a fixed list of read-only requests.",
     was: "Keep API keys and tokens in files",
     meta: "AES-256-GCM",
   },
@@ -50,7 +62,11 @@ const SYSTEMS = [
   },
 ];
 
-export function PlatformSetup() {
+export async function PlatformSetup() {
+  const a = await publicBrokers();
+  const STEPS = steps(a);
+  const marks = a.today.slice(0, MAX_MARKS);
+  const restMarks = a.today.length - marks.length;
   return (
     <div className="grid gap-16">
       {/* 1. getting started */}
@@ -91,13 +107,14 @@ export function PlatformSetup() {
                         ))}
                       </ul>
                     ) : (
-                      <div className="flex items-center gap-2.5 md:justify-center">
-                        {CONNECTABLE_BROKERS.map((b, k) => (
+                      <div className="flex flex-wrap items-center gap-2.5 md:justify-center">
+                        {marks.map((b, k) => (
                           <span key={b.id} className="inline-flex items-center gap-2" {...reveal(900 + k * 140, "scale")}>
                             <BrokerMark id={b.id} size="md" className="rounded-[9px]" />
                             <span className="font-mono text-[0.7rem] text-muted-foreground">{b.short}</span>
                           </span>
                         ))}
+                        {restMarks > 0 ? <span className="font-mono text-[0.7rem] text-muted-foreground tabular">+{restMarks} more</span> : null}
                       </div>
                     )}
                   </div>

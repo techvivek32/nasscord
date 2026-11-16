@@ -2,10 +2,16 @@ import { StatusDot } from "@/components/status-dot";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { BrokerServiceStatus } from "@/lib/server/console";
 import type { ActionResult } from "@/lib/signup";
+import { BROKERS } from "@/lib/brokers";
 import { fmtDateTime, fmtNum } from "@/lib/format";
 import { CONNECTION_STATUS } from "./lib";
 import { KV } from "./primitives";
 import { readServiceReport, ServiceFacts } from "./service-status";
+
+/** A broker id from the service, as the console names it (the raw id for one this app does not know). */
+function brokerShort(id: string): string {
+  return BROKERS.find((b) => b.id === id)?.short ?? id;
+}
 
 /** DB status words the broker service counts by, mapped to the labels the console uses. */
 const DB_STATUS_LABEL: Record<string, string> = {
@@ -42,7 +48,7 @@ export function HealthPage({ database, service, checkedAt }: { database: ActionR
       <Card>
         <CardHeader>
           <CardTitle>Broker service</CardTitle>
-          <CardDescription>Holds the IBKR gateways and the E*TRADE tokens. Traders cannot see balances, positions or orders while it is down.</CardDescription>
+          <CardDescription>The process that holds broker sessions and keys and makes every call to the brokers. Traders cannot see balances, positions or orders while it is down.</CardDescription>
         </CardHeader>
         <CardContent>
           <ServiceFacts status={service} checkedAt={checkedAt} />
@@ -58,7 +64,7 @@ export function HealthPage({ database, service, checkedAt }: { database: ActionR
           <CardContent className="grid gap-4 sm:grid-cols-2">
             {brokers.map(([broker, counts]) => (
               <div key={broker} className="grid gap-1">
-                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{broker === "ibkr" ? "IBKR" : broker === "etrade" ? "E*TRADE" : broker}</h3>
+                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{brokerShort(broker)}</h3>
                 {Object.keys(counts).length ? (
                   <KV items={Object.entries(counts).map(([s, n]) => ({ label: DB_STATUS_LABEL[s] ?? s, value: fmtNum(n) }))} />
                 ) : (

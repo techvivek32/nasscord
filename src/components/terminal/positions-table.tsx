@@ -77,8 +77,13 @@ export function PositionsTable() {
         ),
       },
       { accessorKey: "qty", header: "Qty", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono">{fmtNum(getValue<number>())}</span> },
-      { accessorKey: "avgCost", header: "Avg cost", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono">{fmtPrice(getValue<number>())}</span> },
-      { accessorKey: "last", header: "Last", meta: { align: "right" }, cell: ({ getValue }) => <span className="font-mono">{fmtPrice(getValue<number>())}</span> },
+      {
+        accessorKey: "avgCost",
+        header: "Avg cost",
+        meta: { align: "right" },
+        cell: ({ row }) => (row.original.avgCost !== undefined ? <span className="font-mono">{fmtPrice(row.original.avgCost)}</span> : NA),
+      },
+      { accessorKey: "last", header: "Last", meta: { align: "right" }, cell: ({ row }) => (row.original.last !== undefined ? <span className="font-mono">{fmtPrice(row.original.last)}</span> : NA) },
       {
         accessorKey: "value",
         header: "Market value",
