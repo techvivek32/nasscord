@@ -22,9 +22,14 @@ export interface EtradeResume {
   authorizeUrl: string;
 }
 
+/**
+ * E*TRADE's sandbox answers with E*TRADE's own sample accounts, not the user's money, so it is only
+ * offered to developers (NEXT_PUBLIC_ETRADE_SANDBOX=1). Production deployments connect real accounts only.
+ */
+const SANDBOX_ENABLED = process.env.NEXT_PUBLIC_ETRADE_SANDBOX === "1";
 const ENVIRONMENTS = [
   { value: "production" as const, label: "Production", hint: "Your real E*TRADE account." },
-  { value: "sandbox" as const, label: "Sandbox", hint: "E*TRADE's test environment, with a sandbox key." },
+  ...(SANDBOX_ENABLED ? [{ value: "sandbox" as const, label: "Sandbox (developers)", hint: "E*TRADE sample data, not your account." }] : []),
 ];
 
 /** The authorize page comes from the broker service; only an https link is offered to open. */
@@ -174,7 +179,9 @@ export function EtradeConnectDialog({ open, onOpenChange, resume }: { open: bool
           </form>
         ) : (
           <form id={`${id}-keys`} onSubmit={submitKeys} className="grid gap-4" noValidate>
-            <EnvironmentChoice name={`${id}-env`} label="E*TRADE environment" value={environment} onChange={setEnvironment} options={ENVIRONMENTS} disabled={busy} />
+            {ENVIRONMENTS.length > 1 ? (
+              <EnvironmentChoice name={`${id}-env`} label="E*TRADE environment" value={environment} onChange={setEnvironment} options={ENVIRONMENTS} disabled={busy} />
+            ) : null}
             <div className="grid gap-2 rounded-lg bg-muted/60 px-3 py-2.5 text-xs text-muted-foreground">
               <p className="font-medium text-foreground">Create your consumer key first</p>
               <ol className="grid list-decimal gap-1 pl-4">
@@ -188,6 +195,7 @@ export function EtradeConnectDialog({ open, onOpenChange, resume }: { open: bool
                 <li>Request an individual consumer key for {environment === "sandbox" ? "Sandbox" : "Production"}.</li>
                 <li>Paste the consumer key and secret below.</li>
               </ol>
+              {environment === "production" ? <p>Use the Production key. A Sandbox key only reaches E*TRADE&apos;s sample accounts and is refused here.</p> : null}
               <p>An individual key only works with the E*TRADE account of the person who created it, so use a key from your own login.</p>
             </div>
             <div className="grid gap-1.5">

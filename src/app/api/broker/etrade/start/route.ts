@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiActor, json, limitConnectStep, readBody, routeError } from "@/lib/server/api";
+import { apiActor, json, jsonError, limitConnectStep, readBody, routeError } from "@/lib/server/api";
 import { startEtrade } from "@/lib/server/broker-service";
 
 export const runtime = "nodejs";
@@ -19,6 +19,10 @@ export async function POST(request: Request) {
   if (actor instanceof Response) return actor;
   const body = await readBody(request, bodySchema);
   if (body instanceof Response) return body;
+  // The sandbox shows E*TRADE's sample accounts, never the user's own: developers only.
+  if (body.environment === "sandbox" && process.env.NEXT_PUBLIC_ETRADE_SANDBOX !== "1") {
+    return jsonError(400, "Sandbox keys only reach E*TRADE's sample accounts. Use your Production consumer key.");
+  }
   const limited = limitConnectStep(actor, "start");
   if (limited) return limited;
   try {

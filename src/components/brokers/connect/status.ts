@@ -17,7 +17,7 @@ export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = { individual: "In
 /** IBKR calls its environments Live and Paper; E*TRADE calls them Production and Sandbox. */
 export function environmentLabel(brokerId: BrokerId, environment: ConnectionEnvironment): string {
   if (environment === "paper") return "Paper";
-  if (environment === "sandbox") return "Sandbox";
+  if (environment === "sandbox") return "Sandbox · sample data";
   return brokerId === "ibkr" ? "Live" : "Production";
 }
 
