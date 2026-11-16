@@ -1,5 +1,6 @@
 /**
- * Per-connection read cache (contract section 6): an answer is reused for `ttlMs` (5 s), and a
+ * Per-connection read cache (contract section 6): an answer is reused for `ttlMs` (5 s by default,
+ * or the TTL the caller passes: each adapter declares its own in `descriptor.readTtlMs`), and a
  * request that arrives while the same read is already in flight waits for that answer instead of
  * calling the broker again. Many tabs polling one connection cost one broker call.
  *
@@ -11,7 +12,7 @@
  */
 export function createCoalescingCache(opts = {}) {
   const { ttlMs = 5_000, now = Date.now, maxEntries = 5_000 } = opts;
-  /** @type {Map<string, { at: number, value: unknown }>} */
+  /** @type {Map<string, { at: number, ttl: number, value: unknown }>} */
   const values = new Map();
   /** @type {Map<string, Promise<unknown>>} */
   const inflight = new Map();
@@ -21,7 +22,7 @@ export function createCoalescingCache(opts = {}) {
 
   function sweep() {
     const t = now();
-    for (const [k, v] of values) if (t - v.at >= ttlMs) values.delete(k);
+    for (const [k, v] of values) if (t - v.at >= v.ttl) values.delete(k);
     if (values.size > maxEntries) values.clear();
   }
 
@@ -33,11 +34,12 @@ export function createCoalescingCache(opts = {}) {
      * @template T
      * @param {string} key "<connectionId>:<what>[:...]"
      * @param {() => Promise<T>} loader
+     * @param {number} [ttl] how long this answer is reused (default: the cache's ttlMs)
      * @returns {Promise<T>}
      */
-    get(key, loader) {
+    get(key, loader, ttl = ttlMs) {
       const hit = values.get(key);
-      if (hit && now() - hit.at < ttlMs) return Promise.resolve(/** @type {T} */ (hit.value));
+      if (hit && now() - hit.at < Math.min(hit.ttl, ttl)) return Promise.resolve(/** @type {T} */ (hit.value));
       const running = inflight.get(key);
       if (running) return /** @type {Promise<T>} */ (running);
 
@@ -45,9 +47,9 @@ export function createCoalescingCache(opts = {}) {
       const p = (async () => {
         try {
           const value = await loader();
-          if (genOf(key) === startedGen) {
+          if (genOf(key) === startedGen && ttl > 0) {
             if (values.size >= maxEntries) sweep();
-            values.set(key, { at: now(), value });
+            values.set(key, { at: now(), ttl, value });
           }
           return value;
         } finally {

@@ -1,13 +1,16 @@
-import { badRequest, conflict, forbidden, HttpError, notFound, userMessage } from "./errors.mjs";
-import { ETRADE_DETAIL } from "./etrade/adapter.mjs";
+import { badRequest, forbidden, HttpError, notFound, userMessage } from "./errors.mjs";
+import { createFlows, FLOW_DETAIL } from "./flows.mjs";
 import { createWindowCounter } from "./limits.mjs";
 import { createLocks } from "./locks.mjs";
 import { connectionView } from "./mapping.mjs";
+import { BROKER_NAMES } from "./registry.mjs";
 
 /**
  * What the API routes call. Checks the workspace on every connection id, serialises changes per
  * connection, writes audit events, and fans reads out over the workspace's active connections
- * through the 5 s coalescing cache.
+ * through the coalescing cache (each adapter's own TTL). Every broker is reached through the
+ * registry; the IBKR and E*TRADE start, verify and ticket steps keep their own routes, and the
+ * generic connect steps live in flows.mjs.
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,9 +18,9 @@ const TERMINAL_ROLES = new Set(["superadmin", "trader", "tenant_user"]);
 const TEN_MINUTES = 10 * 60_000;
 
 /**
- * Connect steps per user. Every IBKR start or Reconnect can hold a gateway JVM, and every E*TRADE
- * start sends a signed request_token call from this server, so they are counted per user (`sub`)
- * and, for new connections, for the whole process.
+ * Connect steps per user. Every IBKR start or Reconnect can hold a gateway JVM, and every other
+ * start sends a call to a broker from this server, so they are counted per user (`sub`) and, for
+ * new connections, for the whole process.
  * @typedef {{ connectPerUser: number, connectGlobalPerMin: number, verifyPerUser: number, ticketPerUser: number }} StepLimits
  */
 export const DEFAULT_STEP_LIMITS = Object.freeze({ connectPerUser: 20, connectGlobalPerMin: 60, verifyPerUser: 20, ticketPerUser: 60 });
@@ -28,18 +31,15 @@ const TOO_MANY_STARTS = "Many people are connecting brokers right now. Try again
  * @typedef {import("./jwt.mjs").ServiceClaims} Claims
  * @typedef {import("./db.mjs").ConnectionRow} ConnectionRow
  * @typedef {import("./db.mjs").AccountRow} AccountRow
- * @typedef {{
- *   portfolio: (c: ConnectionRow, a: AccountRow[]) => Promise<{ accounts: any[], positions: any[], errors?: Array<{ connectionId: string, message: string }> }>,
- *   orders: (c: ConnectionRow, a: AccountRow[]) => Promise<any[]>,
- *   executions: (c: ConnectionRow, a: AccountRow[]) => Promise<any[]>,
- *   renew: (c: ConnectionRow) => Promise<{ connection: ConnectionRow, loginUrl?: string }>,
- *   disconnect: (c: ConnectionRow) => Promise<void>,
- * }} BrokerAdapter
+ * @typedef {import("./adapter-types.mjs").BrokerAdapter} BrokerAdapter
  */
 
 /**
  * @param {{
+ *   config: import("./config.mjs").Config,
+ *   registry: import("./registry.mjs").Registry,
  *   store: import("./db.mjs").Store,
+ *   oauth2: import("./oauth2.mjs").OAuth2Engine,
  *   etrade: import("./etrade/adapter.mjs").EtradeAdapter,
  *   ibkr: import("./ibkr/adapter.mjs").IbkrAdapter,
  *   sessions: import("./ibkr/session.mjs").IbkrSessions,
@@ -51,12 +51,13 @@ const TOO_MANY_STARTS = "Many people are connecting brokers right now. Try again
  *   locks?: import("./locks.mjs").Locks,
  *   steps?: import("./limits.mjs").WindowCounter,
  *   stepLimits?: Partial<StepLimits>,
+ *   now?: () => number,
  * }} deps
  */
 export function createConnectionService(deps) {
-  const { store, etrade, ibkr, sessions, manager, audit, cache, limiter, log } = deps;
-  // Shared with the IBKR adapter, the keepalive and the scheduler: one change at a time per
-  // connection (double clicks, two tabs, a gateway restart, a slot release).
+  const { config, registry, store, oauth2, etrade, ibkr, sessions, manager, audit, cache, limiter, log } = deps;
+  // Shared with the adapters, the keepalive and the scheduler: one change at a time per
+  // connection (double clicks, two tabs, a gateway restart, a slot release, a token refresh sweep).
   const locks = deps.locks ?? createLocks();
   const withLock = locks.run;
   const steps = deps.steps ?? createWindowCounter();
@@ -79,9 +80,6 @@ export function createConnectionService(deps) {
       if (kind === "start") steps.take("start:*", stepLimits.connectGlobalPerMin, 60_000, TOO_MANY_STARTS);
     }
   }
-
-  /** @param {ConnectionRow} c @returns {BrokerAdapter} */
-  const adapterFor = (c) => (c.broker_id === "etrade" ? etrade : ibkr);
 
   /** @param {Claims} claims */
   function requireWorkspace(claims) {
@@ -139,8 +137,33 @@ export function createConnectionService(deps) {
     }
   }
 
+  const flows = createFlows({
+    config,
+    registry,
+    store,
+    oauth2,
+    audit,
+    cache,
+    locks,
+    log,
+    now: deps.now,
+    helpers: { requireWorkspace, owned, audited, throttle, view, target },
+  });
+
+  /** @param {ConnectionRow} c */
+  const adapterOf = (c) => registry.adapterFor(c);
+
   /**
-   * Active connections of the workspace with their included accounts.
+   * Whether reads load the account list of a connection first: its adapter loads them lazily, or
+   * the list failed right after connecting ("it loads on the next refresh", flows.syncAccounts),
+   * whatever the adapter declares.
+   * @param {ConnectionRow} c
+   */
+  const loadsAccounts = (c) => !!registry.get(c.method)?.descriptor.lazyAccounts || c.status_detail === FLOW_DETAIL.accountsLater(BROKER_NAMES[c.broker_id] ?? c.broker_id);
+
+  /**
+   * Active connections of the workspace with their included accounts. A connection without
+   * accounts stays in when its accounts are loaded on read (loadsAccounts).
    * @param {string} wid
    */
   async function activeWithAccounts(wid) {
@@ -148,19 +171,46 @@ export function createConnectionService(deps) {
     const accounts = await store.listAccounts(conns.map((c) => c.id), { includedOnly: true });
     return conns
       .map((c) => ({ connection: c, accounts: accounts.filter((a) => a.connection_id === c.id) }))
-      .filter((x) => x.accounts.length > 0 || x.connection.broker_id === "etrade");
+      .filter((x) => x.accounts.length > 0 || loadsAccounts(x.connection));
   }
+
+  /** Sample data never reaches users: a sandbox row left from before is not read in production. */
+  const SANDBOX_NOT_READ = "This is a sandbox connection with sample data, which this server does not serve. Disconnect it.";
 
   /** @param {AccountRow[]} accounts */
   const accountsKey = (accounts) => accounts.map((a) => a.id).sort().join(",");
+
+  /**
+   * The account list could not be loaded when the connection was made: load it now. With accounts
+   * already stored the reads go ahead even if this fails; the list is tried again next time.
+   * @param {BrokerAdapter} adapter
+   * @param {ConnectionRow} connection
+   * @param {AccountRow[]} included
+   */
+  async function lazyAccounts(adapter, connection, included) {
+    const name = BROKER_NAMES[connection.broker_id] ?? connection.broker_id;
+    const pending = adapter.accountsPending ? adapter.accountsPending(connection) : connection.status_detail === FLOW_DETAIL.accountsLater(name);
+    if (included.length > 0 && !pending) return included;
+    const all = await store.listAccounts([connection.id]);
+    if (all.length === 0 || pending) {
+      try {
+        if (adapter.syncAccounts) await adapter.syncAccounts(connection);
+        else await flows.syncAccounts(adapter, connection, { rethrow: true });
+      } catch (e) {
+        if (all.length === 0) throw e;
+        log.info("account list still not available", { connectionId: connection.id, error: e });
+      }
+    }
+    return store.listAccounts([connection.id], { includedOnly: true });
+  }
 
   /**
    * Fans a read out over every active connection; one broker's failure becomes an entry in
    * `errors` instead of failing the whole answer.
    * @template T
    * @param {Claims} claims
-   * @param {string} what
-   * @param {(c: ConnectionRow, a: AccountRow[]) => Promise<T>} read
+   * @param {"portfolio" | "orders" | "executions"} what
+   * @param {(adapter: BrokerAdapter, c: ConnectionRow, a: AccountRow[]) => Promise<T>} read
    * @returns {Promise<{ results: T[], errors: Array<{ connectionId: string, message: string }> }>}
    */
   async function fanOut(claims, what, read) {
@@ -172,32 +222,24 @@ export function createConnectionService(deps) {
     const errors = [];
     await Promise.all(
       items.map(async ({ connection, accounts }) => {
-        let accs = accounts;
-        const listLater = connection.broker_id === "etrade" && connection.status_detail === ETRADE_DETAIL.accountsLater;
-        if (connection.broker_id === "etrade" && (accs.length === 0 || listLater)) {
-          // verify could not load the account list at the time; try again now (this also clears
-          // the "account list not sent yet" detail once it arrives)
-          try {
-            const all = await store.listAccounts([connection.id]);
-            if (all.length === 0 || listLater) {
-              try {
-                await etrade.syncAccounts(connection);
-              } catch (e) {
-                // With accounts stored already, the reads go ahead; the list is tried again next time.
-                if (all.length === 0) throw e;
-                log.info("etrade account list still not available", { connectionId: connection.id, error: e });
-              }
-            }
-            accs = (await store.listAccounts([connection.id], { includedOnly: true }));
-          } catch (e) {
-            errors.push({ connectionId: connection.id, message: userMessage(e) });
-            return;
-          }
-          if (accs.length === 0) return;
+        if (config.production && connection.environment === "sandbox") {
+          errors.push({ connectionId: connection.id, message: SANDBOX_NOT_READ });
+          return;
         }
+        /** @type {BrokerAdapter} */
+        let adapter;
+        let accs = accounts;
+        try {
+          adapter = adapterOf(connection);
+          if (loadsAccounts(connection)) accs = await lazyAccounts(adapter, connection, accounts);
+        } catch (e) {
+          errors.push({ connectionId: connection.id, message: userMessage(e) });
+          return;
+        }
+        if (accs.length === 0) return;
         try {
           const key = `${connection.id}:${what}:${accountsKey(accs)}`;
-          results.push(await cache.get(key, () => read(connection, accs)));
+          results.push(await cache.get(key, () => read(adapter, connection, accs), adapter.descriptor.readTtlMs[what]));
         } catch (e) {
           if (!(e instanceof HttpError)) log.error(`${what} read failed`, { connectionId: connection.id, error: e });
           errors.push({ connectionId: connection.id, message: userMessage(e) });
@@ -207,10 +249,37 @@ export function createConnectionService(deps) {
     return { results, errors };
   }
 
+  /**
+   * Balances and positions of one connection: the adapter's combined call, or its two calls in
+   * parallel.
+   * @param {BrokerAdapter} adapter @param {ConnectionRow} c @param {AccountRow[]} a
+   */
+  async function portfolioOf(adapter, c, a) {
+    if (adapter.portfolio) return adapter.portfolio(c, a);
+    const [b, positions] = await Promise.all([/** @type {NonNullable<BrokerAdapter["balances"]>} */ (adapter.balances)(c, a), /** @type {NonNullable<BrokerAdapter["positions"]>} */ (adapter.positions)(c, a)]);
+    return { accounts: b.accounts, positions, errors: b.errors ?? [] };
+  }
+
   return {
+    flows,
+
+    /** GET /v1/options. @param {Claims} claims */
+    async options(claims) {
+      return flows.options(claims);
+    },
+
+    connectKey: flows.connectKey,
+    startOAuth: flows.startOAuth,
+    startAggregator: flows.startAggregator,
+    hop: flows.hop,
+    completeOAuth: flows.completeOAuth,
+    completeAggregator: flows.completeAggregator,
+    claim: flows.claim,
+
     /** @param {Claims} claims @param {any} body */
     async startEtrade(claims, body) {
       requireWorkspace(claims);
+      registry.gate(claims, "etrade", "etrade_oauth1", null, { audienceOnly: true });
       throttle(claims, "start");
       const environment = body?.environment;
       return audited(claims, "broker.etrade.start", `etrade · ${String(environment)}`, async () => {
@@ -242,6 +311,7 @@ export function createConnectionService(deps) {
     /** @param {Claims} claims @param {any} body */
     async startIbkr(claims, body) {
       const wid = requireWorkspace(claims);
+      registry.gate(claims, "ibkr", "ibkr_gateway", null, { audienceOnly: true });
       throttle(claims, "start");
       const environment = body?.environment;
       // Serialised per workspace so two quick clicks do not start two gateways.
@@ -277,22 +347,9 @@ export function createConnectionService(deps) {
       return { connection: await view(row) };
     },
 
-    /** @param {Claims} claims @param {string} id */
-    async renew(claims, id) {
-      const row = await owned(claims, id);
-      if (row.status === "disconnected") throw conflict("This connection was removed. Connect the broker again.", "disconnected");
-      throttle(claims, "connect");
-      return withLock(row.id, () =>
-        audited(claims, "broker.connection.renew", target(row), async () => {
-          const fresh = (await store.getConnection(row.id)) ?? row;
-          const out = await adapterFor(fresh).renew(fresh);
-          cache.invalidate(row.id);
-          /** @type {{ connection: ReturnType<typeof connectionView>, loginUrl?: string }} */
-          const res = { connection: await view(out.connection) };
-          if (out.loginUrl) res.loginUrl = out.loginUrl;
-          return res;
-        }),
-      );
+    /** @param {Claims} claims @param {string} id @param {any} [body] */
+    async renew(claims, id, body = {}) {
+      return flows.renew(claims, id, body);
     },
 
     /** @param {Claims} claims @param {string} id */
@@ -300,12 +357,15 @@ export function createConnectionService(deps) {
       const row = await owned(claims, id);
       return withLock(row.id, () =>
         audited(claims, "broker.connection.disconnect", target(row), async () => {
+          /** @type {BrokerAdapter | null} */
+          const adapter = registry.get(row.method);
           try {
-            await adapterFor(row).disconnect(row);
+            await adapter?.revoke?.(row);
           } catch (e) {
             // The user asked to disconnect: local clean-up goes ahead even if the broker call failed.
             log.warn("broker-side disconnect failed", { connectionId: row.id, error: e });
           }
+          await store.deletePending(row.id).catch(() => {});
           await store.deleteSecret(row.id).catch(() => {});
           await store.deleteAccounts(row.id);
           await store.updateConnection(row.id, {
@@ -315,7 +375,8 @@ export function createConnectionService(deps) {
           });
           cache.invalidate(row.id);
           limiter.forget(row.id);
-          if (row.broker_id === "etrade") etrade.forget(row.id);
+          oauth2.forget(row.id);
+          adapter?.forget?.(row.id);
           return { ok: true };
         }),
       );
@@ -323,7 +384,7 @@ export function createConnectionService(deps) {
 
     /** @param {Claims} claims */
     async portfolio(claims) {
-      const { results, errors } = await fanOut(claims, "portfolio", (c, a) => adapterFor(c).portfolio(c, a));
+      const { results, errors } = await fanOut(claims, "portfolio", portfolioOf);
       return {
         accounts: results.flatMap((r) => r.accounts),
         positions: results.flatMap((r) => r.positions),
@@ -334,22 +395,23 @@ export function createConnectionService(deps) {
 
     /** @param {Claims} claims */
     async orders(claims) {
-      const { results, errors } = await fanOut(claims, "orders", (c, a) => adapterFor(c).orders(c, a));
+      const { results, errors } = await fanOut(claims, "orders", (adapter, c, a) => adapter.orders(c, a));
       const orders = results.flat().sort((x, y) => (x.placedAt < y.placedAt ? 1 : x.placedAt > y.placedAt ? -1 : 0));
       return { orders, errors };
     },
 
     /** @param {Claims} claims */
     async executions(claims) {
-      const { results, errors } = await fanOut(claims, "executions", (c, a) => adapterFor(c).executions(c, a));
+      const { results, errors } = await fanOut(claims, "executions", (adapter, c, a) => adapter.executions(c, a));
       const executions = results.flat().sort((x, y) => (x.tradedAt < y.tradedAt ? 1 : x.tradedAt > y.tradedAt ? -1 : 0));
       return { executions, errors };
     },
 
-    /** Superadmin view: connection counts and gateways. */
+    /** Superadmin view: connection counts for every broker, the built adapters, and gateways. */
     async health() {
       /** @type {Record<string, Record<string, number>>} */
-      const connections = { ibkr: {}, etrade: {} };
+      const connections = {};
+      for (const id of Object.keys(BROKER_NAMES)) connections[id] = {};
       for (const r of await store.connectionStatuses()) {
         const b = (connections[r.broker_id] ??= {});
         b[r.status] = (b[r.status] ?? 0) + 1;
@@ -363,7 +425,11 @@ export function createConnectionService(deps) {
         startedAt: new Date(s.startedAt).toISOString(),
         expiredAt: s.expiredAt ? new Date(s.expiredAt).toISOString() : null,
       }));
-      return { connections, gateways: { ...manager.stats(), bundle: manager.bundleAvailable(), slots } };
+      return {
+        connections,
+        adapters: registry.list().map((a) => a.descriptor.method),
+        gateways: { ...manager.stats(), bundle: manager.bundleAvailable(), slots },
+      };
     },
   };
 }

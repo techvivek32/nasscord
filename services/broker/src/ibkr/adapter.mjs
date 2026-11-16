@@ -310,3 +310,40 @@ export function createIbkrAdapter(deps) {
 }
 
 /** @typedef {ReturnType<typeof createIbkrAdapter>} IbkrAdapter */
+
+/**
+ * IBKR behind the registry (method ibkr_gateway, flow gateway_login). Its own start and ticket routes
+ * stay as they are; the registry routes reads, renew and disconnect here.
+ * @type {import("../adapter-types.mjs").AdapterDescriptor}
+ */
+export const IBKR_DESCRIPTOR = Object.freeze(/** @type {import("../adapter-types.mjs").AdapterDescriptor} */ ({
+  method: "ibkr_gateway",
+  brokers: ["ibkr"],
+  name: "IBKR",
+  environments: ["production", "paper"],
+  readTtlMs: Object.freeze({ portfolio: 5_000, orders: 5_000, executions: 5_000 }),
+  lazyAccounts: false,
+  sweepEveryMs: null,
+}));
+
+/**
+ * @param {IbkrAdapter} ibkr
+ * @param {{ bundleAvailable: () => boolean }} manager
+ * @returns {import("../adapter-types.mjs").BrokerAdapter}
+ */
+export function ibkrRegistryAdapter(ibkr, manager) {
+  return {
+    descriptor: IBKR_DESCRIPTOR,
+    portfolio: (c, a) => ibkr.portfolio(c, a),
+    orders: (c, a) => ibkr.orders(c, a),
+    executions: (c, a) => ibkr.executions(c, a),
+    configured: () => (manager.bundleAvailable() ? null : "IBKR_GATEWAY_BUNDLE does not point at the Client Portal Gateway"),
+    async renew(c) {
+      const out = await ibkr.renew(c);
+      // The login link stays on the server: the browser opens /api/broker/ibkr/login/[id].
+      if (!out.loginUrl) return { connection: out.connection };
+      return { connection: out.connection, loginUrl: out.loginUrl, next: { kind: "gateway_login" } };
+    },
+    revoke: (c) => ibkr.disconnect(c),
+  };
+}

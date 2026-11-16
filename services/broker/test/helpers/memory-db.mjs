@@ -2,9 +2,53 @@ import { randomUUID } from "node:crypto";
 
 /**
  * In-memory stand-in for the PostgREST Db interface in src/db.mjs (select, insert, update, upsert,
- * remove), with the table defaults, unique keys and cascades of the init migration that the
- * service relies on.
+ * remove), with the table defaults, unique keys, check constraints and cascades of
+ * supabase/migrations/20261103120000_init.sql and 20261116120000_more_brokers.sql that the service
+ * relies on. A write Postgres would refuse throws here too (code 23514 for a check, 23505 for a
+ * unique key), so the service tests fail the same way production would.
  */
+
+export const BROKER_IDS = ["ibkr", "etrade", "alpaca", "tradier", "schwab", "tastytrade", "tradestation", "webull", "fidelity", "robinhood", "moomoo", "public"];
+export const METHODS = [
+  "ibkr_gateway",
+  "ibkr_oauth",
+  "etrade_oauth1",
+  "alpaca_key",
+  "alpaca_oauth",
+  "tradier_token",
+  "tradier_oauth",
+  "schwab_oauth",
+  "tastytrade_oauth",
+  "tradestation_oauth",
+  "webull_oauth",
+  "snaptrade",
+];
+/** broker_connections_method_broker_check */
+const METHOD_BROKERS = /** @type {Record<string, string[]>} */ ({
+  ibkr_gateway: ["ibkr"],
+  ibkr_oauth: ["ibkr"],
+  etrade_oauth1: ["etrade"],
+  alpaca_key: ["alpaca"],
+  alpaca_oauth: ["alpaca"],
+  tradier_token: ["tradier"],
+  tradier_oauth: ["tradier"],
+  schwab_oauth: ["schwab"],
+  tastytrade_oauth: ["tastytrade"],
+  tradestation_oauth: ["tradestation"],
+  webull_oauth: ["webull"],
+  snaptrade: ["fidelity", "robinhood", "public", "moomoo", "webull", "schwab", "tastytrade"],
+});
+/** broker_connections_sandbox_check: sample data only for these methods. */
+const SANDBOX_METHODS = ["etrade_oauth1", "tastytrade_oauth", "webull_oauth"];
+/** broker_connections_paper_check: the user's own paper account only for these methods. */
+const PAPER_METHODS = ["ibkr_gateway", "ibkr_oauth", "alpaca_key", "alpaca_oauth", "tradier_token", "tradestation_oauth"];
+const HEX64 = /^[0-9a-f]{64}$/;
+const ORIGIN = /^https?:\/\/[a-z0-9.-]+(:[0-9]{2,5})?$/;
+
+/** @param {string} what */
+const checkError = (what) => Object.assign(new Error(`check violation: ${what}`), { code: "23514" });
+/** @param {string} what */
+const uniqueError = (what) => Object.assign(new Error(`duplicate key: ${what}`), { code: "23505" });
 
 /** @param {() => number} now */
 function defaults(now) {
@@ -18,11 +62,16 @@ function defaults(now) {
       status_detail: null,
       session_expires_at: null,
       last_ok_at: null,
+      external_ref: null,
+      data_as_of: null,
+      scope: null,
       created_at: ts(),
       updated_at: ts(),
     }),
     broker_accounts: () => ({ id: randomUUID(), type: "individual", included: true, created_at: ts() }),
     broker_secrets: () => ({ key_version: 1, updated_at: ts() }),
+    broker_oauth_pending: () => ({ stage: "start", state_hash: null, ticket_hash: null, external_ref: null, created_at: ts() }),
+    broker_aggregator_users: () => ({ provider: "snaptrade", key_version: 1, created_at: ts(), updated_at: ts() }),
     audit_events: () => ({ at: ts(), result: "ok" }),
     members: () => ({ created_at: ts() }),
   };
@@ -32,8 +81,82 @@ const KEYS = /** @type {Record<string, string[]>} */ ({
   broker_connections: ["id"],
   broker_accounts: ["id"],
   broker_secrets: ["connection_id"],
+  broker_oauth_pending: ["connection_id"],
+  broker_aggregator_users: ["workspace_id"],
   members: ["user_id"],
 });
+
+/** Other unique keys (null values never collide, as in Postgres). */
+const UNIQUE = /** @type {Record<string, string[][]>} */ ({
+  broker_accounts: [["connection_id", "external_id"]],
+  broker_oauth_pending: [["state_hash"], ["ticket_hash"]],
+  broker_aggregator_users: [["external_user_id"]],
+});
+
+/**
+ * The check constraints of the migrations, per table. Throws a 23514 error.
+ * @param {string} table
+ * @param {Record<string, any>} r
+ */
+function check(table, r) {
+  if (table === "broker_connections") {
+    if (!BROKER_IDS.includes(r.broker_id)) throw checkError("broker_connections_broker_id_check");
+    if (!METHODS.includes(r.method)) throw checkError("broker_connections_method_check");
+    if (!METHOD_BROKERS[r.method].includes(r.broker_id)) throw checkError("broker_connections_method_broker_check");
+    if (!["production", "sandbox", "paper"].includes(r.environment)) throw checkError("broker_connections_environment_check");
+    if (!["pending", "active", "expired", "error", "disconnected"].includes(r.status)) throw checkError("broker_connections_status_check");
+    if (r.environment === "sandbox" && !SANDBOX_METHODS.includes(r.method)) throw checkError("broker_connections_sandbox_check");
+    if (r.environment === "paper" && !PAPER_METHODS.includes(r.method)) throw checkError("broker_connections_paper_check");
+    if (r.external_ref !== null && r.external_ref !== undefined && (String(r.external_ref).length < 1 || String(r.external_ref).length > 200)) {
+      throw checkError("broker_connections_external_ref_check");
+    }
+    if (r.scope !== null && r.scope !== undefined && String(r.scope).length > 200) throw checkError("broker_connections_scope_check");
+  }
+  if (table === "broker_accounts") {
+    if (!BROKER_IDS.includes(r.broker_id)) throw checkError("broker_accounts_broker_id_check");
+    if (!["individual", "ira", "roth", "margin", "paper"].includes(r.type)) throw checkError("broker_accounts_type_check");
+  }
+  if (table === "broker_oauth_pending") {
+    if (!["start", "authorize", "exchanging", "claim"].includes(r.stage)) throw checkError("broker_oauth_pending_stage_check");
+    if (!HEX64.test(String(r.binding_hash))) throw checkError("broker_oauth_pending_binding_hash_check");
+    if (r.state_hash !== null && r.state_hash !== undefined && !HEX64.test(r.state_hash)) throw checkError("broker_oauth_pending_state_hash_check");
+    if (r.ticket_hash !== null && r.ticket_hash !== undefined && !HEX64.test(r.ticket_hash)) throw checkError("broker_oauth_pending_ticket_hash_check");
+    if (!ORIGIN.test(String(r.return_origin))) throw checkError("broker_oauth_pending_return_origin_check");
+    if (r.external_ref !== null && r.external_ref !== undefined && (String(r.external_ref).length < 1 || String(r.external_ref).length > 200)) {
+      throw checkError("broker_oauth_pending_external_ref_check");
+    }
+    if (!r.expires_at) throw checkError("broker_oauth_pending.expires_at not null");
+  }
+  if (table === "broker_aggregator_users") {
+    if (r.provider !== "snaptrade") throw checkError("broker_aggregator_users_provider_check");
+    if (!r.external_user_id || String(r.external_user_id).length > 200) throw checkError("broker_aggregator_users_external_user_id_check");
+    if (!r.iv || !r.tag || !r.ciphertext) throw checkError("broker_aggregator_users not null");
+  }
+}
+
+/**
+ * Unique keys and the partial unique index broker_connections_one_login_idx.
+ * @param {string} table
+ * @param {Record<string, any>} r the row as it would be
+ * @param {Record<string, any>[]} rows the other rows of the table
+ */
+function unique(table, r, rows) {
+  for (const cols of UNIQUE[table] ?? []) {
+    if (cols.some((c) => r[c] === null || r[c] === undefined)) continue;
+    if (rows.some((x) => cols.every((c) => x[c] === r[c]))) throw uniqueError(`${table}(${cols.join(",")})`);
+  }
+  if (table === "broker_connections" && r.external_ref && r.status !== "disconnected") {
+    const clash = rows.some(
+      (x) =>
+        x.external_ref === r.external_ref &&
+        x.status !== "disconnected" &&
+        x.workspace_id === r.workspace_id &&
+        x.broker_id === r.broker_id &&
+        x.environment === r.environment,
+    );
+    if (clash) throw uniqueError("broker_connections_one_login_idx");
+  }
+}
 
 /**
  * @param {unknown} a
@@ -86,6 +209,9 @@ export function createMemoryDb(opts = {}) {
   let auditId = 0;
   /** @type {Array<{ op: string, table: string }>} */
   const calls = [];
+  /** Throw this from the next write to `table` (tests of a failed database write). */
+  /** @type {Map<string, Error>} */
+  const failNext = new Map();
 
   /** @param {string} name */
   const table = (name) => {
@@ -107,9 +233,29 @@ export function createMemoryDb(opts = {}) {
     return out;
   }
 
+  /** @param {string} name */
+  function maybeFail(name) {
+    const e = failNext.get(name);
+    if (e) {
+      failNext.delete(name);
+      throw e;
+    }
+  }
+
+  /** @param {string} name */
+  function cascade(name, /** @type {Record<string, unknown>[]} */ gone) {
+    if (name === "broker_connections") {
+      const ids = gone.map((r) => r.id);
+      for (const child of ["broker_accounts", "broker_secrets", "broker_oauth_pending"]) {
+        tables.set(child, table(child).filter((r) => !ids.includes(r.connection_id)));
+      }
+    }
+  }
+
   return {
     tables,
     calls,
+    failNext,
 
     /** @param {string} name @param {{ filters?: Record<string, any>, columns?: string, order?: string, limit?: number }} [o] */
     async select(name, o = {}) {
@@ -130,13 +276,14 @@ export function createMemoryDb(opts = {}) {
     /** @param {string} name @param {object | object[]} rows */
     async insert(name, rows) {
       calls.push({ op: "insert", table: name });
+      maybeFail(name);
       const list = (Array.isArray(rows) ? rows : [rows]).map((r) => prepare(name, /** @type {any} */ (r)));
       const t = table(name);
       for (const r of list) {
         const keys = KEYS[name] ?? [];
-        if (keys.length && t.some((x) => keys.every((k) => x[k] === r[k]))) {
-          throw Object.assign(new Error("duplicate key"), { code: "23505" });
-        }
+        if (keys.length && t.some((x) => keys.every((k) => x[k] === r[k]))) throw uniqueError(name);
+        check(name, r);
+        unique(name, r, t);
         t.push(r);
       }
       return clone(list);
@@ -145,30 +292,50 @@ export function createMemoryDb(opts = {}) {
     /** @param {string} name @param {Record<string, any>} filters @param {object} patch */
     async update(name, filters, patch) {
       calls.push({ op: "update", table: name });
-      const out = [];
-      for (const r of table(name)) {
-        if (!matches(r, filters)) continue;
+      maybeFail(name);
+      const t = table(name);
+      const hits = t.filter((r) => matches(r, filters));
+      // Checked first, written after: a refused UPDATE changes nothing, as in Postgres.
+      for (const r of hits) {
+        const next = { ...r, ...patch };
+        check(name, next);
+        unique(
+          name,
+          next,
+          t.filter((x) => x !== r),
+        );
+      }
+      for (const r of hits) {
         Object.assign(r, patch);
         if ("updated_at" in r) r.updated_at = new Date(now()).toISOString();
-        out.push(r);
       }
-      return clone(out);
+      return clone(hits);
     },
 
     /** @param {string} name @param {object | object[]} rows @param {{ onConflict: string }} o */
     async upsert(name, rows, o) {
       calls.push({ op: "upsert", table: name });
+      maybeFail(name);
       const keys = o.onConflict.split(",");
       const t = table(name);
       const out = [];
       for (const r of /** @type {Record<string, unknown>[]} */ (Array.isArray(rows) ? rows : [rows])) {
         const hit = t.find((x) => keys.every((k) => x[k] === r[k]));
         if (hit) {
+          const next = { ...hit, ...r };
+          check(name, next);
+          unique(
+            name,
+            next,
+            t.filter((x) => x !== hit),
+          );
           Object.assign(hit, r);
           if ("updated_at" in hit) hit.updated_at = new Date(now()).toISOString();
           out.push(hit);
         } else {
           const row = prepare(name, r);
+          check(name, row);
+          unique(name, row, t);
           t.push(row);
           out.push(row);
         }
@@ -179,15 +346,14 @@ export function createMemoryDb(opts = {}) {
     /** @param {string} name @param {Record<string, any>} filters */
     async remove(name, filters) {
       calls.push({ op: "remove", table: name });
+      maybeFail(name);
       const t = table(name);
       const gone = t.filter((r) => matches(r, filters));
-      tables.set(name, t.filter((r) => !matches(r, filters)));
-      if (name === "broker_connections") {
-        const ids = gone.map((r) => r.id);
-        for (const child of ["broker_accounts", "broker_secrets"]) {
-          tables.set(child, table(child).filter((r) => !ids.includes(r.connection_id)));
-        }
-      }
+      tables.set(
+        name,
+        t.filter((r) => !matches(r, filters)),
+      );
+      cascade(name, gone);
       return clone(gone);
     },
   };

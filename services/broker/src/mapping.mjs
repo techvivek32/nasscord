@@ -3,7 +3,7 @@
  * Pure functions only: everything here is unit-tested against recorded-style payloads.
  *
  * Shapes produced:
- *   Position  { id, accountId, brokerId, symbol, qty, avgCost, last, dayPnl?, marketValue?, unrealizedPnl?, currency?, secType? }
+ *   Position  { id, accountId, brokerId, symbol, qty, avgCost?, last?, dayPnl?, marketValue?, unrealizedPnl?, currency?, secType? }
  *   Order     { id, clientId, accountId, brokerId, symbol, side, qty, type, price?, trailPct?, tif, status, placedAt,
  *               filledQty?, avgFill?, parentId?, outsideRth?, brokerRef? }
  *   Execution { id, accountId, brokerId, symbol, side, qty, price, commission, net, tradedAt, provisional? }
@@ -11,11 +11,16 @@
  * `accountId` is always broker_accounts.id (a uuid), never the broker's own number.
  * An account value the broker did not report is left out, never sent as 0: the app shows
  * "Not reported" for it, and adds up only the values that exist.
+ *
+ * IBKR and E*TRADE mapping lives here. Every other broker maps in its own folder
+ * (src/<broker>/mapping.mjs) with the shared helpers exported below: num, num0, cents, reported,
+ * clean, side, mapOrderType, maskAccountNumber and TYPE_LABEL.
  */
 
 /**
- * @typedef {"ibkr" | "etrade"} BrokerId
- * @typedef {{ id: string, accountId: string, brokerId: BrokerId, symbol: string, qty: number, avgCost: number, last: number,
+ * @typedef {"ibkr" | "etrade" | "alpaca" | "tradier" | "schwab" | "tastytrade" | "tradestation" | "webull"
+ *   | "fidelity" | "robinhood" | "moomoo" | "public"} BrokerId
+ * @typedef {{ id: string, accountId: string, brokerId: BrokerId, symbol: string, qty: number, avgCost?: number, last?: number,
  *   dayPnl?: number, marketValue?: number, unrealizedPnl?: number, currency?: string, secType?: string }} Position
  * @typedef {"MKT" | "LMT" | "STP" | "MIT" | "TRAIL"} OrderType
  * @typedef {"submitted" | "verifying" | "working" | "verified" | "filled" | "cancelled" | "rejected"} OrderStatus
@@ -41,15 +46,15 @@ export function num(v) {
   return Number.isFinite(n) ? n : undefined;
 }
 /** @param {unknown} v */
-const num0 = (v) => num(v) ?? 0;
+export const num0 = (v) => num(v) ?? 0;
 /** Round money-ish values to cents to hide float noise. @param {number} n */
-const cents = (n) => Math.round(n * 100) / 100;
+export const cents = (n) => Math.round(n * 100) / 100;
 
 /**
  * The balance fields that have a value, rounded to cents; missing ones are left out.
  * @param {{ netLiq?: number, buyingPower?: number, cash?: number, dayPnl?: number }} values
  */
-function reported(values) {
+export function reported(values) {
   /** @type {{ netLiq?: number, buyingPower?: number, cash?: number, dayPnl?: number }} */
   const out = {};
   for (const k of /** @type {const} */ (["netLiq", "buyingPower", "cash", "dayPnl"])) {
@@ -70,17 +75,19 @@ export function maskAccountNumber(id) {
 }
 
 /** @param {string | null | undefined} v */
-const clean = (v) => (typeof v === "string" ? v.trim() : "");
+export const clean = (v) => (typeof v === "string" ? v.trim() : "");
 
 // ─────────────────────────────────────────────────────────────── connection view (API shape)
 
 /**
- * `connection` as the API returns it (contract section 6).
+ * `connection` as the API returns it (contract section 6). `dataAsOf` and `scope` are sent only
+ * when set; `external_ref` (the broker-side identity) is never sent.
  * @param {import("./db.mjs").ConnectionRow} row
  * @param {import("./db.mjs").AccountRow[]} accounts
  */
 export function connectionView(row, accounts) {
-  const iso = (/** @type {string | null} */ s) => (s ? new Date(s).toISOString() : null);
+  const iso = (/** @type {string | null | undefined} */ s) => (s ? new Date(s).toISOString() : null);
+  const dataAsOf = iso(row.data_as_of);
   return {
     id: row.id,
     brokerId: row.broker_id,
@@ -90,6 +97,8 @@ export function connectionView(row, accounts) {
     statusDetail: row.status_detail ?? null,
     sessionExpiresAt: iso(row.session_expires_at),
     lastOkAt: iso(row.last_ok_at),
+    ...(dataAsOf ? { dataAsOf } : {}),
+    ...(row.scope ? { scope: row.scope } : {}),
     accounts: accounts
       .filter((a) => a.connection_id === row.id)
       .map((a) => ({ id: a.id, label: a.label, displayNumber: a.display_number, type: a.type, included: a.included })),
@@ -150,7 +159,7 @@ export function ibkrAccountRows(src, connection) {
 }
 
 /** @type {Record<AccountType, string>} */
-const TYPE_LABEL = { individual: "Individual", ira: "IRA", roth: "Roth IRA", margin: "Margin", paper: "Paper" };
+export const TYPE_LABEL = { individual: "Individual", ira: "IRA", roth: "Roth IRA", margin: "Margin", paper: "Paper" };
 
 /**
  * /portfolio/{acct}/summary + the account's row from /iserver/account/pnl/partitioned.
@@ -270,7 +279,7 @@ export function ibkrOrderStatus(raw) {
 }
 
 /** @param {string} raw @returns {"BUY" | "SELL"} */
-function side(raw) {
+export function side(raw) {
   const s = String(raw ?? "").toUpperCase();
   return s === "B" || s.startsWith("BUY") || s === "BOT" ? "BUY" : "SELL";
 }

@@ -46,15 +46,57 @@ export const badGateway = (message, code = "broker_error", cause = undefined) =>
 export const rateLimited = (message, retryAfterSec = 5) =>
   new HttpError(429, message, { code: "rate_limited", retryAfterSec });
 
+/** @param {string} message */
+export const gone = (message, code = "gone") => new HttpError(410, message, { code });
+
+/**
+ * What the user does to reconnect, answered by renew as `next.kind` (contract section 6).
+ * @typedef {"gateway_login" | "oauth1_verifier" | "api_key" | "redirect"} ReauthKind
+ */
+
 /**
  * The broker says the session behind a connection is gone (E*TRADE 401 after a renew attempt,
- * IBKR not authenticated). The caller marks the connection expired.
+ * IBKR not authenticated, an OAuth refresh answered invalid_grant). The caller marks the connection
+ * expired. `reauth` says how the user reconnects, when the thrower knows.
  */
 export class SessionExpiredError extends HttpError {
-  /** @param {string} message */
-  constructor(message) {
+  /**
+   * @param {string} message
+   * @param {{ reauth?: ReauthKind }} [opts]
+   */
+  constructor(message, opts = {}) {
     super(409, message, { code: "session_expired" });
     this.name = "SessionExpiredError";
+    /** @type {ReauthKind | null} */
+    this.reauth = opts.reauth ?? null;
+  }
+}
+
+/**
+ * A broker answered 401 or 403 (createBrokerHttp). The adapter decides what it means: a
+ * regenerated key, a revoked grant, or an expired token worth one refresh.
+ */
+export class BrokerAuthError extends HttpError {
+  /**
+   * @param {string} brokerName
+   * @param {number} brokerStatus the broker's own status (401 or 403)
+   */
+  constructor(brokerName, brokerStatus) {
+    super(409, `${brokerName} did not accept Nasscord's access. Reconnect to continue.`, { code: "broker_auth" });
+    this.name = "BrokerAuthError";
+    this.brokerStatus = brokerStatus;
+  }
+}
+
+/**
+ * A broker call outside an adapter's read-only allowlist (createBrokerHttp). It is a bug, so it is
+ * never an HttpError: the user sees the generic 500 sentence and nothing reaches the broker.
+ */
+export class ReadOnlyViolation extends Error {
+  /** @param {string} brokerName @param {string} method */
+  constructor(brokerName, method) {
+    super(`${brokerName}: a ${method} call outside the read-only allowlist was blocked`);
+    this.name = "ReadOnlyViolation";
   }
 }
 

@@ -13,6 +13,8 @@ import { silentLogger } from "../src/log.mjs";
 import { createScheduler } from "../src/scheduler.mjs";
 import { createSecretBox } from "../src/secrets.mjs";
 import { nextMidnightEt } from "../src/time.mjs";
+import { startFakeOAuth2 } from "./helpers/fake-oauth2.mjs";
+import { createHarness, fakeOAuthAdapter, newBinding, runOAuthLogin } from "./helpers/harness.mjs";
 import { createMemoryDb } from "./helpers/memory-db.mjs";
 import { randomBytes } from "node:crypto";
 
@@ -202,4 +204,69 @@ test("boot: IBKR sessions of the previous process are marked expired", async () 
   assert.equal(s.get(a)?.status_detail, IBKR_DETAIL.serviceRestarted);
   assert.equal(s.get(b)?.status, "expired");
   assert.equal(s.get(c)?.status, "active", "E*TRADE tokens survive a restart");
+});
+
+// ─────────────────────────────────────────────────────────────── OAuth hand-offs and adapter sweeps
+
+test("pending sweep: a login not finished in 10 minutes is removed; a Reconnect left unclaimed loses its new tokens", async () => {
+  const server = await startFakeOAuth2({ sub: "sweep-user" });
+  const h = await createHarness({ env: { BROKER_AUDIENCE: "schwab_oauth=all" }, adapters: [["schwab", fakeOAuthAdapter({ server })]] });
+  try {
+    const start = { brokerId: "schwab", clientId: server.cfg.clientId, clientSecret: server.cfg.clientSecret };
+    const b = newBinding();
+    const begun = await h.req("/v1/oauth/start", { method: "POST", body: { ...start, returnOrigin: "http://localhost:3000", bindingHash: b.hash } });
+    const abandonedId = begun.json.connectionId;
+    h.advance(10 * 60_000 - 1_000);
+    await h.svc.scheduler.tick();
+    assert.ok(h.rows("broker_connections").some((x) => x.id === abandonedId), "inside the window");
+    h.advance(2_000);
+    await h.svc.scheduler.tick();
+    assert.equal(h.rows("broker_connections").find((x) => x.id === abandonedId), undefined, "a login that never connected goes");
+    assert.equal(h.rows("broker_oauth_pending").length, 0);
+
+    const run = await runOAuthLogin(h, { start });
+    const id = /** @type {any} */ (run.connection).id;
+    server.revokeAccess(); // the login ended at Schwab, so Reconnect needs a new one
+    const renewed = await runOAuthLogin(h, { connectionId: id, start: { brokerId: "schwab" }, skipClaim: true });
+    assert.equal(renewed.failedAt, undefined);
+    const sealed = () => h.svc.secretBox.decrypt(id, /** @type {any} */ (h.rows("broker_secrets").find((x) => x.connection_id === id)));
+    assert.ok(sealed().accessToken, "tokens of the new login are stored, waiting for the claim");
+    h.advance(5 * 60_000 + 1_000);
+    await h.svc.scheduler.tick();
+    const row = h.rows("broker_connections").find((x) => x.id === id);
+    assert.equal(row?.status, "expired");
+    assert.equal(row?.status_detail, "The login was not finished in Nasscord. Start again.");
+    assert.equal(sealed().accessToken, undefined, "unclaimed tokens are dropped");
+    assert.equal(sealed().clientId, server.cfg.clientId, "the user's own app stays for Reconnect");
+    assert.ok(h.rows("broker_accounts").some((a) => a.connection_id === id), "the accounts and switches stay");
+    assert.ok(h.rows("audit_events").some((a) => a.action === "broker.session.expired" && a.actor_email === "system"));
+  } finally {
+    await h.close();
+    await server.close();
+  }
+});
+
+test("adapter sweep: refresh() on active connections every sweepEveryMs; an ended login is expired and audited", async () => {
+  const server = await startFakeOAuth2({ sub: "swept-user" });
+  const h = await createHarness({ env: { BROKER_AUDIENCE: "schwab_oauth=all" }, adapters: [["schwab", fakeOAuthAdapter({ server, sweepEveryMs: 15 * 60_000 })]] });
+  try {
+    const run = await runOAuthLogin(h, { start: { brokerId: "schwab", clientId: server.cfg.clientId, clientSecret: server.cfg.clientSecret } });
+    const id = /** @type {any} */ (run.connection).id;
+    await h.svc.scheduler.tick();
+    const calls = server.state.calls.filter((c) => c.path === "/api/me").length;
+    await h.svc.scheduler.tick();
+    assert.equal(server.state.calls.filter((c) => c.path === "/api/me").length, calls, "not again before sweepEveryMs");
+    assert.equal(h.rows("broker_connections").find((x) => x.id === id)?.status, "active");
+
+    server.revokeAccess(); // the broker revoked Nasscord's grant
+    h.advance(15 * 60_000);
+    await h.svc.scheduler.tick();
+    const row = h.rows("broker_connections").find((x) => x.id === id);
+    assert.equal(row?.status, "expired");
+    assert.equal(row?.status_detail, "Schwab requires a new login. Reconnect to continue.");
+    assert.ok(h.rows("audit_events").some((a) => a.action === "broker.session.expired" && String(a.target).includes(id)));
+  } finally {
+    await h.close();
+    await server.close();
+  }
 });

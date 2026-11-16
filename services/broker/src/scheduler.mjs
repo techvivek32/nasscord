@@ -1,4 +1,5 @@
 import { ETRADE_DETAIL } from "./etrade/adapter.mjs";
+import { FLOW_DETAIL } from "./flows.mjs";
 import { IBKR_DETAIL } from "./ibkr/session.mjs";
 import { createLocks } from "./locks.mjs";
 import { parseTime } from "./time.mjs";
@@ -13,6 +14,15 @@ import { parseTime } from "./time.mjs";
  *   finished must not hold a slot); a gateway whose connection has been expired or errored for 30
  *   minutes is stopped and its slot released; a gateway with no connection row, or a disconnected
  *   one, is stopped at once.
+ * - OAuth and aggregator logins (pendingSweep): a hand-off row (broker_oauth_pending) past its
+ *   window is removed; a connection that never connected goes with it, one being reconnected
+ *   becomes expired ("The login was not finished within 10 minutes. Start again.") and loses any
+ *   tokens that were exchanged but never claimed. A connection that is still active (Reconnect
+ *   pressed while its session worked) keeps its session and only loses the row.
+ * - Adapters with sweepEveryMs (adapterSweep): their sweep() once, then refresh() on each active
+ *   connection under its lock. That marks Schwab expired at the 7-day mark, Tradier at 24 h without
+ *   refresh tokens, keeps Webull's rotating refresh token alive, and checks SnapTrade
+ *   authorizations.
  * On boot: IBKR connections that were pending or active belonged to JVMs of the previous process
  * and are marked expired.
  *
@@ -31,6 +41,8 @@ import { parseTime } from "./time.mjs";
  *   cache: import("./cache.mjs").CoalescingCache,
  *   log: import("./log.mjs").Logger,
  *   locks?: import("./locks.mjs").Locks,
+ *   registry?: import("./registry.mjs").Registry,
+ *   flows?: import("./flows.mjs").Flows,
  *   now?: () => number,
  *   intervalMs?: number,
  *   releaseAfterExpiryMs?: number,
@@ -38,6 +50,8 @@ import { parseTime } from "./time.mjs";
  */
 export function createScheduler(deps) {
   const { store, etrade, manager, sessions, audit, cache, log, now = Date.now } = deps;
+  /** @type {Map<string, number>} last adapter sweep per method */
+  const lastAdapterSweep = new Map();
   const locks = deps.locks ?? createLocks();
   const intervalMs = deps.intervalMs ?? 60_000;
   const releaseAfterExpiryMs = deps.releaseAfterExpiryMs ?? 30 * 60_000;
@@ -147,8 +161,65 @@ export function createScheduler(deps) {
     try {
       await etradeSweep().catch((e) => log.warn("etrade sweep failed", { error: e }));
       await ibkrSweep().catch((e) => log.warn("ibkr sweep failed", { error: e }));
+      await pendingSweep().catch((e) => log.warn("pending login sweep failed", { error: e }));
+      await adapterSweep().catch((e) => log.warn("adapter sweep failed", { error: e }));
     } finally {
       running = false;
+    }
+  }
+
+  /** OAuth and aggregator hand-offs past their window. */
+  async function pendingSweep() {
+    const { flows } = deps;
+    if (!flows) return;
+    const t = now();
+    for (const p of await store.listExpiredPending(new Date(t).toISOString())) {
+      await locks
+        .run(p.connection_id, async () => {
+          // Read again under the lock: a claim or a new Reconnect in between wins.
+          const row = await store.getPending(p.connection_id);
+          if (!row || (parseTime(row.expires_at) ?? 0) > t) return;
+          const conn = await store.getConnection(p.connection_id);
+          const detail = row.stage === "claim" ? FLOW_DETAIL.claimTimeout : FLOW_DETAIL.loginTimeout;
+          // A connection that is active again (a Reconnect started while its session still worked,
+          // or one a finished login was merged into) only loses the stale row ("kept").
+          const outcome = await flows.abandon(p.connection_id, detail);
+          if (conn && outcome === "expired") await auditExpiry(conn, detail);
+          if (conn && outcome === "removed") await auditExpiry(conn, "login not finished; the attempt was removed");
+          log.info("unfinished login removed", { connectionId: p.connection_id, stage: row.stage, outcome });
+        })
+        .catch((e) => log.warn("pending login sweep failed for a connection", { connectionId: p.connection_id, error: e }));
+    }
+  }
+
+  /** refresh() of every active connection of adapters that ask for it, every sweepEveryMs. */
+  async function adapterSweep() {
+    const { registry } = deps;
+    if (!registry) return;
+    const t = now();
+    for (const adapter of registry.list()) {
+      const every = adapter.descriptor.sweepEveryMs;
+      if (!every || (typeof adapter.refresh !== "function" && typeof adapter.sweep !== "function")) continue;
+      const method = adapter.descriptor.method;
+      if (t - (lastAdapterSweep.get(method) ?? 0) < every) continue;
+      lastAdapterSweep.set(method, t);
+      if (adapter.sweep) await adapter.sweep().catch((e) => log.warn("adapter sweep failed", { method, error: e }));
+      if (typeof adapter.refresh !== "function") continue;
+      const refresh = adapter.refresh;
+      for (const c of await store.listConnections({ method, status: "active" })) {
+        await locks
+          .run(c.id, async () => {
+            const row = await store.getConnection(c.id);
+            if (!row || row.status !== "active") return;
+            const r = await refresh(row);
+            if (r === "expired") {
+              const after = await store.getConnection(c.id);
+              await auditExpiry(row, after?.status_detail ?? "session ended");
+              log.info("connection expired by its adapter", { connectionId: c.id, method });
+            }
+          })
+          .catch((e) => log.warn("adapter refresh failed for a connection", { connectionId: c.id, method, error: e }));
+      }
     }
   }
 

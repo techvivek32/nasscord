@@ -149,23 +149,45 @@ export function createDb({ url, serviceRoleKey, fetch: doFetch = globalThis.fetc
 }
 
 /**
+ * The broker ids and connect methods of supabase/migrations/20261116120000_more_brokers.sql.
+ * @typedef {import("./mapping.mjs").BrokerId} BrokerId
+ * @typedef {"ibkr_gateway" | "ibkr_oauth" | "etrade_oauth1" | "alpaca_key" | "alpaca_oauth" | "tradier_token" | "tradier_oauth"
+ *   | "schwab_oauth" | "tastytrade_oauth" | "tradestation_oauth" | "webull_oauth" | "snaptrade"} ConnectionMethod
+ * @typedef {"production" | "sandbox" | "paper"} Environment
+ * @typedef {"pending" | "active" | "expired" | "error" | "disconnected"} ConnectionStatus
  * @typedef {{
  *   id: string, workspace_id: string, user_id: string,
- *   broker_id: "ibkr" | "etrade",
- *   method: "ibkr_gateway" | "ibkr_oauth" | "etrade_oauth1",
- *   environment: "production" | "sandbox" | "paper",
- *   status: "pending" | "active" | "expired" | "error" | "disconnected",
+ *   broker_id: BrokerId,
+ *   method: ConnectionMethod,
+ *   environment: Environment,
+ *   status: ConnectionStatus,
  *   status_detail: string | null,
  *   session_expires_at: string | null,
  *   last_ok_at: string | null,
+ *   external_ref?: string | null,
+ *   data_as_of?: string | null,
+ *   scope?: string | null,
  *   created_at: string, updated_at: string,
  * }} ConnectionRow
  * @typedef {{
- *   id: string, connection_id: string, workspace_id: string, broker_id: "ibkr" | "etrade",
+ *   id: string, connection_id: string, workspace_id: string, broker_id: BrokerId,
  *   external_id: string, display_number: string, label: string,
  *   type: "individual" | "ira" | "roth" | "margin" | "paper",
  *   included: boolean, created_at: string,
  * }} AccountRow
+ * @typedef {Pick<AccountRow, "connection_id" | "workspace_id" | "broker_id" | "external_id" | "display_number" | "label" | "type">} AccountRowInput
+ * @typedef {"start" | "authorize" | "exchanging" | "claim"} PendingStage
+ * @typedef {{
+ *   connection_id: string, stage: PendingStage, binding_hash: string,
+ *   state_hash: string | null, ticket_hash: string | null,
+ *   return_origin: string, external_ref: string | null,
+ *   expires_at: string, created_at: string,
+ * }} PendingRow
+ * @typedef {{
+ *   workspace_id: string, provider: "snaptrade", external_user_id: string,
+ *   key_version: number, iv: string, tag: string, ciphertext: string,
+ *   created_at: string, updated_at: string,
+ * }} AggregatorUserRow
  */
 
 /**
@@ -300,6 +322,113 @@ export function createStore(db) {
     /** @returns {Promise<Array<{ broker_id: string, status: string }>>} */
     connectionStatuses() {
       return db.select("broker_connections", { columns: "broker_id,status" });
+    },
+
+    /**
+     * The workspace's live connection for one broker login (external_ref), if any: what the
+     * one-login unique index allows once. Disconnected rows do not count. Any method of the broker:
+     * the index has no method column, so one broker login is one connection whichever way it was
+     * connected (a merge moves the row to the method of the newest login, flows.mjs).
+     * @param {{ workspaceId: string, brokerId: string, environment: string, externalRef: string }} q
+     * @returns {Promise<ConnectionRow | null>}
+     */
+    async findConnectionByRef(q) {
+      return first(
+        await db.select("broker_connections", {
+          filters: {
+            workspace_id: q.workspaceId,
+            broker_id: q.brokerId,
+            environment: q.environment,
+            external_ref: q.externalRef,
+            status: ["neq", "disconnected"],
+          },
+          order: "created_at.asc",
+        }),
+      );
+    },
+
+    // ── broker_oauth_pending: the hand-off of an OAuth or aggregator login (hashes only)
+
+    /**
+     * Creates the hand-off row of a login, replacing an earlier one of the same connection (a
+     * Reconnect starts a new login).
+     * @param {Pick<PendingRow, "connection_id" | "binding_hash" | "return_origin" | "expires_at">} row
+     * @returns {Promise<PendingRow>}
+     */
+    async putPending(row) {
+      const rows = await db.upsert(
+        "broker_oauth_pending",
+        { ...row, stage: "start", state_hash: null, ticket_hash: null, external_ref: null },
+        { onConflict: "connection_id" },
+      );
+      return first(rows);
+    },
+
+    /** @param {string} connectionId @returns {Promise<PendingRow | null>} */
+    async getPending(connectionId) {
+      return first(await db.select("broker_oauth_pending", { filters: { connection_id: connectionId } }));
+    },
+
+    /**
+     * Moves a hand-off row on only while it is still in one of `stages` (one atomic UPDATE, so two
+     * requests racing for the same row cannot both win). Returns the row, or null when another
+     * request moved it first or it is gone.
+     * @param {Filters} where e.g. { connection_id } or { state_hash }
+     * @param {PendingStage[]} stages
+     * @param {Partial<PendingRow>} patch
+     * @returns {Promise<PendingRow | null>}
+     */
+    async advancePending(where, stages, patch) {
+      return first(await db.update("broker_oauth_pending", { ...where, stage: ["in", stages] }, patch));
+    },
+
+    /**
+     * Takes the hand-off row a claim names, once: DELETE ... RETURNING on the connection, the
+     * ticket hash and the claim stage. A second claim with the same ticket finds nothing.
+     * @param {string} connectionId
+     * @param {string} ticketHash
+     * @returns {Promise<PendingRow | null>}
+     */
+    async takePendingClaim(connectionId, ticketHash) {
+      return first(await db.remove("broker_oauth_pending", { connection_id: connectionId, ticket_hash: ticketHash, stage: "claim" }));
+    },
+
+    /**
+     * Removes a connection's hand-off row and answers it (null when there was none).
+     * @param {string} connectionId
+     * @returns {Promise<PendingRow | null>}
+     */
+    async deletePending(connectionId) {
+      return first(await db.remove("broker_oauth_pending", { connection_id: connectionId }));
+    },
+
+    /**
+     * Hand-off rows whose window has passed.
+     * @param {string} nowIso
+     * @returns {Promise<PendingRow[]>}
+     */
+    listExpiredPending(nowIso) {
+      return db.select("broker_oauth_pending", { filters: { expires_at: ["lte", nowIso] }, order: "expires_at.asc", limit: 200 });
+    },
+
+    // ── broker_aggregator_users: one SnapTrade user per workspace (userSecret sealed)
+
+    /** @param {string} workspaceId @returns {Promise<AggregatorUserRow | null>} */
+    async getAggregatorUser(workspaceId) {
+      return first(await db.select("broker_aggregator_users", { filters: { workspace_id: workspaceId } }));
+    },
+
+    /**
+     * @param {Pick<AggregatorUserRow, "workspace_id" | "external_user_id" | "key_version" | "iv" | "tag" | "ciphertext"> & { provider?: "snaptrade" }} row
+     * @returns {Promise<AggregatorUserRow>}
+     */
+    async putAggregatorUser(row) {
+      return first(await db.upsert("broker_aggregator_users", { provider: "snaptrade", ...row }, { onConflict: "workspace_id" }));
+    },
+
+    /** @param {string} workspaceId */
+    async deleteAggregatorUser(workspaceId) {
+      await db.remove("broker_aggregator_users", { workspace_id: workspaceId });
     },
   };
 }

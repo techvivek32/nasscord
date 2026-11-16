@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "maxNodeModuleJsDepth": 0
   },
-  "include": ["src/**/*.mjs", "test/**/*.mjs"]
+  "include": ["src/**/*.mjs", "test/**/*.mjs", "scripts/**/*.mjs"]
 }

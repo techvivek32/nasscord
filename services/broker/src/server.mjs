@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
+import { BROKER_PACKAGES } from "./adapters.mjs";
 import { createAudit } from "./audit.mjs";
 import { createCoalescingCache } from "./cache.mjs";
 import { ConfigError, loadConfig } from "./config.mjs";
 import { createConnectionService } from "./connections.mjs";
 import { createDb, createStore } from "./db.mjs";
 import { forbidden, HttpError, unauthorized, userMessage } from "./errors.mjs";
-import { createEtradeAdapter } from "./etrade/adapter.mjs";
-import { createIbkrAdapter } from "./ibkr/adapter.mjs";
+import { createEtradeAdapter, etradeRegistryAdapter } from "./etrade/adapter.mjs";
+import { createBrokerHttp } from "./http.mjs";
+import { createIbkrAdapter, ibkrRegistryAdapter } from "./ibkr/adapter.mjs";
 import { createGatewayHttp } from "./ibkr/gateway-http.mjs";
 import { createGatewayManager } from "./ibkr/gateway-manager.mjs";
 import { createLoginProxy, createLoginTokens } from "./ibkr/login-proxy.mjs";
@@ -17,17 +19,55 @@ import { bearerToken, JwtError, verifyServiceJwt } from "./jwt.mjs";
 import { createLimiter, createWindowCounter } from "./limits.mjs";
 import { createLocks } from "./locks.mjs";
 import { createLogger } from "./log.mjs";
+import { createOAuth2 } from "./oauth2.mjs";
+import { createRegistry } from "./registry.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createSecretBox } from "./secrets.mjs";
 
 /**
  * Two listeners in one process:
  * - API_PORT: JSON API for the Nasscord app (contract section 6). Everything under /v1 needs the
- *   service JWT.
+ *   service JWT. POST /hooks/<name> (broker webhooks) has no JWT: the adapter checks the broker's
+ *   own signature.
  * - LOGIN_PORT: the public IBKR login host (contract section 7).
+ *
+ * Run ONE process. Locks, rate buckets, the read cache and token refreshes are in memory; two
+ * instances would refresh a rotating token twice and lose the connection.
  */
 
 const MAX_BODY_BYTES = 32 * 1024;
+const MAX_HOOK_BYTES = 64 * 1024;
+
+/**
+ * The raw body of a webhook, at most `max` bytes.
+ * @param {import("node:http").IncomingMessage} req
+ * @param {number} max
+ * @returns {Promise<Buffer>}
+ */
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    const declared = Number(req.headers["content-length"] ?? 0);
+    if (declared > max) {
+      reject(new HttpError(413, "The request is too large."));
+      req.resume();
+      return;
+    }
+    /** @type {Buffer[]} */
+    const chunks = [];
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > max) {
+        reject(new HttpError(413, "The request is too large."));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
 
 /**
  * @param {import("node:http").IncomingMessage} req
@@ -91,8 +131,9 @@ function sendJson(res, status, body, headers = {}) {
 
 /**
  * @typedef {import("./jwt.mjs").ServiceClaims} Claims
- * @typedef {{ method: string, pattern: RegExp, auth: boolean,
- *   run: (ctx: { claims: Claims | null, params: string[], body: any }) => Promise<unknown> }} Route
+ * @typedef {{ method: string, pattern: RegExp, auth: boolean, raw?: boolean,
+ *   run: (ctx: { claims: Claims | null, params: string[], body: any, raw: Buffer | null,
+ *     headers: import("node:http").IncomingHttpHeaders }) => Promise<unknown> }} Route
  */
 
 /**
@@ -100,13 +141,14 @@ function sendJson(res, status, body, headers = {}) {
  * @param {{
  *   config: { serviceSecret: string, version: string },
  *   service: import("./connections.mjs").ConnectionService,
+ *   registry?: import("./registry.mjs").Registry,
  *   log: import("./log.mjs").Logger,
  *   now?: () => number,
  *   startedAt?: number,
  * }} deps
  */
 export function createApiHandler(deps) {
-  const { config, service, log, now = Date.now } = deps;
+  const { config, service, registry, log, now = Date.now } = deps;
   const startedAt = deps.startedAt ?? now();
   const ID = "([0-9a-fA-F-]{36})";
 
@@ -134,11 +176,37 @@ export function createApiHandler(deps) {
     { method: "POST", pattern: /^\/v1\/ibkr\/start$/, auth: true, run: ({ claims, body }) => service.startIbkr(/** @type {Claims} */ (claims), body) },
     { method: "POST", pattern: new RegExp(`^/v1/ibkr/${ID}/ticket$`), auth: true, run: ({ claims, params }) => service.ibkrTicket(/** @type {Claims} */ (claims), params[0]) },
     { method: "GET", pattern: new RegExp(`^/v1/connections/${ID}$`), auth: true, run: ({ claims, params }) => service.get(/** @type {Claims} */ (claims), params[0]) },
-    { method: "POST", pattern: new RegExp(`^/v1/connections/${ID}/renew$`), auth: true, run: ({ claims, params }) => service.renew(/** @type {Claims} */ (claims), params[0]) },
+    { method: "POST", pattern: new RegExp(`^/v1/connections/${ID}/renew$`), auth: true, run: ({ claims, params, body }) => service.renew(/** @type {Claims} */ (claims), params[0], body) },
     { method: "DELETE", pattern: new RegExp(`^/v1/connections/${ID}$`), auth: true, run: ({ claims, params }) => service.disconnect(/** @type {Claims} */ (claims), params[0]) },
     { method: "GET", pattern: /^\/v1\/portfolio$/, auth: true, run: ({ claims }) => service.portfolio(/** @type {Claims} */ (claims)) },
     { method: "GET", pattern: /^\/v1\/orders$/, auth: true, run: ({ claims }) => service.orders(/** @type {Claims} */ (claims)) },
     { method: "GET", pattern: /^\/v1\/executions$/, auth: true, run: ({ claims }) => service.executions(/** @type {Claims} */ (claims)) },
+
+    // Generic connect steps (docs/real-backend.md, "Connect flows").
+    { method: "GET", pattern: /^\/v1\/options$/, auth: true, run: ({ claims }) => service.options(/** @type {Claims} */ (claims)) },
+    { method: "POST", pattern: /^\/v1\/keys\/connect$/, auth: true, run: ({ claims, body }) => service.connectKey(/** @type {Claims} */ (claims), body) },
+    { method: "POST", pattern: /^\/v1\/oauth\/start$/, auth: true, run: ({ claims, body }) => service.startOAuth(/** @type {Claims} */ (claims), body) },
+    { method: "POST", pattern: /^\/v1\/aggregator\/start$/, auth: true, run: ({ claims, body }) => service.startAggregator(/** @type {Claims} */ (claims), body) },
+    // Canonical-host steps: any valid service JWT; authorised by the login's nonces, not a session.
+    { method: "POST", pattern: /^\/v1\/connect\/hop$/, auth: true, run: ({ body }) => service.hop(body) },
+    { method: "POST", pattern: /^\/v1\/oauth\/complete$/, auth: true, run: ({ body }) => service.completeOAuth(body) },
+    { method: "POST", pattern: /^\/v1\/aggregator\/complete$/, auth: true, run: ({ body }) => service.completeAggregator(body) },
+    { method: "POST", pattern: /^\/v1\/connect\/claim$/, auth: true, run: ({ claims, body }) => service.claim(/** @type {Claims} */ (claims), body) },
+
+    // Broker webhooks: no service JWT, a raw body of at most 64 KB, handed to the adapter.
+    {
+      method: "POST",
+      pattern: /^\/hooks\/([a-z_]{2,40})$/,
+      auth: false,
+      raw: true,
+      run: async ({ params, raw, headers }) => {
+        const adapter = registry?.webhookFor(params[0]);
+        if (!adapter?.webhook) throw new HttpError(404, "Not found.", { code: "no_route" });
+        const out = await adapter.webhook({ headers, rawBody: raw ?? Buffer.alloc(0) });
+        if (out.status >= 400) throw new HttpError(out.status, "The webhook was not accepted.", { code: "hook_rejected" });
+        return out.body ?? { ok: true };
+      },
+    },
   ];
 
   /**
@@ -177,9 +245,11 @@ export function createApiHandler(deps) {
           throw e;
         }
       }
-      const body = method === "POST" || method === "PATCH" || method === "PUT" ? await readJson(req) : {};
+      const hasBody = method === "POST" || method === "PATCH" || method === "PUT";
+      const raw = hasBody && route.raw ? await readRaw(req, MAX_HOOK_BYTES) : null;
+      const body = hasBody && !route.raw ? await readJson(req) : {};
       const params = /** @type {RegExpExecArray} */ (route.pattern.exec(pathname)).slice(1);
-      const out = await route.run({ claims, params, body });
+      const out = await route.run({ claims, params, body, raw, headers: req.headers });
       status = 200;
       sendJson(res, 200, out);
     } catch (e) {
@@ -226,7 +296,13 @@ export function createApiHandler(deps) {
  *   spawn?: any,
  *   etradeUrls?: import("./etrade/client.mjs").EtradeUrls,
  *   signer?: import("./etrade/oauth1.mjs").OAuth1Signer,
+ *   brokerUrls?: Record<string, Record<string, string>>,
+ *   adapters?: Array<[string, import("./adapter-types.mjs").AdapterFactory | null]>,
+ *   packages?: ReadonlyArray<[string, import("./adapter-types.mjs").AdapterFactory | null]>,
  * }} [overrides]
+ *   brokerUrls: per broker package, its fake hosts (over BROKER_URL_OVERRIDES).
+ *   adapters: extra broker packages (tests register fake adapters this way).
+ *   packages: replaces the list of src/adapters.mjs (tests that bring their own adapters).
  */
 export function createBrokerService(config, overrides = {}) {
   const now = overrides.now ?? Date.now;
@@ -289,7 +365,37 @@ export function createBrokerService(config, overrides = {}) {
     fetch: overrides.fetch,
     signer: overrides.signer,
   });
+  // Every broker behind the registry: IBKR and E*TRADE through their shims, then each broker
+  // package that has landed (src/adapters.mjs).
+  const oauth2 = createOAuth2({ store, secretBox, locks, cache, limiter, log: log.child({ part: "oauth" }), now, fetch: overrides.fetch });
+  const doFetch = overrides.fetch ?? globalThis.fetch;
+  /** @type {import("./adapter-types.mjs").BrokerAdapter[]} */
+  const built = [ibkrRegistryAdapter(ibkr, manager), etradeRegistryAdapter(etrade, { allowSandbox: config.etrade.allowSandbox })];
+  for (const [pkg, factory] of [...(overrides.packages ?? BROKER_PACKAGES), ...(overrides.adapters ?? [])]) {
+    if (!factory) continue;
+    const out = factory({
+      config,
+      store,
+      secretBox,
+      limiter,
+      cache,
+      locks,
+      oauth2,
+      log: log.child({ part: pkg }),
+      now,
+      fetch: doFetch,
+      urls: Object.freeze({ ...(config.urlOverrides[pkg] ?? {}), ...(overrides.brokerUrls?.[pkg] ?? {}) }),
+      http: (o) => createBrokerHttp({ ...o, limiter, fetch: doFetch, now }),
+    });
+    built.push(...(Array.isArray(out) ? out : [out]));
+  }
+  const registry = createRegistry(built, config);
+
   const service = createConnectionService({
+    config,
+    registry,
+    oauth2,
+    now,
     store,
     etrade,
     ibkr,
@@ -304,6 +410,8 @@ export function createBrokerService(config, overrides = {}) {
     stepLimits: { connectPerUser: config.steps.connectPerUser, connectGlobalPerMin: config.steps.connectGlobalPerMin },
   });
   const scheduler = createScheduler({
+    registry,
+    flows: service.flows,
     store,
     etrade,
     manager,
@@ -315,7 +423,7 @@ export function createBrokerService(config, overrides = {}) {
     now,
     releaseAfterExpiryMs: config.ibkr.releaseAfterExpiryMs,
   });
-  const api = createApiHandler({ config, service, log, now });
+  const api = createApiHandler({ config, service, registry, log, now });
   const login = createLoginProxy({
     tokens,
     resolvePort: (cid) => manager.portFor(cid),
@@ -334,7 +442,7 @@ export function createBrokerService(config, overrides = {}) {
     log: log.child({ part: "login" }),
   });
 
-  return { config, log, db, store, secretBox, limiter, cache, audit, locks, manager, gw, sessions, tokens, ibkr, etrade, service, scheduler, api, login };
+  return { config, log, db, store, secretBox, limiter, cache, audit, locks, manager, gw, sessions, tokens, ibkr, etrade, oauth2, registry, service, scheduler, api, login };
 }
 
 /**
@@ -352,6 +460,8 @@ export async function startBrokerService(config, overrides = {}) {
       bundle: config.ibkr.bundle,
     });
   }
+  for (const w of config.warnings) log.warn("configuration", { note: w });
+  log.info("broker adapters", { methods: svc.registry.list().map((a) => a.descriptor.method) });
   await manager.cleanupRuntime();
   await scheduler.recoverOnBoot().catch((e) => log.warn("boot recovery failed", { error: e }));
 

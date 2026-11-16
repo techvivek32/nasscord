@@ -44,12 +44,33 @@ export function jwtFor(c = {}, secret = TEST_SECRET) {
 }
 
 /**
+ * The next fixed port for listen(), or 0 (any free port, what tests use). scripts/fake-brokers.mjs
+ * sets it so a developer's .env keeps working across runs: each listen() then takes the next port
+ * in the order the fakes start.
+ */
+let nextFixedPort = 0;
+
+/** @param {number} first the first port, or 0 to go back to any free port */
+export function useFixedPorts(first) {
+  if (first !== 0 && !(Number.isInteger(first) && first >= 1024 && first <= 65000)) throw new Error("useFixedPorts: a port from 1024 to 65000, or 0");
+  nextFixedPort = first;
+}
+
+/**
  * @param {http.RequestListener} handler
  * @returns {Promise<{ server: http.Server, port: number, url: string, close: () => Promise<void> }>}
  */
 export async function listen(handler) {
   const server = http.createServer(handler);
-  await new Promise((r) => server.listen(0, "127.0.0.1", () => r(undefined)));
+  const fixed = nextFixedPort;
+  if (fixed) nextFixedPort += 1;
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(fixed, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve(undefined);
+    });
+  });
   const port = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
   return {
     server,

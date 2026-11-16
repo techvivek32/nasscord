@@ -6,37 +6,75 @@ A separate Node 24 process (zero npm dependencies) that holds everything broker-
   IBKR's own page, a keepalive per gateway, and the reads (balances, positions, orders, executions, day P&L).
 - **E\*TRADE**: OAuth 1.0a with the user's own consumer key (request token, authorize, verification code, access
   token), encrypted token storage, same-day renewal, revoke on disconnect, the midnight-Eastern expiry, and the reads.
-- The encryption key for `broker_secrets` and every call to IBKR and E\*TRADE. The Next app holds no broker secrets.
+- **Every other broker** through one adapter interface and a registry: Alpaca (the user's own API key), Tradier,
+  Schwab, tastytrade, TradeStation and Webull (OAuth 2.0 through one canonical callback), and SnapTrade for Fidelity,
+  Robinhood, Public, Moomoo, and Webull, Schwab and tastytrade until each approves Nasscord directly.
+- The encryption key for `broker_secrets` and `broker_aggregator_users`, and every call to every broker. The Next app
+  holds no broker secrets.
 
-This first release is **read-only**: nothing here places, changes or cancels an order.
+This first release is **read-only**: nothing here places, changes or cancels an order. IBKR and E\*TRADE call only
+the read endpoints listed below. Every other adapter calls its broker through `http.mjs`, which refuses any method and
+path that is not on that adapter's read allowlist (plus its token endpoint) before the request leaves the process.
+Keys that can trade (an Alpaca key, a personal token) are therefore still used read-only, and each adapter has a test
+that proves its allowlist.
 
-The binding contract is [`docs/real-backend.md`](../../docs/real-backend.md) sections 5 to 8, and the schema is
-[`supabase/migrations/20261103120000_init.sql`](../../supabase/migrations/20261103120000_init.sql).
+The binding contract is [`docs/real-backend.md`](../../docs/real-backend.md) sections 5 to 11, and the schema is
+[`supabase/migrations/20261103120000_init.sql`](../../supabase/migrations/20261103120000_init.sql) plus
+[`supabase/migrations/20261116120000_more_brokers.sql`](../../supabase/migrations/20261116120000_more_brokers.sql).
+The owner's steps for each broker (accounts, approvals, env vars, the order to switch things on) are in
+[`docs/SETUP.md`](../../docs/SETUP.md), step 13.
+
+**Run one instance only.** Locks (one change at a time per connection, one token refresh at a time), rate buckets,
+the read cache, circuit breakers and the IBKR gateways live in this process's memory. Two instances would refresh a
+rotating refresh token (Webull, TradeStation keys that rotate) twice and lose the connection.
 
 ```
 src/
   server.mjs            both listeners, routing, graceful shutdown (stops every gateway JVM)
-  config.mjs            environment, validated; names problems, never prints values
+  config.mjs            environment, validated; names problems, never prints values; BROKER_AUDIENCE gate keys
   jwt.mjs               service JWT (HS256, node:crypto, timingSafeEqual)
   secrets.mjs           AES-256-GCM, 12-byte IV, AAD = connection id, key_version
   db.mjs                PostgREST over fetch with the service role, and the service's queries
-  connections.mjs       workspace checks, audit, fan-out over connections
+  connections.mjs       workspace checks, audit, fan-out over connections through the registry
+  registry.mjs          connect method -> adapter; validates descriptors at boot; GET /v1/options; the audience gate
+  adapters.mjs          the one static list of broker packages (alpaca, tradier, schwab, tastytrade, tradestation,
+                        webull, snaptrade)
+  adapter-types.mjs     the adapter interface (JSDoc only): descriptor, reads, lifecycle, flow hooks
+  http.mjs              createBrokerHttp: read allowlist, timeouts, rate buckets, 429 / "Quota Violation", no logging
+  oauth2.mjs            the OAuth 2.0 engine: authorize URL (state, PKCE), code exchange, refresh under a lock,
+                        rotated tokens saved before use, hard expiry, circuit breaker per broker and client
+  flows.mjs             the generic connect steps: key connect, OAuth and SnapTrade start, hop, complete, claim,
+                        duplicate merge by external_ref
   locks.mjs             one lock per connection, shared by the routes, the IBKR adapter, keepalive and scheduler
-  limits.mjs            token buckets: IBKR 8/s per connection, E*TRADE 2/s per connection and module, global
-  cache.mjs             5 s per-connection cache with in-flight dedupe
+  limits.mjs            token buckets: IBKR 8/s per connection, E*TRADE 2/s per connection and module, a bucket per
+                        adapter, global
+  cache.mjs             per-connection read cache with in-flight dedupe; TTL per adapter (5 s to 30 min; SnapTrade
+                        transactions up to a day)
   audit.mjs             audit_events rows
-  mapping.mjs           broker answers -> Nasscord Position / Order / Execution / account shapes
-  scheduler.mjs         midnight-ET expiry, login timeouts, slot release
+  mapping.mjs           IBKR and E*TRADE answers -> Nasscord shapes, and the shared helpers the other brokers use
+  scheduler.mjs         midnight-ET expiry, login timeouts, slot release, abandoned hand-offs, adapter sweeps
   time.mjs              America/New_York helpers
   etrade/oauth1.mjs     RFC 5849 HMAC-SHA1 signing
   etrade/client.mjs     E*TRADE OAuth and signed reads
-  etrade/adapter.mjs    start, verify, renew, disconnect, portfolio, orders, executions
+  etrade/adapter.mjs    start, verify, renew, disconnect, portfolio, orders, executions; registry shim
   ibkr/gateway-manager.mjs  slots, conf.yaml rendering, java spawn, health, stop
   ibkr/gateway-http.mjs     loopback calls to a gateway (fresh socket per call, GET retry on parse errors)
   ibkr/login-proxy.mjs      the public login host: ticket, cookie, allowlist, hardened reverse proxy
   ibkr/session.mjs          keepalive, first-login bootstrap, competing sessions
-  ibkr/adapter.mjs          start, renew, disconnect, portfolio, orders, executions
+  ibkr/adapter.mjs          start, renew, disconnect, portfolio, orders, executions; registry shim
+  alpaca/               index.mjs (adapter), client.mjs (allowlist, hosts), mapping.mjs
+  tradier/              the same three files (personal token and partner OAuth)
+  schwab/               the same three files
+  tastytrade/           the same three files
+  tradestation/         the same three files
+  webull/               the same, plus signer.mjs (Webull's HMAC request signing)
+  snaptrade/            the same, plus signer.mjs (request and webhook signatures), users.mjs (one SnapTrade
+                        user per workspace) and webhook.mjs (POST /hooks/snaptrade)
 ```
+
+A broker package exports `createAdapter(deps)` from its `index.mjs`, or `createAdapter = null` until it lands: the
+registry then skips it and `GET /v1/options` answers its methods as `not_built`. A broker package edits only its own
+folder; `adapters.mjs` does not change when one lands.
 
 ## API (API_PORT, default 8710)
 
@@ -48,20 +86,36 @@ against the token's `wid`; a connection of another workspace answers 404. Errors
 | Method and path | Body | Returns |
 |---|---|---|
 | `GET /health` | | `{ ok, version, uptimeSec }` (no auth; gateway counts are only in `/v1/health`) |
-| `GET /v1/health` | | connection counts by broker and status, gateway slots (superadmin only) |
+| `GET /v1/health` | | `{ connections: { <every broker id>: { <status>: count } }, adapters: [method], gateways }` (superadmin only) |
+| `GET /v1/options` | | `{ callbackBase, options: ConnectOption[] }`: every way of connecting and whether this caller may use it now |
 | `POST /v1/etrade/start` | `{ environment, consumerKey, consumerSecret }` | `{ connectionId, authorizeUrl }` |
 | `POST /v1/etrade/verify` | `{ connectionId, verifier }` | `{ connection }` |
 | `POST /v1/ibkr/start` | `{ environment }` (`production` or `paper`) | `{ connectionId, loginUrl }` |
 | `POST /v1/ibkr/:id/ticket` | | `{ loginUrl }`, a fresh login link for the running gateway (400 E\*TRADE, 404 other workspace, 409 `no_gateway` / `disconnected`) |
+| `POST /v1/keys/connect` | `{ brokerId, method?, environment?, keyId?, secret, connectionId? }` | `{ connection }` (api_key flow; `connectionId` re-keys that connection, 409 `other_account` for a key of another account) |
+| `POST /v1/oauth/start` | `{ brokerId, method?, client?, environment?, clientId?, clientSecret?, returnOrigin, bindingHash }` | `{ connectionId }` |
+| `POST /v1/aggregator/start` | `{ brokerId, environment?, returnOrigin, bindingHash }` | `{ connectionId }` |
+| `POST /v1/connect/hop` | `{ connectionId, binding, repeat?, preview? }` | `{ redirectUrl, brokerId, workspaceName, requestedBy }` (canonical host; authorised by the binding nonce) |
+| `POST /v1/oauth/complete` | `{ brokerId, state, code?, error?, bindings }` | `{ connectionId, returnOrigin, ticket }` (canonical callback; the code is exchanged here) |
+| `POST /v1/aggregator/complete` | `{ connectionId, status, authorizationId?, binding }` | `{ connectionId, returnOrigin, ticket }` (SnapTrade's return on the canonical host) |
+| `POST /v1/connect/claim` | `{ connectionId, ticket, binding }` | `{ connection }` (the user's own host; the caller must be the user who started) |
 | `GET /v1/connections/:id` | | `{ connection }` (IBKR: checks the gateway first) |
-| `POST /v1/connections/:id/renew` | | `{ connection, loginUrl? }` |
+| `POST /v1/connections/:id/renew` | `{ returnOrigin?, bindingHash? }` | `{ connection, next?, loginUrl? }` |
 | `DELETE /v1/connections/:id` | | `{ ok: true }` |
 | `GET /v1/portfolio` | | `{ accounts, positions, errors }` |
 | `GET /v1/orders` | | `{ orders, errors }` |
 | `GET /v1/executions` | | `{ executions, errors }` |
+| `POST /hooks/<name>` | raw body, at most 64 KB | no service JWT: handed to the adapter of that method or broker (`/hooks/snaptrade`), which checks the broker's own signature; 404 when no adapter takes it |
 
-`connection` is `{ id, brokerId, method, environment, status, statusDetail, sessionExpiresAt, lastOkAt,
-accounts: [{ id, label, displayNumber, type, included }] }` with `status` as stored in the database.
+`connection` is `{ id, brokerId, method, environment, status, statusDetail, sessionExpiresAt, lastOkAt, dataAsOf?,
+scope?, accounts: [{ id, label, displayNumber, type, included }] }` with `status` as stored in the database.
+`dataAsOf` (when SnapTrade last synced) and `scope` (the OAuth scope granted) are sent only when set; `external_ref`
+(the broker-side name of the login) is never sent.
+
+`next` from renew: `{ kind: "gateway_login" }` (IBKR), `{ kind: "oauth1_verifier", authorizeUrl }` (E\*TRADE),
+`{ kind: "api_key" }` (paste the key again for the same connection), `{ kind: "redirect" }` (OAuth and SnapTrade: a
+new login through the hop, which needs `returnOrigin` and `bindingHash` in the body). No `next`: the connection is
+fine.
 Only `included` accounts are read. One broker failing shows up in `errors` (`{ connectionId, message }`), not as a
 failed request. On `/v1/portfolio` an IBKR account that cannot be read is left out and reported the same way
 ("IBKR account U12•••67: ..."), while the connection's other accounts are still answered.
@@ -83,12 +137,30 @@ Behaviour worth knowing on the app side:
   a new request token with the stored consumer key: `loginUrl` is the E\*TRADE authorize page, and the user sends the
   new code to `POST /v1/etrade/verify` with the same `connectionId`.
 - **E\*TRADE start** removes earlier attempts in the workspace (same environment) that never got past the code step.
+- **Who may connect** is decided per method (and for Schwab and TradeStation per client), never per broker: the
+  adapter must be built, configured (its env credentials, and `OAUTH_CALLBACK_BASE` for OAuth and SnapTrade), open to
+  the caller under `BROKER_AUDIENCE`, and have an environment left once sample data is dropped in production. Every
+  start, and every renew that starts a new login or asks for a new key, passes the same gate (403 `off` /
+  `owner_only`). A plain refresh of an existing session stays open, so connections made before a gate closed keep
+  reading. See "Who may connect" below.
+- **One login, one connection.** Every login is named by `external_ref` (the Alpaca account id, the tastytrade
+  customer id, Webull's identity_id, the SnapTrade authorization id, the TradeStation id_token `sub`, or for Schwab
+  a hash of the App Key and the sorted account hashes, never the key itself). A login the workspace already has
+  moves onto the existing connection, so its Included switches survive; a Reconnect that comes back with another
+  login is refused (409 `other_account`).
+- **The canonical-host hand-off** (OAuth and SnapTrade, contract section 8): start on the user's own host with a
+  binding nonce kept in an HttpOnly cookie, a hop on the canonical host that proves the nonce and sets the same
+  cookie there, the callback on the canonical host where the code is exchanged at once, and a claim on the user's
+  own host with a one-time ticket. A code or a portal result never travels to a workspace or white-label host.
+  Hand-off rows (`broker_oauth_pending`) keep only hashes and the return origin, work once and expire after 10
+  minutes; the scheduler removes them.
 - **Disconnect** revokes the E\*TRADE token or logs the IBKR gateway out and stops it, deletes the secret and the
   accounts, and leaves the connection row with status `disconnected`.
 - **Limits on connect steps** (429 with `Retry-After`, the sentence in `error`): per user (`sub`), at most
   `BROKER_CONNECT_PER_USER` (20) starts and renews in 10 minutes, 20 E\*TRADE verifies and 60 login links; for the
-  whole process, at most `BROKER_CONNECT_GLOBAL_PER_MIN` (60) new IBKR or E\*TRADE starts a minute. Refused attempts
-  are not written to `audit_events` one by one.
+  whole process, at most `BROKER_CONNECT_GLOBAL_PER_MIN` (60) new connections a minute, whatever the broker. Key
+  connects, OAuth and SnapTrade starts count as starts; claims count as verifies. Refused attempts are not written to
+  `audit_events` one by one.
 - **Pending IBKR logins are capped**: at most `IBKR_MAX_PENDING_LOGINS` gateways (default half the slots) may wait
   for a login at one time; beyond that, start answers 503 `too_many_pending`. A connection that already has a gateway
   reuses it. A login not finished within its 20-minute window releases its slot at once.
@@ -105,6 +177,76 @@ Behaviour worth knowing on the app side:
   E\*TRADE portfolio totals) is left out of the account, never sent as 0.
 - E\*TRADE executions are derived from filled orders (the contract's read set has no transactions call); commission is
   E\*TRADE's estimate, so they carry `provisional: true`.
+
+## Who may connect (BROKER_AUDIENCE)
+
+Each connect method has a gate key with an audience: `all` (every user with a trading workspace), `superadmin` (the
+platform owner only) or `off`. Defaults (`AUDIENCE_DEFAULTS` in `config.mjs`):
+
+| Gate key | Default | Why |
+|---|---|---|
+| `ibkr_gateway`, `etrade_oauth1`, `alpaca_key` | `all` | The user's own login or key, which each broker allows |
+| `snaptrade` | `all` | Effective only once `SNAPTRADE_CLIENT_ID` and `SNAPTRADE_CONSUMER_KEY` are set, for the brokers in `SNAPTRADE_BROKERS`. Set `snaptrade=superadmin` while on SnapTrade's free Build plan |
+| `schwab_oauth.user` | `superadmin` | Schwab defines an Individual app as your own app for your own account |
+| `tradestation_oauth.user` | `superadmin` | A non-partner key only reaches its owner's accounts |
+| `tradier_token` | `superadmin` | Tradier's API is for personal use unless you are a partner |
+| `tastytrade_oauth` | `superadmin` | Until tastytrade verifies Nasscord the client is the owner's personal OAuth app |
+| `alpaca_oauth`, `tradier_oauth`, `schwab_oauth.platform`, `tradestation_oauth.platform`, `webull_oauth` | `superadmin` | Platform clients: not configured until their env credentials exist, then the owner tests before opening them |
+
+`BROKER_AUDIENCE=schwab_oauth.user=all,tradier_token=off` changes single keys; a bare `schwab_oauth=` or
+`tradestation_oauth=` sets both clients; `all=<audience>` sets every key first (local testing only). An unknown key
+or audience stops the service at boot (exit 78) with the key named. Restart the service after a change; the app
+needs no redeploy, because it asks `GET /v1/options` (kept 60 s per role).
+
+`GET /v1/options` answers one entry per method, client and broker: `{ brokerId, method, client, flow, environments,
+audience, built, configured, available, reasonCode, reason, callbackUrl }`. `reasonCode` is `not_built`,
+`not_configured`, `off`, `owner_only` or `no_environment`. For the super admin `reason` names the missing setting
+("Not set up on this server: TRADIER_CLIENT_ID and TRADIER_CLIENT_SECRET are not set."); everyone else gets a
+sentence without it. The console's Brokers page shows this answer, and the public pages say "Connect today" only for
+a broker with a way open to everyone.
+
+## Brokers
+
+| Broker | Method (flow) | Environments | Session | Callback path |
+|---|---|---|---|---|
+| Interactive Brokers | `ibkr_gateway` (gateway login) | Live, Paper (the user's own) | about a day | none (login host) |
+| E\*TRADE | `etrade_oauth1` (verification code) | Production; Sandbox for developers only | ends at midnight ET | none (code pasted back) |
+| Alpaca | `alpaca_key` (API key); `alpaca_oauth` (Alpaca Connect, later) | Live, Paper (each paper account its own connection) | keys do not expire; a 401 asks for the new key | `/api/broker/callback/alpaca` |
+| Tradier | `tradier_oauth` (partner); `tradier_token` (owner's personal token) | Live; Paper only by sandbox token with `TRADIER_SANDBOX_TOKENS` | 24 h without refresh tokens | `/api/broker/callback/tradier` |
+| Charles Schwab | `schwab_oauth` (the user's own Individual app, or Nasscord's Commercial app later); `snaptrade` | Live only | a new login every 7 days, warned 48 h before | `/api/broker/callback/schwab` |
+| tastytrade | `tastytrade_oauth`; `snaptrade` | Live; cert sandbox for developers only | until the grant is removed | `/api/broker/callback/tastytrade` |
+| TradeStation | `tradestation_oauth` (the user's own key, or Nasscord's later) | Live; Paper (SIM) with `TRADESTATION_ALLOW_SIM` | no expiry, or 24 h when the key rotates refresh tokens | `/api/broker/callback/tradestation` |
+| Webull | `webull_oauth` (Connect API); `snaptrade` until then | Live; Connect sandbox for developers only | 15-day refresh token, rotated | `/api/broker/callback/webull` |
+| Fidelity, Robinhood, Public, Moomoo | `snaptrade` (SnapTrade's portal, read-only) | Live | SnapTrade's sync (`data_as_of`) | `/api/broker/callback/snaptrade` |
+
+Every callback is `<OAUTH_CALLBACK_BASE>/api/broker/callback/<broker>` on the canonical host (`https://nasscord.com`),
+never a workspace or tenant host. The exact read endpoints, read cache TTLs and rate buckets of each broker are in
+its folder's `index.mjs` and `client.mjs` (the allowlist sits next to the hosts).
+
+**Sample data never reaches users.** With `NODE_ENV=production` the service refuses every sandbox environment (E\*TRADE
+sandbox keys, `TASTYTRADE_ENV=cert`, `WEBULL_ENV=sandbox`) and `BROKER_URL_OVERRIDES` outright, and a sandbox row left
+from before is neither read nor renewed. The database keeps `sandbox` to E\*TRADE, tastytrade and Webull, and `paper` to
+the user's own paper accounts (IBKR, Alpaca, a Tradier sandbox token, TradeStation SIM). SnapTrade's demo and sandbox
+brokerages are refused by the adapter.
+
+## Secrets
+
+`broker_secrets` is AES-256-GCM with a random 12-byte IV, the connection id as AAD, base64 fields and `key_version`.
+The plaintext is JSON, per method:
+
+| Method | Plaintext |
+|---|---|
+| `etrade_oauth1` | `{ consumerKey, consumerSecret, requestToken?, requestSecret?, accessToken?, accessSecret? }` |
+| `ibkr_gateway` | nothing: the session lives in the gateway process |
+| `alpaca_key` | `{ keyId, secretKey, host: "live" \| "paper" }` |
+| `tradier_token` | `{ token, host: "live" \| "sandbox" }` |
+| `*_oauth` | `{ client: "user" \| "platform", clientId?, clientSecret?, redirectUri, accessToken?, accessExpiresAt?, refreshToken?, refreshIssuedAt?, refreshExpiresAt?, scope?, extra? }`. `clientId` and `clientSecret` only for the user's own app (Schwab, TradeStation); a platform client's credentials stay in this service's env. `extra` is the adapter's own (Schwab's account hash map). |
+| `snaptrade` | no per-connection secret. The workspace's SnapTrade `userSecret` is in `broker_aggregator_users`, sealed with the same key and AAD `snaptrade:<workspace_id>`. |
+
+A rotated refresh token is written to `broker_secrets` before the new access token is used. Disconnect deletes the
+secret; expiry drops the tokens but keeps a user's own app key and secret, so Reconnect asks only for a new login.
+Nothing here logs a key, secret, token, code, state, nonce, ticket, query string or response body: log lines carry
+ids and statuses only.
 
 ## IBKR login host (LOGIN_PORT, default 8711, public as PUBLIC_LOGIN_URL)
 
@@ -186,7 +328,8 @@ and the connection stays `pending`. `GET /v1/connections/:id` re-attaches a watc
 - `GET https://api.etrade.com/oauth/request_token` with `oauth_callback=oob`; the user opens
   `https://us.etrade.com/e/t/etws/authorize?key=<consumerKey>&token=<requestToken>` and pastes the code back;
   `GET /oauth/access_token` with `oauth_verifier`. The OAuth endpoints are on api.etrade.com for production and
-  sandbox keys alike; reads go to `https://api.etrade.com` or `https://apisb.etrade.com`.
+  sandbox keys alike; reads go to `https://api.etrade.com` or `https://apisb.etrade.com`. Sandbox keys return
+  E\*TRADE's sample accounts, so they are for developers only: refused whenever `NODE_ENV=production`.
 - Stored encrypted in `broker_secrets`: `{ consumerKey, consumerSecret, requestToken?, requestSecret?, accessToken?, accessSecret? }`.
 - `session_expires_at` is the next 00:00 America/New_York. At that minute the scheduler marks the connection
   `expired` with "E\*TRADE ends every session at midnight Eastern. Reconnect to continue." and drops the dead token
@@ -215,13 +358,33 @@ and the connection stays `pending`. `GET /v1/connections/:id` re-attaches a watc
 | `IBKR_GATEWAY_RUNTIME` | `runtime` | writable folder for `slot-<port>/` |
 | `IBKR_GATEWAY_PORTS` | `7200-7249` | slot range (`a-b` or a comma list) |
 | `JAVA_BIN`, `IBKR_GATEWAY_XMX` | `java`, `256m` | the JVM |
-| `ETRADE_ALLOW_SANDBOX` | `true` outside production, `false` in production | accept sandbox keys |
+| `ETRADE_ALLOW_SANDBOX` | `true` outside production | accept E\*TRADE sandbox keys (sample data); ignored in production, where they are always refused |
 | `BROKER_GLOBAL_RPS` | 50 | process-wide broker calls per second |
-| `BROKER_CONNECT_PER_USER` | 20 | IBKR and E\*TRADE starts plus renews per user in 10 minutes |
-| `BROKER_CONNECT_GLOBAL_PER_MIN` | 60 | new IBKR and E\*TRADE connections per minute, whole process |
+| `BROKER_CONNECT_PER_USER` | 20 | connect starts plus renews per user in 10 minutes |
+| `BROKER_CONNECT_GLOBAL_PER_MIN` | 60 | new connections per minute, whole process |
 | `IBKR_MAX_PENDING_LOGINS` | half of `IBKR_GATEWAY_PORTS`, at least 2 | gateways waiting for a login at one time |
-| `NODE_ENV` | development | `production` (the systemd unit sets it): https required for `PUBLIC_LOGIN_URL`, sandbox keys off by default |
+| `NODE_ENV` | development | `production` (the systemd unit sets it): https required for `PUBLIC_LOGIN_URL` and `OAUTH_CALLBACK_BASE`, every sample-data environment refused |
 | `LOG_LEVEL` | info | debug, info, warn, error, silent |
+| `OAUTH_CALLBACK_BASE` | `NASSCORD_APP_URL` or `http://localhost:3000` outside production; none in production | the canonical origin every broker returns to (`https://nasscord.com`); the app's `NEXT_PUBLIC_SITE_URL` must be the same. Without it OAuth and SnapTrade methods are "not configured". Frozen once registered |
+| `BROKER_AUDIENCE` | see "Who may connect" | `key=all\|superadmin\|off`, comma-separated |
+| `BROKER_URL_OVERRIDES` | none | JSON `{"<package>":{"<name>":"http://127.0.0.1:9001"}}` for local fake brokers; refused in production |
+| `ALPACA_CLIENT_ID`, `ALPACA_CLIENT_SECRET` | none | Alpaca Connect (Nasscord's OAuth app) |
+| `TRADIER_CLIENT_ID`, `TRADIER_CLIENT_SECRET` | none | Tradier partner OAuth client |
+| `TRADIER_REFRESH_TOKENS` | false | `true` once Tradier enables refresh tokens for Nasscord |
+| `TRADIER_SANDBOX_TOKENS` | false | `true` only after Tradier agrees in writing that users may paste their own sandbox (paper) token |
+| `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET` | none | Nasscord's Schwab Commercial app; a user's own Individual app needs nothing here |
+| `TASTYTRADE_CLIENT_ID`, `TASTYTRADE_CLIENT_SECRET` | none | tastytrade OAuth client (the owner's personal app until verification) |
+| `TASTYTRADE_ENV` | production | `cert` is sample data: developers only, refused in production |
+| `TASTYTRADE_API_VERSION` | 20261012 | the `Accept-Version` header |
+| `TRADESTATION_CLIENT_ID`, `TRADESTATION_CLIENT_SECRET` | none | Nasscord's own TradeStation key, once TradeStation accepts Nasscord as a partner |
+| `TRADESTATION_ALLOW_SIM` | false | offer TradeStation Paper (SIM) once a real login confirms SIM shows only the user's own activity |
+| `WEBULL_CLIENT_ID`, `WEBULL_CLIENT_SECRET`, `WEBULL_APP_KEY`, `WEBULL_APP_SECRET` | none | Webull Connect; the app key and secret only sign requests and are never sent |
+| `WEBULL_ENV` | production | `sandbox` for Webull's required sandbox testing: developers only, refused in production |
+| `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` | none | SnapTrade partner keys (the Build plan's keys connect real accounts too) |
+| `SNAPTRADE_BROKERS` | `fidelity,robinhood,public,moomoo,webull` | brokers SnapTrade may connect: add `tastytrade` once production is approved, `schwab` once SnapTrade approves its Schwab profile, and leave `fidelity` out until its Fidelity profile is approved (docs/SETUP.md 13.4) |
+| `SNAPTRADE_PLAN` | daily | `daily` or `realtime`, the SnapTrade plan you pay for: reads are kept 30 minutes on daily, 10 on realtime |
+
+Every credential pair must be set together.
 
 Relative paths are resolved from `services/broker`. A bad configuration exits with code 78 and a list of the
 variables at fault (never their values). An uncaught exception stops every gateway and exits 1 (systemd restarts the
@@ -238,7 +401,24 @@ service); SIGTERM and SIGINT exit 0.
 
 `npm test` runs every test with `node --test`, no network needed except the real-gateway test, which starts the
 bundle's JVM and loads IBKR's login page through the login proxy (it never submits credentials). It is skipped when
-Java or the bundle is missing, and reports a skip if IBKR's servers cannot be reached.
+Java or the bundle is missing, and reports a skip if IBKR's servers cannot be reached. `npm run typecheck` checks the
+JSDoc types.
+
+The other brokers are tested against local fakes in `test/helpers/` (`fake-oauth2.mjs` is a generic authorization
+server; `fake-alpaca`, `fake-schwab`, `fake-tradestation`, `fake-tradier`, `fake-tastytrade`, `fake-webull` and
+`fake-snaptrade` follow each broker's answers), with `harness.mjs` for the service plus a memory database
+(`memory-db.mjs` enforces the same checks as the migration) and a fake clock. Per broker there is a flow test (connect,
+reads, refresh, expiry, the read-only allowlist, nothing secret in a log line) and a mapping test.
+`test/e2e-all-brokers.test.mjs` runs every package together in one service through the HTTP API: each connect flow
+(keys, OAuth with the canonical-callback ticket, the SnapTrade portal), reads from every broker, the read-only
+allowlists, the BROKER_AUDIENCE gate, Reconnect, Disconnect and the production refusals of sample data.
+
+To click through the app against the fakes, `node scripts/fake-brokers.mjs [--port 9300]` starts all seven with
+seeded logins on fixed ports and prints the service settings (`BROKER_URL_OVERRIDES`, the platform client
+credentials, `OAUTH_CALLBACK_BASE=http://localhost:3000`, `BROKER_AUDIENCE=all=all`) and the fake keys to paste in the
+Connect dialogs. Run the app with `next dev` on port 3000 (the fakes return the browser to
+`http://localhost:3000/api/broker/callback/<broker>`). Development only, never on the VPS: the service refuses
+`BROKER_URL_OVERRIDES` when `NODE_ENV=production`.
 
 ## Deploy on the VPS
 
@@ -263,18 +443,36 @@ sudo cp /opt/nasscord-broker/deploy/nasscord-broker.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now nasscord-broker
 curl -s http://127.0.0.1:8710/health
 
-# TLS and the two public names (DNS A records for broker.<domain> and ibkr-login.<domain> first)
-sudo cp /opt/nasscord-broker/deploy/Caddyfile /etc/caddy/Caddyfile   # set NASSCORD_DOMAIN or edit the names
-sudo systemctl reload caddy
+# TLS (DNS A record for ibkr-login.<domain> first; broker.<domain> only when the app runs on another host).
+# deploy/Caddyfile is a set of blocks: merge it, never copy it over a Caddyfile that already serves the app.
+# Its global options block (the log filter) goes at the very top; add the site blocks yours lacks. On a fresh
+# VPS: copy it, then uncomment the blocks for your layout (the header of the file says which).
+sudo nano /etc/caddy/Caddyfile           # set NASSCORD_DOMAIN in Caddy's environment, or edit the names
+sudo caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
 ```
 
-Then set `BROKER_SERVICE_URL=https://broker.<domain>` in Vercel. Logs: `journalctl -u nasscord-broker -f` (JSON
-lines; secrets are redacted by key name before anything is written). The unit uses `KillMode=control-group`, so
-stopping or restarting the service always stops every gateway JVM with it. Run one instance only: gateway sessions
-live in this process's memory.
+Then point the app at the service: `BROKER_SERVICE_URL=http://127.0.0.1:8710` when the app runs on the same VPS (the
+`broker.<domain>` block stays commented out), or `https://broker.<domain>` when it runs elsewhere. Logs:
+`journalctl -u nasscord-broker -f` (JSON lines; secrets are redacted by key name before anything is written). The
+unit uses `KillMode=control-group`, so stopping or restarting the service always stops every gateway JVM with it.
+Run one instance only: gateway sessions, locks, buckets and token refreshes live in this process's memory.
 
-Back up `BROKER_TOKEN_KEY` somewhere other than the VPS: without it the stored E\*TRADE tokens cannot be read
-(users would reconnect with their consumer key and secret).
+**Deploy order** when a release changes the schema: the migration first (Supabase SQL Editor), then this service,
+then the app. The service writes the new methods and tables; the app falls back to the old columns while the
+migration is missing, but the order above is the supported one.
+
+**More brokers on the VPS:** set `OAUTH_CALLBACK_BASE=https://nasscord.com` (the app's `NEXT_PUBLIC_SITE_URL`, the
+same origin), each broker's credentials as its approval arrives, and `BROKER_AUDIENCE` if a default does not fit,
+then `sudo systemctl restart nasscord-broker`. The console's Brokers page shows what each way of connecting still
+misses. SnapTrade webhooks are optional: the commented `broker-hooks` block in `deploy/Caddyfile` publishes
+`POST /hooks/snaptrade` and nothing else. Broker callbacks carry login codes in the query string, so keep them out
+of Caddy's log twice over: add no `log` directive to a site block (Caddy writes no access log without one), and keep
+the `log default` filter at the top of `/etc/caddy/Caddyfile`. Caddy's error log is always on and records the full
+URI of a request that fails, such as a 502 while the app restarts; the filter cuts the query string off every logged
+URI and drops the Referer header.
+
+Back up `BROKER_TOKEN_KEY` somewhere other than the VPS: without it the stored broker keys, tokens and SnapTrade user
+secrets cannot be read (users would connect again).
 
 ## Not done yet
 
@@ -284,4 +482,15 @@ Back up `BROKER_TOKEN_KEY` somewhere other than the VPS: without it the stored E
   `<NASSCORD_APP_URL>/api/broker/ibkr/confirm?c=<challenge>`) that checks the signed-in Nasscord session belongs to
   the user who started the connection and sends the browser back with a signed answer; only then is `nsibkr` set.
   That is a contract change (section 7) and an app route, outside this service.
+- **Broker approvals.** The code for Schwab, TradeStation, Tradier, tastytrade, Webull and SnapTrade is in, gated by
+  `BROKER_AUDIENCE` and by missing credentials until each broker (or SnapTrade) approves Nasscord in writing.
+  `docs/SETUP.md` step 13 lists what is asked of whom.
+- **Webull request signing.** Whether Webull Connect's resource calls (not only the token call) must be signed is not
+  documented; the adapter has a TODO, to be settled with Webull during onboarding and its required sandbox testing.
+- **Tradier consent text.** The consent the Tradier dialog shows is Nasscord's own wording until the partner
+  agreement supplies Tradier's exhibit (`src/lib/broker-connect/tradier.ts`).
+- **tastytrade token storage.** Ask tastytrade in writing how an approved integrator stores refresh tokens before
+  opening `tastytrade_oauth` to everyone. A quote-streaming (DXLink) token is never shared across users.
+- **SnapTrade `customRedirect`.** Whether SnapTrade needs the canonical callback host on an allowlist is not
+  documented; check it in the dashboard when the production keys arrive.
 

@@ -1,19 +1,45 @@
-# /etc/caddy/Caddyfile for the broker VPS. Caddy gets and renews the TLS certificates itself.
-# Point two DNS A records at the VPS first:
-#   broker.<domain>      -> the JSON API (API_PORT 8710), called only by the Nasscord app (service JWT)
-#   ibkr-login.<domain>  -> the IBKR login host (LOGIN_PORT 8711), opened in the user's browser
+# Caddy blocks for the VPS that runs the broker service (and, for nasscord.com, the app as well).
+# Caddy gets and renews the TLS certificates itself once the DNS A records point at the VPS.
+#
+# What each block is for:
+#   global options         -> always, and first in the file: keeps login codes out of Caddy's log (below).
+#   ibkr-login.<domain>    -> always: the IBKR login host (LOGIN_PORT 8711), opened in the user's browser.
+#   <domain> and www       -> the app (next start on 127.0.0.1:3000), only when the app runs on this VPS.
+#                             Commented out: the live VPS already serves them from /etc/caddy/Caddyfile.
+#   broker.<domain>        -> the JSON API (API_PORT 8710), called only by the app with the service JWT,
+#                             only when the app runs on another host. Commented out: when the app runs on
+#                             this VPS it calls http://127.0.0.1:8710 (BROKER_SERVICE_URL) and the API
+#                             stays private.
+#   broker-hooks.<domain>  -> optional, SnapTrade webhooks only. Commented out.
+#
+# Merge, do not overwrite. When /etc/caddy/Caddyfile already serves the app (nasscord.com does), copying
+# this file over it takes the site offline. Add this file's global options to the global block at the very
+# top of that file (or put the block there if it has none) and add only the site blocks it lacks. On a fresh
+# VPS, copy the file and uncomment the blocks your layout needs. Either way, check before reloading:
+#   sudo caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+#
 # Set NASSCORD_DOMAIN in Caddy's environment (systemctl edit caddy -> Environment=NASSCORD_DOMAIN=...)
 # or replace the placeholders below with the real names.
+#
+# Logs. Broker sign-ins come back to https://nasscord.com/api/broker/callback/<broker> with the login code
+# and state in the query string; the ticket hop to a workspace address and the IBKR login link carry one-time
+# values in theirs. None of it may reach a log.
+# - Access log: Caddy writes none unless a site block has a `log` directive. No block here has one; do not
+#   add one, here or on the app's block.
+# - Error log: always on, whatever the site blocks say. An error entry (a 502 while the app or the broker
+#   service restarts, as on every deploy, or a proxied answer cut off midway) records the request with its
+#   full URI and headers. The filter on the default logger below cuts the query string off every logged
+#   URI and drops the Referer header, for every site this Caddy serves. Keep it when you edit this file.
 
-broker.{$NASSCORD_DOMAIN:nasscord.com} {
-	request_body {
-		max_size 64KB
-	}
-	reverse_proxy 127.0.0.1:8710
-	header {
-		-Server
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
+{
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "[?].*" "?REDACTED"
+				request>headers>Referer delete
+			}
+		}
 	}
 }
 
@@ -33,3 +59,58 @@ ibkr-login.{$NASSCORD_DOMAIN:nasscord.com} {
 		Strict-Transport-Security "max-age=31536000"
 	}
 }
+
+# The app, only when it runs on this VPS and /etc/caddy/Caddyfile does not serve it yet. It must answer
+# /api/broker/callback/* itself, over https, with no redirect: www may redirect to the apex, but the apex
+# is the canonical host every broker returns to (OAUTH_CALLBACK_BASE, NEXT_PUBLIC_SITE_URL). No `log`.
+#
+# {$NASSCORD_DOMAIN:nasscord.com} {
+# 	reverse_proxy 127.0.0.1:3000
+# 	header -Server
+# }
+#
+# www.{$NASSCORD_DOMAIN:nasscord.com} {
+# 	redir https://{$NASSCORD_DOMAIN:nasscord.com}{uri} permanent
+# }
+
+# The JSON API, only when the app runs on another host (then BROKER_SERVICE_URL=https://broker.<domain>).
+# Everything under /v1 needs the service JWT. /hooks/<name> has no JWT: the adapter checks the broker's
+# own signature (SnapTrade: HMAC-SHA256 of the body with the consumer key, plus a timestamp).
+#
+# broker.{$NASSCORD_DOMAIN:nasscord.com} {
+# 	request_body {
+# 		max_size 64KB
+# 	}
+# 	reverse_proxy 127.0.0.1:8710
+# 	header {
+# 		-Server
+# 		Strict-Transport-Security "max-age=31536000"
+# 		X-Content-Type-Options nosniff
+# 	}
+# }
+
+# Optional: SnapTrade webhooks (phase 2), when the API above is not published. Publishes POST
+# /hooks/snaptrade and nothing else; every other request is a 404. Enter
+# https://broker-hooks.<domain>/hooks/snaptrade as the webhook URL in the SnapTrade dashboard.
+# Without webhooks the service still reads SnapTrade on its own schedule; leave this commented out.
+#
+# broker-hooks.{$NASSCORD_DOMAIN:nasscord.com} {
+# 	request_body {
+# 		max_size 64KB
+# 	}
+# 	@snaptrade {
+# 		method POST
+# 		path /hooks/snaptrade
+# 	}
+# 	handle @snaptrade {
+# 		reverse_proxy 127.0.0.1:8710
+# 	}
+# 	handle {
+# 		respond 404
+# 	}
+# 	header {
+# 		-Server
+# 		Strict-Transport-Security "max-age=31536000"
+# 		X-Content-Type-Options nosniff
+# 	}
+# }

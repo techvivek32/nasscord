@@ -483,3 +483,44 @@ export function createEtradeAdapter(deps) {
 }
 
 /** @typedef {ReturnType<typeof createEtradeAdapter>} EtradeAdapter */
+
+/**
+ * E*TRADE behind the registry (method etrade_oauth1, flow oauth1_verifier). Its own start and verify
+ * routes stay as they are; the registry routes reads, renew and disconnect here.
+ * @type {import("../adapter-types.mjs").AdapterDescriptor}
+ */
+export const ETRADE_DESCRIPTOR = Object.freeze(/** @type {import("../adapter-types.mjs").AdapterDescriptor} */ ({
+  method: "etrade_oauth1",
+  brokers: ["etrade"],
+  name: "E*TRADE",
+  environments: ["production", "sandbox"],
+  readTtlMs: Object.freeze({ portfolio: 5_000, orders: 5_000, executions: 5_000 }),
+  // verify may store the connection before E*TRADE sends the account list; reads load it then.
+  lazyAccounts: true,
+  sweepEveryMs: null,
+}));
+
+/**
+ * @param {EtradeAdapter} etrade
+ * @param {{ allowSandbox: boolean }} opts
+ * @returns {import("../adapter-types.mjs").BrokerAdapter}
+ */
+export function etradeRegistryAdapter(etrade, opts) {
+  return {
+    descriptor: ETRADE_DESCRIPTOR,
+    portfolio: (c, a) => etrade.portfolio(c, a),
+    orders: (c, a) => etrade.orders(c, a),
+    executions: (c, a) => etrade.executions(c, a),
+    syncAccounts: (c) => etrade.syncAccounts(c),
+    accountsPending: (c) => c.status_detail === ETRADE_DETAIL.accountsLater,
+    // Sandbox keys serve E*TRADE's sample accounts: offered only to developers, never in production.
+    environmentsFor: () => (opts.allowSandbox ? ["production", "sandbox"] : ["production"]),
+    async renew(c) {
+      const out = await etrade.renew(c);
+      if (!out.loginUrl) return { connection: out.connection };
+      return { connection: out.connection, loginUrl: out.loginUrl, next: { kind: "oauth1_verifier", authorizeUrl: out.loginUrl } };
+    },
+    revoke: (c) => etrade.disconnect(c),
+    forget: (id) => etrade.forget(id),
+  };
+}

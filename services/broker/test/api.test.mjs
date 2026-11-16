@@ -103,7 +103,11 @@ test("/v1/health is for the superadmin only", async () => {
   assert.equal((await call(`${api.url}/v1/health`, { token: jwtFor({ role: "trader" }) })).status, 403);
   const r = await call(`${api.url}/v1/health`, { token: jwtFor({ role: "superadmin", wid: null }) });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json.connections, { ibkr: {}, etrade: { active: 1 } });
+  // Every broker id is counted, connected or not (the console lists them all).
+  assert.deepEqual(r.json.connections.etrade, { active: 1 });
+  assert.deepEqual(r.json.connections.ibkr, {});
+  assert.equal(Object.keys(r.json.connections).length, 12);
+  assert.ok(r.json.adapters.includes("ibkr_gateway") && r.json.adapters.includes("etrade_oauth1"));
   assert.equal(r.json.gateways.running, 0);
   assert.equal(r.json.gateways.bundle, false);
 });
@@ -122,6 +126,31 @@ test("bad bodies, unknown routes and wrong methods", async () => {
   const missing = await call(`${api.url}/v1/etrade/start`, { method: "POST", token: jwtFor({ wid }), body: { environment: "production" } });
   assert.equal(missing.status, 400);
   assert.match(missing.json.error, /consumer key/);
+});
+
+test("the generic connect routes need the service token; webhooks do not, and 404 without an adapter", async () => {
+  for (const [method, path] of [
+    ["GET", "/v1/options"],
+    ["POST", "/v1/keys/connect"],
+    ["POST", "/v1/oauth/start"],
+    ["POST", "/v1/aggregator/start"],
+    ["POST", "/v1/connect/hop"],
+    ["POST", "/v1/oauth/complete"],
+    ["POST", "/v1/aggregator/complete"],
+    ["POST", "/v1/connect/claim"],
+  ]) {
+    assert.equal((await call(`${api.url}${path}`, { method, body: method === "POST" ? {} : undefined })).status, 401, path);
+  }
+  const options = await call(`${api.url}/v1/options`, { token: jwtFor({ wid }) });
+  assert.equal(options.status, 200);
+  assert.ok(Array.isArray(options.json.options) && options.json.options.length >= 12);
+  const key = await call(`${api.url}/v1/keys/connect`, { method: "POST", token: jwtFor({ wid }), body: { brokerId: "ibkr", secret: "a-secret-value" } });
+  assert.equal(key.status, 400, "IBKR has no key flow");
+  assert.match(key.json.error, /does not connect IBKR with a key/);
+  const hop = await call(`${api.url}/v1/connect/hop`, { method: "POST", token: jwtFor({ wid: null }), body: { connectionId: randomUUID(), binding: "x".repeat(43) } });
+  assert.equal(hop.status, 410, "an unknown login is gone, whoever asks");
+  const hook = await call(`${api.url}/hooks/snaptrade`, { method: "POST", body: {} });
+  assert.equal(hook.status, 404);
 });
 
 test("config: validation names the variable, never the value", () => {

@@ -117,15 +117,29 @@ export function createLimiter(opts = {}) {
     etrade: (connectionId, module) => acquire(`etrade:${connectionId}:${module}`, etradePerSec, "E*TRADE"),
 
     /**
+     * Any adapter's own bucket (createBrokerHttp calls it). Name keys "<broker>:<connectionId>[:<part>]"
+     * so forget(connectionId) drops them, or "<broker>:*[:<part>]" for one bucket per process.
+     * @param {string} key
+     * @param {number} ratePerSec
+     * @param {string} brokerName for the message
+     */
+    take: (key, ratePerSec, brokerName) => acquire(key, ratePerSec, brokerName),
+
+    /**
      * The broker answered "slow down": pause that bucket, doubling up to a minute while it repeats.
-     * @param {string} key "etrade:<id>:<module>" or "ibkr:<id>"
+     * When the broker said how long (Retry-After), that is the pause if it is longer.
+     * @param {string} key "etrade:<id>:<module>", "ibkr:<id>" or an adapter's bucket key
+     * @param {number} [ratePerSec] the bucket's rate, for a bucket not made yet
+     * @param {number} [brokerMs] the wait the broker asked for
      * @returns {number} the pause in ms
      */
-    backoff(key) {
+    backoff(key, ratePerSec, brokerMs) {
       const n = (strikes.get(key) ?? 0) + 1;
       strikes.set(key, n);
-      const ms = Math.min(60_000, 5_000 * 2 ** (n - 1));
-      const b = buckets.get(key) ?? bucket(key, key.startsWith("ibkr:") ? ibkrPerSec : etradePerSec);
+      const doubling = Math.min(60_000, 5_000 * 2 ** (n - 1));
+      const ms = brokerMs && brokerMs > 0 ? Math.min(10 * 60_000, Math.max(doubling, brokerMs)) : doubling;
+      const rate = ratePerSec ?? (key.startsWith("ibkr:") ? ibkrPerSec : etradePerSec);
+      const b = buckets.get(key) ?? bucket(key, rate);
       b.pause(ms);
       return ms;
     },

@@ -14,6 +14,62 @@ export const VERSION = (() => {
 })();
 
 /**
+ * Who may use a connect method (contract section "Who may connect"): everyone with a trading
+ * workspace, the platform owner only, or nobody.
+ * @typedef {"all" | "superadmin" | "off"} Audience
+ */
+export const AUDIENCES = /** @type {const} */ (["all", "superadmin", "off"]);
+
+/**
+ * BROKER_AUDIENCE gate keys and their defaults. One key per connect method, and for the two OAuth
+ * methods that take either the user's own app or Nasscord's registered client, one per client
+ * ("schwab_oauth.user", "schwab_oauth.platform"). A gate only opens a method that is also built
+ * and configured: a platform OAuth client stays unavailable until its env credentials exist, and
+ * SnapTrade until SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY are set.
+ * - Users' own credentials that each broker allows for third parties: all.
+ * - The owner's own testing (Schwab Individual app, TradeStation key, Tradier personal token,
+ *   tastytrade personal app) and every platform client until the broker approves Nasscord:
+ *   superadmin. The owner opens one to everyone with BROKER_AUDIENCE once the approval is in writing.
+ */
+export const AUDIENCE_DEFAULTS = Object.freeze(
+  /** @type {Record<string, Audience>} */ ({
+    ibkr_gateway: "all",
+    etrade_oauth1: "all",
+    alpaca_key: "all",
+    alpaca_oauth: "superadmin",
+    tradier_token: "superadmin",
+    tradier_oauth: "superadmin",
+    "schwab_oauth.user": "superadmin",
+    "schwab_oauth.platform": "superadmin",
+    tastytrade_oauth: "superadmin",
+    "tradestation_oauth.user": "superadmin",
+    "tradestation_oauth.platform": "superadmin",
+    webull_oauth: "superadmin",
+    snaptrade: "all",
+  }),
+);
+
+/** Methods whose connect step takes either the user's own OAuth app or Nasscord's own client. */
+export const TWO_CLIENT_METHODS = Object.freeze(["schwab_oauth", "tradestation_oauth"]);
+
+/**
+ * The BROKER_AUDIENCE key of a method and client.
+ * @param {string} method
+ * @param {"user" | "platform" | null} [client]
+ */
+export function gateKey(method, client = null) {
+  return TWO_CLIENT_METHODS.includes(method) ? `${method}.${client ?? "user"}` : method;
+}
+
+/**
+ * Brokers SnapTrade may connect for Nasscord (the migration's snaptrade pairs). Schwab (read only) and
+ * tastytrade need their own SnapTrade profile approvals, so they are not in the default
+ * SNAPTRADE_BROKERS: the owner adds them once SnapTrade enables them.
+ */
+export const SNAPTRADE_BROKER_IDS = Object.freeze(["fidelity", "robinhood", "public", "moomoo", "webull", "schwab", "tastytrade"]);
+export const DEFAULT_SNAPTRADE_BROKERS = Object.freeze(["fidelity", "robinhood", "public", "moomoo", "webull"]);
+
+/**
  * @typedef {{
  *   version: string,
  *   nodeEnv: string,
@@ -50,9 +106,22 @@ export const VERSION = (() => {
  *     apiBase: { production: string, sandbox: string },
  *     authorizeUrl: string,
  *   },
+ *   oauth: { callbackBase: string | null, loginWindowMs: number, claimWindowMs: number },
+ *   audience: Readonly<Record<string, Audience>>,
+ *   urlOverrides: Readonly<Record<string, Readonly<Record<string, string>>>>,
+ *   brokers: {
+ *     alpaca: { clientId: string | null, clientSecret: string | null },
+ *     tradier: { clientId: string | null, clientSecret: string | null, refreshTokens: boolean, sandboxTokens: boolean },
+ *     schwab: { clientId: string | null, clientSecret: string | null },
+ *     tastytrade: { clientId: string | null, clientSecret: string | null, env: "production" | "cert", apiVersion: string },
+ *     tradestation: { clientId: string | null, clientSecret: string | null, allowSim: boolean },
+ *     webull: { clientId: string | null, clientSecret: string | null, appKey: string | null, appSecret: string | null, env: "production" | "sandbox" },
+ *     snaptrade: { clientId: string | null, consumerKey: string | null, brokers: readonly string[], plan: "realtime" | "daily" },
+ *   },
  *   limits: { ibkrPerSec: number, etradePerSec: number, globalPerSec: number, maxWaitMs: number },
  *   steps: { connectPerUser: number, connectGlobalPerMin: number },
  *   cacheMs: number,
+ *   warnings: readonly string[],
  * }} Config
  */
 
@@ -87,6 +156,54 @@ export function parsePortRange(text) {
 }
 
 /**
+ * BROKER_AUDIENCE ("alpaca_key=all,schwab_oauth.user=superadmin,tradier_token=off") on top of the
+ * defaults. "all=<audience>" (or "*") sets every gate first; a bare two-client method
+ * ("schwab_oauth=all") sets both of its clients. Unknown keys and audiences are problems; the
+ * message names the key (a method name, not a secret).
+ * @param {string | undefined} raw
+ * @param {string[]} problems
+ * @returns {Record<string, Audience>}
+ */
+export function parseAudience(raw, problems) {
+  /** @type {Record<string, Audience>} */
+  const out = { ...AUDIENCE_DEFAULTS };
+  const keys = Object.keys(AUDIENCE_DEFAULTS);
+  const entries = String(raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  /** @type {Array<[string, Audience]>} */
+  const parsed = [];
+  for (const entry of entries) {
+    const m = /^([a-z0-9_.*]{1,40})\s*=\s*([a-z]+)$/.exec(entry);
+    if (!m) {
+      problems.push("BROKER_AUDIENCE must look like method=all|superadmin|off, comma-separated");
+      continue;
+    }
+    const value = /** @type {Audience} */ (m[2]);
+    if (!AUDIENCES.includes(value)) {
+      problems.push(`BROKER_AUDIENCE: ${m[1]} must be all, superadmin or off`);
+      continue;
+    }
+    parsed.push([m[1], value]);
+  }
+  // "all" first, so a specific key after it (or before it) always wins.
+  for (const [key, value] of parsed) if (key === "all" || key === "*") for (const k of keys) out[k] = value;
+  for (const [key, value] of parsed) {
+    if (key === "all" || key === "*") continue;
+    if (TWO_CLIENT_METHODS.includes(key)) {
+      out[`${key}.user`] = value;
+      out[`${key}.platform`] = value;
+    } else if (keys.includes(key)) {
+      out[key] = value;
+    } else {
+      problems.push(`BROKER_AUDIENCE: ${key} is not a connect method this service knows`);
+    }
+  }
+  return out;
+}
+
+/**
  * @param {string | undefined} value
  * @param {boolean} fallback
  */
@@ -104,6 +221,8 @@ function bool(value, fallback) {
 export function loadConfig(env = process.env) {
   /** @type {string[]} */
   const problems = [];
+  /** @type {string[]} */
+  const warnings = [];
   const nodeEnv = env.NODE_ENV || "development";
   const production = nodeEnv === "production";
 
@@ -134,6 +253,72 @@ export function loadConfig(env = process.env) {
     const v = (env[name] ?? "").trim();
     if (!v) problems.push(`${name} is required`);
     return v;
+  };
+  /**
+   * An optional credential: printable, no spaces, at most 512 characters. Null when unset.
+   * @param {string} name
+   */
+  const credential = (name) => {
+    const v = (env[name] ?? "").trim();
+    if (!v) return null;
+    if (!/^[\x21-\x7e]{1,512}$/.test(v)) {
+      problems.push(`${name} must be printable characters without spaces (at most 512)`);
+      return null;
+    }
+    return v;
+  };
+  /**
+   * Two credentials that only work together (a client id and its secret).
+   * @param {string} a @param {string} b
+   * @returns {[string | null, string | null]}
+   */
+  const pair = (a, b) => {
+    const x = credential(a);
+    const y = credential(b);
+    if ((x === null) !== (y === null)) {
+      problems.push(`${a} and ${b} must be set together`);
+      return [null, null];
+    }
+    return [x, y];
+  };
+  /**
+   * An http(s) origin with no path. Null when unset.
+   * @param {string} name
+   * @param {{ httpsInProduction?: boolean }} [opts]
+   */
+  const origin = (name, opts = {}) => {
+    const raw = (env[name] ?? "").trim().replace(/\/+$/, "");
+    if (!raw) return null;
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("scheme");
+      if (u.pathname !== "/" || u.search || u.hash || u.username || u.password) {
+        problems.push(`${name} must be an origin with no path, like https://nasscord.com`);
+        return null;
+      }
+      if (opts.httpsInProduction && production && u.protocol !== "https:") {
+        problems.push(`${name} must use https in production`);
+        return null;
+      }
+      return u.origin;
+    } catch {
+      problems.push(`${name} must be an http(s) URL`);
+      return null;
+    }
+  };
+  /**
+   * @template {string} T
+   * @param {string} name @param {readonly T[]} allowed @param {T} fallback
+   * @returns {T}
+   */
+  const oneOf = (name, allowed, fallback) => {
+    const raw = (env[name] ?? "").trim();
+    if (!raw) return fallback;
+    if (!allowed.includes(/** @type {T} */ (raw))) {
+      problems.push(`${name} must be one of ${allowed.join(", ")}`);
+      return fallback;
+    }
+    return /** @type {T} */ (raw);
   };
 
   const apiPort = port("API_PORT", 8710);
@@ -224,13 +409,82 @@ export function loadConfig(env = process.env) {
   }
 
   const globalPerSec = int("BROKER_GLOBAL_RPS", 50, 1, 10_000);
-  // Connect steps (IBKR and E*TRADE start, Reconnect) per user in 10 minutes, and new connections
-  // (IBKR and E*TRADE starts) per minute for the whole process.
+  // Connect steps (starts, Reconnect) per user in 10 minutes, and new connections per minute for
+  // the whole process.
   const connectPerUser = int("BROKER_CONNECT_PER_USER", 20, 1, 1_000);
   const connectGlobalPerMin = int("BROKER_CONNECT_GLOBAL_PER_MIN", 60, 1, 10_000);
   // IBKR gateways waiting for a login (not logged in yet) at one time. Default: half the slots,
   // so logins that are never finished cannot take every slot.
   const maxPendingLogins = int("IBKR_MAX_PENDING_LOGINS", Math.max(2, Math.ceil(ports.length / 2)), 1, 1_000);
+
+  // ── Sample-data environments are for developers only: never in production.
+  const etradeSandboxAsked = bool(env.ETRADE_ALLOW_SANDBOX, !production);
+  if (production && etradeSandboxAsked) {
+    warnings.push("ETRADE_ALLOW_SANDBOX is ignored in production: E*TRADE sandbox keys serve sample data");
+  }
+
+  // ── OAuth and aggregator returns. Every broker redirects to OAUTH_CALLBACK_BASE +
+  // /api/broker/callback/<broker>: one canonical host, registered with each broker once.
+  const callbackBase = origin("OAUTH_CALLBACK_BASE", { httpsInProduction: true }) ?? (production ? null : appUrl ?? "http://localhost:3000");
+
+  const audience = parseAudience(env.BROKER_AUDIENCE, problems);
+
+  /** @type {Record<string, Record<string, string>>} */
+  const urlOverrides = {};
+  const overridesRaw = (env.BROKER_URL_OVERRIDES ?? "").trim();
+  if (overridesRaw) {
+    if (production) {
+      problems.push("BROKER_URL_OVERRIDES is for local fake brokers and is refused in production");
+    } else {
+      try {
+        const parsed = JSON.parse(overridesRaw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+        for (const [broker, urls] of Object.entries(parsed)) {
+          if (!/^[a-z]{2,20}$/.test(broker) || !urls || typeof urls !== "object" || Array.isArray(urls)) throw new Error("shape");
+          /** @type {Record<string, string>} */
+          const out = {};
+          for (const [name, url] of Object.entries(urls)) {
+            if (!/^[a-zA-Z]{1,30}$/.test(name) || typeof url !== "string" || !/^https?:\/\/[^\s]+$/.test(url)) throw new Error("shape");
+            out[name] = url.replace(/\/+$/, "");
+          }
+          urlOverrides[broker] = Object.freeze(out);
+        }
+      } catch {
+        problems.push('BROKER_URL_OVERRIDES must be JSON like {"alpaca":{"live":"http://127.0.0.1:9001"}}');
+      }
+    }
+  }
+
+  // ── Broker credentials (all optional; a method without its credentials is "not configured").
+  const [alpacaId, alpacaSecret] = pair("ALPACA_CLIENT_ID", "ALPACA_CLIENT_SECRET");
+  const [tradierId, tradierSecret] = pair("TRADIER_CLIENT_ID", "TRADIER_CLIENT_SECRET");
+  const [schwabId, schwabSecret] = pair("SCHWAB_CLIENT_ID", "SCHWAB_CLIENT_SECRET");
+  const [tastyId, tastySecret] = pair("TASTYTRADE_CLIENT_ID", "TASTYTRADE_CLIENT_SECRET");
+  const [tsId, tsSecret] = pair("TRADESTATION_CLIENT_ID", "TRADESTATION_CLIENT_SECRET");
+  const [webullId, webullSecret] = pair("WEBULL_CLIENT_ID", "WEBULL_CLIENT_SECRET");
+  const [webullAppKey, webullAppSecret] = pair("WEBULL_APP_KEY", "WEBULL_APP_SECRET");
+  const [snapId, snapKey] = pair("SNAPTRADE_CLIENT_ID", "SNAPTRADE_CONSUMER_KEY");
+
+  const tastyEnv = oneOf("TASTYTRADE_ENV", /** @type {const} */ (["production", "cert"]), "production");
+  if (production && tastyEnv === "cert") problems.push("TASTYTRADE_ENV=cert is sample data and is refused in production");
+  const tastyVersion = (env.TASTYTRADE_API_VERSION ?? "").trim() || "20261012";
+  if (!/^\d{8}$/.test(tastyVersion)) problems.push("TASTYTRADE_API_VERSION must be a date like 20261012");
+
+  const webullEnv = oneOf("WEBULL_ENV", /** @type {const} */ (["production", "sandbox"]), "production");
+  if (production && webullEnv === "sandbox") problems.push("WEBULL_ENV=sandbox is sample data and is refused in production");
+
+  /** @type {string[]} */
+  let snapBrokers = [...DEFAULT_SNAPTRADE_BROKERS];
+  const snapBrokersRaw = (env.SNAPTRADE_BROKERS ?? "").trim();
+  if (snapBrokersRaw) {
+    const list = snapBrokersRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!list.every((b) => SNAPTRADE_BROKER_IDS.includes(b))) {
+      problems.push(`SNAPTRADE_BROKERS must list only ${SNAPTRADE_BROKER_IDS.join(", ")}`);
+    } else {
+      snapBrokers = [...new Set(list)];
+    }
+  }
+  const snapPlan = oneOf("SNAPTRADE_PLAN", /** @type {const} */ (["realtime", "daily"]), "daily");
 
   if (problems.length) throw new ConfigError(problems);
 
@@ -266,11 +520,34 @@ export function loadConfig(env = process.env) {
       sessionHours: 24,
     }),
     etrade: Object.freeze({
-      // Sandbox keys hold no real money; allowed by default only outside production.
-      allowSandbox: bool(env.ETRADE_ALLOW_SANDBOX, !production),
+      // Sandbox keys serve E*TRADE's sample accounts: developers only, never in production.
+      allowSandbox: !production && etradeSandboxAsked,
       oauthBase: "https://api.etrade.com",
       apiBase: Object.freeze({ production: "https://api.etrade.com", sandbox: "https://apisb.etrade.com" }),
       authorizeUrl: "https://us.etrade.com/e/t/etws/authorize",
+    }),
+    oauth: Object.freeze({
+      callbackBase,
+      // A login started and not finished at the broker within this window is dropped.
+      loginWindowMs: 10 * 60_000,
+      // After the code exchange on the canonical host, the user's own host claims it within this.
+      claimWindowMs: 5 * 60_000,
+    }),
+    audience: Object.freeze(audience),
+    urlOverrides: Object.freeze(urlOverrides),
+    brokers: Object.freeze({
+      alpaca: Object.freeze({ clientId: alpacaId, clientSecret: alpacaSecret }),
+      tradier: Object.freeze({
+        clientId: tradierId,
+        clientSecret: tradierSecret,
+        refreshTokens: bool(env.TRADIER_REFRESH_TOKENS, false),
+        sandboxTokens: bool(env.TRADIER_SANDBOX_TOKENS, false),
+      }),
+      schwab: Object.freeze({ clientId: schwabId, clientSecret: schwabSecret }),
+      tastytrade: Object.freeze({ clientId: tastyId, clientSecret: tastySecret, env: tastyEnv, apiVersion: tastyVersion }),
+      tradestation: Object.freeze({ clientId: tsId, clientSecret: tsSecret, allowSim: bool(env.TRADESTATION_ALLOW_SIM, false) }),
+      webull: Object.freeze({ clientId: webullId, clientSecret: webullSecret, appKey: webullAppKey, appSecret: webullAppSecret, env: webullEnv }),
+      snaptrade: Object.freeze({ clientId: snapId, consumerKey: snapKey, brokers: Object.freeze(snapBrokers), plan: snapPlan }),
     }),
     limits: Object.freeze({
       ibkrPerSec: 8,
@@ -280,6 +557,7 @@ export function loadConfig(env = process.env) {
     }),
     steps: Object.freeze({ connectPerUser, connectGlobalPerMin }),
     cacheMs: 5_000,
+    warnings: Object.freeze(warnings),
   });
 }
 
