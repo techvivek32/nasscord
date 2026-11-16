@@ -24,7 +24,7 @@ const SIDEBAR_TRIGGER = '[data-slot="sidebar-trigger"]';
 const INTRO: Record<ShellNavId, TourStep> = {
   terminal: {
     title: "Welcome to the terminal",
-    body: "This is where you see your broker accounts. Connect IBKR or E*TRADE, and every account shows up as one book with its positions, orders and executions. Order entry is off in this release. The tour takes about a minute.",
+    body: "This is where you see your broker accounts. Connect your brokers, and every account shows up as one book with its positions, orders and executions. Order entry is off in this release. The tour takes about a minute.",
   },
   console: {
     title: "Welcome to the console",

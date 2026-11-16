@@ -17,8 +17,10 @@ export type BrokerId =
   | "moomoo"
   | "public";
 
-/** live = trading through the broker API · beta = limited order types ·
- *  sync = read-only positions/balances via aggregator · soon = not yet available */
+/** live = connects for every user today · beta = connects with limits the broker's page states ·
+ *  sync = read-only through an aggregator · soon = not available yet.
+ *  This is the static release status for pages that cannot ask the broker service. What a user can
+ *  connect right now comes from GET /api/broker/options (BrokerOptions). */
 export type BrokerStatus = "live" | "beta" | "sync" | "soon";
 export type BrokerMode = "direct" | "aggregator" | "planned";
 
@@ -35,7 +37,133 @@ export interface Broker {
   mode: BrokerMode;
   capabilities: { trading: boolean; options: boolean; extendedHours: boolean; paper: boolean };
   blurb: string;
+  /** How a user connects this broker, one spec per way (src/lib/broker-connect). Empty: no way yet. */
+  connect: ConnectSpec[];
 }
+
+/* ---------- connecting a broker (docs/real-backend.md, "Connect flows") ---------- */
+
+/** The six ways a user connects a broker. */
+export type ConnectFlow =
+  /** IBKR: a gateway session, logged in on IBKR's own page. */
+  | "gateway_login"
+  /** E*TRADE: the user's own consumer key, approved on E*TRADE, verification code pasted back. */
+  | "oauth1_verifier"
+  /** Alpaca key and secret, or the owner's own Tradier token. */
+  | "api_key"
+  /** The user's own OAuth app (Schwab Individual app, TradeStation key) with Nasscord's callback. */
+  | "oauth2_user_app"
+  /** Nasscord's own registered OAuth client, once the broker approves Nasscord. */
+  | "oauth2_platform"
+  /** SnapTrade's hosted portal (Fidelity, Robinhood, Public, Moomoo, Webull until Webull approves). */
+  | "aggregator_portal";
+
+/** Whose OAuth app a login uses: the user's own, or Nasscord's registered client. */
+export type ConnectClient = "user" | "platform";
+
+/** Who may use a connect method on this server (the broker service's BROKER_AUDIENCE). */
+export type ConnectAudience = "all" | "superadmin" | "off";
+
+/** One environment a connect dialog offers. */
+export interface ConnectEnvironmentOption {
+  value: ConnectionEnvironment;
+  /** "Live", "Paper", "Sandbox · sample data". */
+  label: string;
+  hint: string;
+}
+
+/** A credential field of a connect dialog. Secrets are password inputs with autocomplete off. */
+export interface ConnectField {
+  name: "keyId" | "secret" | "clientId" | "clientSecret";
+  label: string;
+  hint?: string;
+  secret?: boolean;
+}
+
+/**
+ * How one way of connecting a broker works, in the user's words. The connect UI renders it; the
+ * broker service decides whether it is available to this user right now (ConnectOption).
+ */
+export interface ConnectSpec {
+  flow: ConnectFlow;
+  method: ConnectionMethod;
+  /** OAuth flows: the user's own app or Nasscord's client. */
+  client?: ConnectClient;
+  /** Read through an aggregator (named in the UI as "via SnapTrade"). */
+  via?: "snaptrade";
+  /** "Connect with your API key". */
+  title: string;
+  /** One line for the broker list. */
+  summary: string;
+  environments: ConnectEnvironmentOption[];
+  /** What the user needs before starting. */
+  prerequisites?: string[];
+  /** Numbered steps, in order. */
+  steps: string[];
+  /** api_key and oauth2_user_app: the fields to paste. */
+  fields?: ConnectField[];
+  /** A caution shown before the steps (a key regeneration breaking other tools). */
+  warning?: string;
+  /** What Nasscord can and cannot do with this access. */
+  disclosure: string;
+  /** OAuth scopes Nasscord asks for, in plain words. */
+  scopes?: string;
+  /** A consent text the user accepts before leaving Nasscord (Tradier's partner exhibit). */
+  consent?: string;
+  /** How long a login lasts and what Reconnect asks for. */
+  sessionNote: string;
+  /** Warn this many hours before the session ends ("Session ending soon"). Default 2. */
+  reconnectWarnHours?: number;
+  /** Shown in the Disconnect confirmation. */
+  disconnectNote: string;
+  /** Shown when this way is not available to the user ("Not available yet: ..."). */
+  unavailableReason: string;
+  /** The broker's own page for the setup steps. */
+  docsUrl?: string;
+}
+
+/** Why a connect method is not available right now (GET /api/broker/options). */
+export type ConnectReasonCode = "not_built" | "not_configured" | "off" | "owner_only" | "no_environment";
+
+/** One way of connecting as the broker service offers it to the signed-in user right now. */
+export interface ConnectOption {
+  brokerId: BrokerId;
+  method: ConnectionMethod;
+  client: ConnectClient | null;
+  flow: ConnectFlow;
+  /** Environments this server offers (no sandbox in production). */
+  environments: ConnectionEnvironment[];
+  audience: ConnectAudience;
+  /** The broker's adapter is in the service. */
+  built: boolean;
+  /** Its credentials and callback are set on the server. */
+  configured: boolean;
+  /** The user may connect this way now. */
+  available: boolean;
+  reasonCode: ConnectReasonCode | null;
+  /** A sentence for the user when not available (the owner sees which setting is missing). */
+  reason: string | null;
+  /** OAuth and aggregator flows: the one callback URL registered with the broker. */
+  callbackUrl: string | null;
+}
+
+/** GET /api/broker/options. */
+export interface BrokerOptions {
+  /** The canonical origin every broker returns to (https://nasscord.com), or null when unset. */
+  callbackBase: string | null;
+  options: ConnectOption[];
+}
+
+/** What Reconnect asks the user to do next (POST /api/broker/connections/[id]/renew). */
+export type RenewNext =
+  /** IBKR: open /api/broker/ibkr/login/[id]. */
+  | { kind: "gateway_login" }
+  /** E*TRADE: approve again on authorizeUrl and paste the new code. */
+  | { kind: "oauth1_verifier"; authorizeUrl: string }
+  /** Alpaca, Tradier token: paste the key again (replace-key mode for this connection). */
+  | { kind: "api_key" }
+  /** OAuth, SnapTrade: open `url` (the canonical hop) for a new login at the broker. */
+  | { kind: "redirect"; url?: string };
 
 export type PlanId = "starter" | "pro" | "desk" | "enterprise";
 
@@ -182,13 +310,35 @@ export interface BrokerAccount {
   included: boolean;
 }
 
-/** How a connection talks to the broker. */
-export type ConnectionMethod = "ibkr_gateway" | "ibkr_oauth" | "etrade_oauth1";
+/**
+ * How a connection talks to the broker (`broker_connections.method`). Each method serves one broker,
+ * except `snaptrade`, which reads Fidelity, Robinhood, Public, Moomoo and Webull through SnapTrade.
+ * `ibkr_oauth` is reserved and has no adapter yet.
+ */
+export type ConnectionMethod =
+  | "ibkr_gateway"
+  | "ibkr_oauth"
+  | "etrade_oauth1"
+  | "alpaca_key"
+  | "alpaca_oauth"
+  | "tradier_token"
+  | "tradier_oauth"
+  | "schwab_oauth"
+  | "tastytrade_oauth"
+  | "tradestation_oauth"
+  | "webull_oauth"
+  | "snaptrade";
+/**
+ * production = the user's real account (shown as "Live") · paper = the user's own paper account ·
+ * sandbox = a broker's sample data, for developers only, never offered in production and shown as
+ * "Sandbox · sample data".
+ */
 export type ConnectionEnvironment = "production" | "sandbox" | "paper";
 
 /**
- * DB `active` maps to `connected`, or to `expiring` when the session ends in under 2 hours.
- * The other values match `broker_connections.status`.
+ * DB `active` maps to `connected`, or to `expiring` when the session ends within the broker's warn
+ * window (2 hours; 48 hours for Schwab's weekly login). The other values match
+ * `broker_connections.status`.
  */
 export type ConnectionStatus = "connected" | "expiring" | "pending" | "expired" | "error" | "disconnected";
 
@@ -207,7 +357,12 @@ export interface BrokerConnection {
   /** Last time the broker answered for this connection. */
   lastOkAt?: string;
   tokenRenewsAt?: string;
+  /** When the login ends on its own (E*TRADE midnight, IBKR about a day, Schwab 7 days). */
   sessionExpiresAt?: string;
+  /** When the broker or aggregator last synced what Nasscord reads ("updated 8 min ago", SnapTrade). */
+  dataAsOf?: string;
+  /** OAuth scope the broker granted, e.g. "read market". */
+  scope?: string;
   accounts: BrokerAccount[];
   /** What Nasscord may do through the connection. The first release is read-only. */
   permissions: Array<"read" | "trade" | "options">;
@@ -263,8 +418,10 @@ export interface Position {
   brokerId: BrokerId;
   symbol: string;
   qty: number;
-  avgCost: number;
-  last: number;
+  /** Average cost per share (per unit of the underlying for an option). Absent when the broker sent none. */
+  avgCost?: number;
+  /** Last price. Absent when the broker sent none: the position is never shown at a made-up 0. */
+  last?: number;
   /** Today's P&L on the position, when the broker reports it per position. */
   dayPnl?: number;
   marketValue?: number;

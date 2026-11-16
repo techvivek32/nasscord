@@ -1,8 +1,11 @@
 import { requireRole } from "@/lib/auth";
+import { BROKERS as REGISTRY } from "@/lib/brokers";
+import { expiryWindows } from "@/lib/console-brokers";
 import { CONSOLE_ROLES } from "@/lib/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hydrateTenants, hydrateWorkspaces } from "@/lib/server/directory";
 import {
+  getOptions,
   getServiceHealth,
   getServiceHealthDetail,
   isBrokerServiceConfigured,
@@ -12,8 +15,10 @@ import {
 import {
   ACCOUNT_COLUMNS,
   CONNECTION_COLUMNS,
+  LEGACY_CONNECTION_COLUMNS,
   MEMBER_COLUMNS,
   TENANT_COLUMNS,
+  UNDEFINED_COLUMN,
   WORKSPACE_COLUMNS,
   toAuditEvent,
   toBrokerConnection,
@@ -36,6 +41,7 @@ import type {
   BrokerId,
   BrokerRequest,
   ConnectionStatus,
+  ConnectOption,
   PlanId,
   PlatformCounts,
   Role,
@@ -154,20 +160,25 @@ export async function listBrokerRequests(): Promise<BrokerRequest[]> {
   return ((data ?? []) as BrokerRequestRow[]).map(toBrokerRequest);
 }
 
-/** Every broker connection on the platform with its accounts (no balances: those need the user's session at the broker). */
+/**
+ * Every broker connection on the platform with its accounts (no balances: those need the user's session at the broker).
+ * Before the more_brokers migration has run (Postgres 42703), the init schema's columns are read instead.
+ */
 export async function listBrokerConnectionsAll(filter: { workspaceId?: string } = {}): Promise<BrokerConnection[]> {
   const admin = await staff();
-  let cq = admin.from("broker_connections").select(CONNECTION_COLUMNS).order("created_at", { ascending: false });
+  const connections = (columns: string) => {
+    const q = admin.from("broker_connections").select(columns).order("created_at", { ascending: false });
+    return filter.workspaceId ? q.eq("workspace_id", filter.workspaceId) : q;
+  };
   let aq = admin.from("broker_accounts").select(ACCOUNT_COLUMNS);
-  if (filter.workspaceId) {
-    cq = cq.eq("workspace_id", filter.workspaceId);
-    aq = aq.eq("workspace_id", filter.workspaceId);
-  }
-  const [conns, accounts] = await Promise.all([cq, aq]);
+  if (filter.workspaceId) aq = aq.eq("workspace_id", filter.workspaceId);
+  const [first, accounts] = await Promise.all([connections(CONNECTION_COLUMNS), aq]);
+  let conns = first;
+  if (conns.error?.code === UNDEFINED_COLUMN) conns = await connections(LEGACY_CONNECTION_COLUMNS);
   if (conns.error) fail("broker_connections", conns.error);
   if (accounts.error) fail("broker_accounts", accounts.error);
   const accountRows = (accounts.data ?? []) as BrokerAccountRow[];
-  return ((conns.data ?? []) as BrokerConnectionRow[]).map((row) => toBrokerConnection(row, accountRows));
+  return ((conns.data ?? []) as unknown as BrokerConnectionRow[]).map((row) => toBrokerConnection(row, accountRows));
 }
 
 function zeroes<K extends string>(keys: readonly K[]): Record<K, number> {
@@ -190,10 +201,24 @@ export async function platformCounts(): Promise<PlatformCounts> {
   const WS_STATUSES = ["active", "trial", "past_due", "suspended"] as const satisfies readonly WorkspaceStatus[];
   const PLANS = ["starter", "pro", "desk", "enterprise"] as const satisfies readonly PlanId[];
   const ROLE_LIST = ["superadmin", "tenant", "trader", "tenant_user"] as const satisfies readonly Role[];
-  const BROKERS = ["ibkr", "etrade"] as const satisfies readonly BrokerId[];
+  // Every broker in the registry, so a new broker's connections are counted the day it ships.
+  const BROKERS: BrokerId[] = REGISTRY.map((b) => b.id);
   const DB_STATUSES = ["pending", "expired", "error", "disconnected"] as const;
-  // As toConnectionStatus (rows.ts) maps them: an active connection whose session ends within 2 hours is "expiring".
-  const expiringBefore = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+  // As toConnectionStatus (rows.ts) maps them: an active connection is "expiring" inside its broker's warn window
+  // (2 hours, or 48 for Schwab's weekly login). One count per window, over the methods that use it.
+  const now = Date.now();
+  const expiringCounts = () =>
+    Promise.all(
+      expiryWindows().map(({ hours, methods }) =>
+        count(
+          "broker_connections",
+          head("broker_connections")
+            .eq("status", "active")
+            .in("method", methods)
+            .lt("session_expires_at", new Date(now + hours * 60 * 60_000).toISOString()),
+        ),
+      ),
+    ).then((parts) => parts.reduce((a, b) => a + b, 0));
 
   const [workspaces, byStatus, byPlan, tenants, byRole, connections, byBroker, byDbStatus, active, expiring, pendingApplications, brokerRequests] = await Promise.all([
     count("workspaces", head("workspaces")),
@@ -205,7 +230,7 @@ export async function platformCounts(): Promise<PlatformCounts> {
     Promise.all(BROKERS.map((v) => count("broker_connections", head("broker_connections").eq("broker_id", v)))),
     Promise.all(DB_STATUSES.map((v) => count("broker_connections", head("broker_connections").eq("status", v)))),
     count("broker_connections", head("broker_connections").eq("status", "active")),
-    count("broker_connections", head("broker_connections").eq("status", "active").lt("session_expires_at", expiringBefore)),
+    expiringCounts(),
     count("tenant_applications", head("tenant_applications").eq("status", "pending")),
     count("broker_requests", head("broker_requests")),
   ]);
@@ -249,6 +274,42 @@ export interface BrokerServiceStatus {
   health?: ServiceHealth;
   detail?: ServiceHealthDetail;
   error?: string;
+}
+
+/** GET /v1/options as the super admin sees it: every way of connecting, who may use it, and what is missing. */
+export interface ConsoleConnectOptions {
+  /** The service answered. */
+  reachable: boolean;
+  /** The canonical origin every broker returns to (OAUTH_CALLBACK_BASE), or null when unset. */
+  callbackBase: string | null;
+  options: ConnectOption[];
+  error?: string;
+}
+
+function isConnectOption(o: unknown): o is ConnectOption {
+  if (!o || typeof o !== "object") return false;
+  const x = o as Record<string, unknown>;
+  return typeof x.brokerId === "string" && typeof x.method === "string" && typeof x.available === "boolean" && typeof x.audience === "string" && Array.isArray(x.environments);
+}
+
+/**
+ * The broker service's options for the super admin. Their answer names the setting a method is missing (the reason a
+ * trader sees leaves it out), and a method open to "superadmin" shows as available to them. Never throws.
+ */
+export async function getConnectOptionsForConsole(): Promise<ConsoleConnectOptions> {
+  const session = await requireRole(CONSOLE_ROLES, "/admin");
+  if (!isBrokerServiceConfigured()) return { reachable: false, callbackBase: null, options: [], error: "BROKER_SERVICE_URL and BROKER_SERVICE_SECRET are not set." };
+  try {
+    const raw = (await getOptions({ userId: session.uid, workspaceId: session.workspaceId ?? null, role: session.role })) as unknown;
+    const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+    return {
+      reachable: true,
+      callbackBase: typeof r.callbackBase === "string" ? r.callbackBase : null,
+      options: Array.isArray(r.options) ? r.options.filter(isConnectOption) : [],
+    };
+  } catch (err) {
+    return { reachable: false, callbackBase: null, options: [], error: err instanceof Error ? err.message : "The broker service did not answer." };
+  }
 }
 
 /** The broker service's /health and, for the super admin, /v1/health. Never throws. */

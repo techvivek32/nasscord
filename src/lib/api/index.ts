@@ -7,7 +7,18 @@
    Every failure throws ApiError with a sentence a user can read.
    ------------------------------------------------------------------ */
 
-import type { BrokerConnection, Execution, Order, Position } from "@/lib/types";
+import type {
+  BrokerConnection,
+  BrokerId,
+  BrokerOptions,
+  ConnectClient,
+  ConnectionEnvironment,
+  ConnectionMethod,
+  Execution,
+  Order,
+  Position,
+  RenewNext,
+} from "@/lib/types";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -96,12 +107,90 @@ export function startIbkr(input: { environment: "production" | "paper" }): Promi
   return request("/api/broker/ibkr/start", { method: "POST", body: input });
 }
 
-/** Renews a session. IBKR may answer needsLogin (open the app's login route); E*TRADE may answer a new authorizeUrl. */
-export function renewConnection(id: string): Promise<{ connection: BrokerConnection; needsLogin?: boolean; authorizeUrl?: string }> {
+/** What Reconnect answers. `next` says what the user does now; no `next` means the session is fine again. */
+export interface RenewResult {
+  connection: BrokerConnection;
+  /**
+   * gateway_login: open /api/broker/ibkr/login/[id] in a new tab, then poll the connection.
+   * oauth1_verifier: open `authorizeUrl` (E*TRADE) and ask for the new verification code.
+   * api_key: open the key dialog in replace-key mode for this connection (connectKey with connectionId).
+   * redirect: open `url` (the canonical hop) in a new tab, then poll until the login lands.
+   */
+  next?: RenewNext;
+  /** IBKR, kept for the existing dialogs: same as next.kind "gateway_login". */
+  needsLogin?: boolean;
+  /** E*TRADE, kept for the existing dialogs: same as next.authorizeUrl. */
+  authorizeUrl?: string;
+}
+
+/** Renews a session, or starts a new login when the broker needs one (see RenewResult.next). */
+export function renewConnection(id: string): Promise<RenewResult> {
   return request(`/api/broker/connections/${encodeURIComponent(id)}/renew`, { method: "POST" });
 }
 
-/** Disconnects: revokes E*TRADE tokens or stops the IBKR gateway, and forgets the stored credentials. */
+/* ---------- generic connect flows (docs/real-backend.md section 8) ---------- */
+
+/** Every way of connecting and whether the signed-in user may use it now. Join with connectChoices() from src/lib/broker-connect. */
+export function fetchOptions(): Promise<BrokerOptions> {
+  return request("/api/broker/options");
+}
+
+/** An API key or personal token (Alpaca, the owner's Tradier token). `connectionId` re-keys that connection (replace-key mode). */
+export interface ConnectKeyInput {
+  brokerId: BrokerId;
+  method?: ConnectionMethod;
+  environment?: Extract<ConnectionEnvironment, "production" | "paper">;
+  keyId?: string;
+  secret: string;
+  connectionId?: string;
+}
+
+/** Checks the key with the broker and stores it on the broker service. Answers the connection with its accounts. */
+export async function connectKey(input: ConnectKeyInput): Promise<BrokerConnection> {
+  return (await request<{ connection: BrokerConnection }>("/api/broker/key/connect", { method: "POST", body: input })).connection;
+}
+
+/** A broker login through OAuth: Nasscord's client (`client: "platform"`), or the user's own app with its key and secret. */
+export interface StartOAuthInput {
+  brokerId: BrokerId;
+  method?: ConnectionMethod;
+  client?: ConnectClient;
+  environment?: ConnectionEnvironment;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+/** A login started on the broker service: the pending connection and the tab to open. */
+export interface StartedLogin {
+  connectionId: string;
+  /** Nasscord's canonical hop (https://nasscord.com/api/broker/oauth/go?...): open it with target _blank, rel noopener noreferrer. */
+  openUrl: string;
+}
+
+/**
+ * Starts a login that leaves Nasscord for the broker's page. Open `openUrl` in a new tab (it goes
+ * through Nasscord's own host, then on to the broker), then poll fetchConnection(connectionId) until
+ * it is connected.
+ *
+ * A 404 from that poll means only that the login finished elsewhere or was removed. It answers 404
+ * both when the login joined a connection the workspace already had (the login tab lands on
+ * /app/brokers?connected=<that id>, not on the id started here) and when a login that never
+ * connected failed: the broker refused it, it was approved in another browser, or it ran past its
+ * 10 minutes. So a 404 alone is never success. Refresh the list, and report success only when the
+ * landing page names a connection (its announcement to the other tabs) or an active connection of
+ * that broker appeared or changed after the start; otherwise say the login did not finish (the
+ * login tab shows why).
+ */
+export function startOAuth(input: StartOAuthInput): Promise<StartedLogin> {
+  return request("/api/broker/oauth/start", { method: "POST", body: input });
+}
+
+/** The same for a broker read through SnapTrade (Fidelity, Robinhood, Public, Moomoo, Webull...), with the same reading of a 404. */
+export function startAggregator(input: { brokerId: BrokerId; environment?: ConnectionEnvironment }): Promise<StartedLogin> {
+  return request("/api/broker/aggregator/start", { method: "POST", body: input });
+}
+
+/** Disconnects: revokes the broker's tokens where it has a revoke (E*TRADE, SnapTrade), stops an IBKR gateway, and forgets the stored credentials. */
 export async function disconnectConnection(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/broker/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

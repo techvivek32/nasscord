@@ -3,7 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   ACCOUNT_COLUMNS,
   CONNECTION_COLUMNS,
+  LEGACY_CONNECTION_COLUMNS,
   toBrokerConnection,
+  UNDEFINED_COLUMN,
   type BrokerAccountRow,
   type BrokerConnectionRow,
 } from "@/lib/server/rows";
@@ -19,14 +21,16 @@ if (typeof window !== "undefined") throw new Error("src/lib/server is server onl
  * Pass the user's own client (RLS) from routes; the console passes the service-role client.
  */
 export async function workspaceConnections(client: SupabaseClient, workspaceId: string): Promise<BrokerConnection[]> {
-  const [conns, accounts] = await Promise.all([
-    client.from("broker_connections").select(CONNECTION_COLUMNS).eq("workspace_id", workspaceId).neq("status", "disconnected").order("created_at"),
-    client.from("broker_accounts").select(ACCOUNT_COLUMNS).eq("workspace_id", workspaceId).order("created_at"),
-  ]);
+  const read = (columns: string) =>
+    client.from("broker_connections").select(columns).eq("workspace_id", workspaceId).neq("status", "disconnected").order("created_at");
+  const [first, accounts] = await Promise.all([read(CONNECTION_COLUMNS), client.from("broker_accounts").select(ACCOUNT_COLUMNS).eq("workspace_id", workspaceId).order("created_at")]);
+  let conns = first;
+  // The more_brokers migration has not run yet: read the init columns (data_as_of and scope stay unset).
+  if (conns.error?.code === UNDEFINED_COLUMN) conns = await read(LEGACY_CONNECTION_COLUMNS);
   if (conns.error) throw new Error(`broker_connections: ${conns.error.code ?? "read failed"}`);
   if (accounts.error) throw new Error(`broker_accounts: ${accounts.error.code ?? "read failed"}`);
   const accountRows = (accounts.data ?? []) as BrokerAccountRow[];
-  return ((conns.data ?? []) as BrokerConnectionRow[]).map((row) => toBrokerConnection(row, accountRows));
+  return ((conns.data ?? []) as unknown as BrokerConnectionRow[]).map((row) => toBrokerConnection(row, accountRows));
 }
 
 /** True when the workspace has at least one active connection (worth asking the service for data). */

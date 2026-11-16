@@ -1,3 +1,4 @@
+import { reconnectWarnHours } from "@/lib/broker-connect";
 import { getPlan } from "@/lib/plans";
 import type {
   AccountType,
@@ -24,8 +25,9 @@ import type {
 } from "@/lib/types";
 
 /*
- * Row shapes of supabase/migrations/20261103120000_init.sql and their mapping to the domain types in
- * src/lib/types.ts. Pure functions: server modules and route handlers share them.
+ * Row shapes of supabase/migrations/20261103120000_init.sql (and 20261116120000_more_brokers.sql for
+ * the broker tables) and their mapping to the domain types in src/lib/types.ts. Pure functions: server
+ * modules and route handlers share them.
  */
 
 if (typeof window !== "undefined") throw new Error("src/lib/server is server only.");
@@ -83,13 +85,17 @@ export interface BrokerConnectionRow {
   id: string;
   workspace_id: string;
   user_id: string;
-  broker_id: "ibkr" | "etrade";
+  broker_id: BrokerId;
   method: ConnectionMethod;
   environment: ConnectionEnvironment;
   status: DbConnectionStatus;
   status_detail: string | null;
   session_expires_at: string | null;
   last_ok_at: string | null;
+  /** When the aggregator last synced (more_brokers migration; absent on the old schema). */
+  data_as_of?: string | null;
+  /** OAuth scope granted (more_brokers migration; absent on the old schema). */
+  scope?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -98,7 +104,7 @@ export interface BrokerAccountRow {
   id: string;
   connection_id: string;
   workspace_id: string;
-  broker_id: "ibkr" | "etrade";
+  broker_id: BrokerId;
   external_id: string;
   display_number: string;
   label: string;
@@ -143,7 +149,17 @@ export interface AuditEventRow {
 export const TENANT_COLUMNS = "id, slug, name, status, commission_pct, white_label, branding, referral_code, owner_id, created_at";
 export const WORKSPACE_COLUMNS = "id, slug, name, plan, status, tenant_id, timezone, owner_id, created_at";
 export const MEMBER_COLUMNS = "user_id, role, workspace_id, tenant_id, full_name, email, created_at";
-export const CONNECTION_COLUMNS = "id, workspace_id, user_id, broker_id, method, environment, status, status_detail, session_expires_at, last_ok_at, created_at, updated_at";
+/**
+ * broker_connections columns the app reads. external_ref (the broker-side identity) is never read by
+ * the app. LEGACY_CONNECTION_COLUMNS is the init schema: readers retry with it when the more_brokers
+ * migration has not run yet (Postgres 42703, undefined column), so the brokers page keeps working
+ * during a deploy. Deploy order stays: migration, broker service, app.
+ */
+export const CONNECTION_COLUMNS =
+  "id, workspace_id, user_id, broker_id, method, environment, status, status_detail, session_expires_at, last_ok_at, data_as_of, scope, created_at, updated_at";
+export const LEGACY_CONNECTION_COLUMNS = "id, workspace_id, user_id, broker_id, method, environment, status, status_detail, session_expires_at, last_ok_at, created_at, updated_at";
+/** Postgres "undefined column": the database is older than the columns asked for. */
+export const UNDEFINED_COLUMN = "42703";
 export const ACCOUNT_COLUMNS = "id, connection_id, workspace_id, broker_id, external_id, display_number, label, type, included, created_at";
 
 /* ---------- mapping ---------- */
@@ -246,14 +262,25 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   defaultAccountId: null,
 };
 
-const EXPIRING_MS = 2 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
-/** DB status to the app's: `active` is `connected`, or `expiring` when the session ends within 2 hours. */
-export function toConnectionStatus(status: DbConnectionStatus | string, sessionExpiresAt: string | null | undefined, now = Date.now()): ConnectionStatus {
+/**
+ * DB status to the app's: `active` is `connected`, or `expiring` when the session ends within the
+ * broker's warn window (2 hours by default, 48 for Schwab's weekly login: reconnectWarnHours).
+ * The third argument is the clock (a number) or { now, brokerId, method }.
+ */
+export function toConnectionStatus(
+  status: DbConnectionStatus | string,
+  sessionExpiresAt: string | null | undefined,
+  opts: number | { now?: number; brokerId?: BrokerId; method?: ConnectionMethod } = {},
+): ConnectionStatus {
+  const o = typeof opts === "number" ? { now: opts } : opts;
+  const now = o.now ?? Date.now();
+  const warnMs = (o.brokerId ? reconnectWarnHours(o.brokerId, o.method) : 2) * HOUR_MS;
   switch (status) {
     case "active": {
       const ends = sessionExpiresAt ? Date.parse(sessionExpiresAt) : NaN;
-      return Number.isFinite(ends) && ends - now < EXPIRING_MS ? "expiring" : "connected";
+      return Number.isFinite(ends) && ends - now < warnMs ? "expiring" : "connected";
     }
     case "pending":
     case "expired":
@@ -283,11 +310,13 @@ export function toBrokerConnection(row: BrokerConnectionRow, accounts: BrokerAcc
     brokerId: row.broker_id,
     method: row.method,
     environment: row.environment,
-    status: toConnectionStatus(row.status, row.session_expires_at),
+    status: toConnectionStatus(row.status, row.session_expires_at, { brokerId: row.broker_id, method: row.method }),
     ...(row.status_detail ? { statusDetail: row.status_detail } : {}),
     connectedAt: row.created_at,
     ...(row.last_ok_at ? { lastOkAt: row.last_ok_at } : {}),
     ...(row.session_expires_at ? { sessionExpiresAt: row.session_expires_at } : {}),
+    ...(row.data_as_of ? { dataAsOf: row.data_as_of } : {}),
+    ...(row.scope ? { scope: row.scope } : {}),
     accounts: accounts.filter((a) => a.connection_id === row.id).map(toBrokerAccount),
     permissions: ["read"],
     workspaceId: row.workspace_id,

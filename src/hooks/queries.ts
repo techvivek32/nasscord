@@ -51,6 +51,8 @@ export const qk = {
   positions: (wid: string) => ["broker", wid, "positions"] as const,
   orders: (wid: string) => ["broker", wid, "orders"] as const,
   executions: (wid: string) => ["broker", wid, "executions"] as const,
+  /** Not under ["broker", wid]: a connection change does not change who may connect what. */
+  options: (wid: string) => ["broker-options", wid] as const,
 };
 
 /** Drops every cached query (call on sign-out, before the session cookie goes). */
@@ -90,6 +92,16 @@ export function useConnection(id: string | null | undefined, opts: { pollMs?: nu
     enabled: !!wid && !!id,
     refetchInterval: opts.pollMs ?? false,
   });
+}
+
+/**
+ * Every way of connecting a broker and whether the signed-in user may use it now (the broker
+ * service's BROKER_AUDIENCE and setup). Join with connectChoices() from src/lib/broker-connect. The
+ * app route keeps it 60 s, so this does not refetch sooner.
+ */
+export function useBrokerOptions() {
+  const wid = useWorkspaceId();
+  return useQuery({ queryKey: qk.options(wid ?? NONE), queryFn: api.fetchOptions, enabled: !!wid, staleTime: 60_000 });
 }
 
 /* ---------------------------------------------------------------- broker changes */
@@ -150,9 +162,32 @@ export function useStartIbkr() {
   return useMutation({ mutationFn: api.startIbkr, onSettled: () => invalidate() });
 }
 
+/** Reconnect. Act on `next` (RenewResult in src/lib/api): IBKR login, E*TRADE code, a new key, or the broker's login in a new tab. */
 export function useRenewConnection() {
   const invalidate = useBrokerInvalidate();
   return useMutation({ mutationFn: (id: string) => api.renewConnection(id), onSettled: () => invalidate() });
+}
+
+/** An API key or personal token (Alpaca, the owner's Tradier token); `connectionId` re-keys that connection. */
+export function useConnectKey() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (input: api.ConnectKeyInput) => api.connectKey(input), onSettled: () => invalidate() });
+}
+
+/**
+ * Starts an OAuth login: open `openUrl` in a new tab, then poll useConnection(connectionId, { pollMs: 3000 }).
+ * A 404 from that poll is not success: the login was merged into another connection or it failed
+ * (see startOAuth in src/lib/api).
+ */
+export function useStartOAuth() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (input: api.StartOAuthInput) => api.startOAuth(input), onSettled: () => invalidate() });
+}
+
+/** Starts a SnapTrade login: open `openUrl` in a new tab, then poll useConnection(connectionId, { pollMs: 3000 }). A 404 is read as for useStartOAuth. */
+export function useStartAggregator() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (input: Parameters<typeof api.startAggregator>[0]) => api.startAggregator(input), onSettled: () => invalidate() });
 }
 
 export function useDisconnectConnection() {

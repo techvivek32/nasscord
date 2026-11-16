@@ -25,7 +25,7 @@ export const TERMINAL_NAV: NavGroup[] = [
     label: "Trade",
     items: [
       { title: "Alerts", href: "/app", icon: Bell, description: "TradeScope alerts, once the engine is connected to your workspace, and a ticket that sizes a trade to your risk." },
-      { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across your connected IBKR and E*TRADE accounts, with P&L." },
+      { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across your connected broker accounts, with P&L." },
       { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders from your brokers. Read only in this release." },
       { title: "Options", href: "/app/options", icon: Layers, description: "Option ideas from TradeScope alerts. Not connected yet." },
     ],
@@ -42,7 +42,7 @@ export const TERMINAL_NAV: NavGroup[] = [
   {
     label: "Account",
     items: [
-      { title: "Brokers", href: "/app/brokers", icon: PlugZap, description: "Connect IBKR or E*TRADE and choose which accounts count toward your totals." },
+      { title: "Brokers", href: "/app/brokers", icon: PlugZap, description: "Connect your brokers and choose which accounts count toward your totals." },
       { title: "Settings", href: "/app/settings", icon: Settings, description: "Profile, notifications, risk per trade and password reset." },
     ],
   },

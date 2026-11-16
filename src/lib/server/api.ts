@@ -47,13 +47,28 @@ export async function apiActor(): Promise<ApiActor | Response> {
 const TOO_MANY_STEPS = "Too many connection attempts from your account. Wait a few minutes and try again.";
 
 /**
- * Connect steps (start, verify, renew) per user: 10 of each kind in 10 minutes. In memory, so on
- * Vercel each instance counts on its own; the broker service enforces the binding per-user and
- * process-wide limits (it runs as one instance). Returns the 429 to send, or null.
+ * Kinds of connect step a user takes: IBKR/E*TRADE start and verify, renew (Reconnect), an API key,
+ * an OAuth or SnapTrade login start, and the claim that finishes such a login.
  */
-export function limitConnectStep(actor: ApiActor, kind: "start" | "verify" | "renew"): Response | null {
+export type ConnectStepKind = "start" | "verify" | "renew" | "key" | "oauth" | "aggregator" | "claim";
+
+/**
+ * Connect steps per user: 10 of each kind in 10 minutes. In memory, so each app instance counts on
+ * its own; the broker service enforces the binding per-user and process-wide limits (it runs as one
+ * instance). Returns the 429 to send, or null.
+ */
+export function limitConnectStep(actor: ApiActor, kind: ConnectStepKind): Response | null {
   if (rateLimit(`broker-${kind}:${actor.userId}`, 10, 10 * 60_000)) return null;
   return Response.json({ error: TOO_MANY_STEPS }, { status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": "60" } });
+}
+
+/**
+ * The canonical-host steps of a broker login (the hop and the callback) have no session: they are
+ * limited per client address, 60 of each kind in 10 minutes (a burst guard; every one of them is
+ * authorised by a 256-bit nonce at the broker service). Returns true when the call may go on.
+ */
+export function allowFlowStep(address: string, kind: "hop" | "callback"): boolean {
+  return rateLimit(`broker-flow-${kind}:${address}`, 60, 10 * 60_000);
 }
 
 /** Parsed JSON body, or a 400 response with the first validation message. */

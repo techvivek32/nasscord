@@ -3,11 +3,15 @@ import type {
   AccountType,
   BrokerAccount,
   BrokerConnection,
+  BrokerId,
+  BrokerOptions,
+  ConnectClient,
   ConnectionEnvironment,
   ConnectionMethod,
   Execution,
   Order,
   Position,
+  RenewNext,
   Role,
 } from "@/lib/types";
 import { toConnectionStatus, type DbConnectionStatus } from "@/lib/server/rows";
@@ -16,12 +20,16 @@ import { toConnectionStatus, type DbConnectionStatus } from "@/lib/server/rows";
  * The app's client for the broker service (services/broker), per docs/real-backend.md sections 5 and 6.
  * Server only: it holds BROKER_SERVICE_SECRET. Every /v1 call carries a 60-second HS256 service JWT
  * naming the user, their workspace and role; the service checks every connection id against `wid`.
- * Calls time out after 8 seconds and fail with a BrokerServiceError whose message a user can read.
+ * Calls time out after 8 seconds (20 for the steps that call a broker: the hop, the code exchange,
+ * the claim and the key check) and fail
+ * with a BrokerServiceError whose message a user can read.
  */
 
 if (typeof window !== "undefined") throw new Error("src/lib/server/broker-service.ts is server only.");
 
 const TIMEOUT_MS = 8_000;
+/** The code exchange and the claim call the broker and list accounts: they get longer. */
+const SLOW_TIMEOUT_MS = 20_000;
 const JWT_TTL_S = 60;
 const ISSUER = "nasscord-app";
 const AUDIENCE = "nasscord-broker";
@@ -50,6 +58,14 @@ export interface ServiceActor {
   workspaceId: string | null;
   role: Role;
 }
+
+/**
+ * The signer of the canonical-host steps (the OAuth hop and callback): no user is signed in there,
+ * so these calls carry the nil user, and the broker service authorises them by the login's own
+ * nonces (state, binding) instead of a session. Never use it for anything else: every other route
+ * needs a workspace, which this actor does not have.
+ */
+export const FLOW_ACTOR: ServiceActor = { userId: "00000000-0000-0000-0000-000000000000", workspaceId: null, role: "trader" };
 
 export interface ServiceJwtClaims {
   iss: string;
@@ -116,13 +132,16 @@ export interface ServiceAccount {
 /** `connection` in service responses. `status` is as stored in the DB. */
 export interface ServiceConnection {
   id: string;
-  brokerId: "ibkr" | "etrade";
+  brokerId: BrokerId;
   method: ConnectionMethod;
   environment: ConnectionEnvironment;
   status: DbConnectionStatus;
   statusDetail: string | null;
   sessionExpiresAt: string | null;
   lastOkAt: string | null;
+  /** Sent only when set. */
+  dataAsOf?: string | null;
+  scope?: string | null;
   accounts: ServiceAccount[];
 }
 
@@ -184,10 +203,12 @@ export function mapServiceConnection(c: ServiceConnection, balances?: Map<string
     brokerId: c.brokerId,
     method: c.method,
     environment: c.environment,
-    status: toConnectionStatus(c.status, c.sessionExpiresAt),
+    status: toConnectionStatus(c.status, c.sessionExpiresAt, { brokerId: c.brokerId, method: c.method }),
     ...(c.statusDetail ? { statusDetail: c.statusDetail } : {}),
     ...(c.lastOkAt ? { lastOkAt: c.lastOkAt } : {}),
     ...(c.sessionExpiresAt ? { sessionExpiresAt: c.sessionExpiresAt } : {}),
+    ...(c.dataAsOf ? { dataAsOf: c.dataAsOf } : {}),
+    ...(c.scope ? { scope: c.scope } : {}),
     accounts,
     permissions: ["read"],
   };
@@ -233,7 +254,7 @@ function appStatus(serviceStatus: number) {
   return 502;
 }
 
-async function call<T>(actor: ServiceActor | null, method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+async function call<T>(actor: ServiceActor | null, method: "GET" | "POST" | "DELETE", path: string, body?: unknown, timeoutMs = TIMEOUT_MS): Promise<T> {
   const base = process.env.BROKER_SERVICE_URL?.trim().replace(/\/+$/, "");
   if (!base) throw new BrokerServiceError(503, BROKER_SERVICE_NOT_CONFIGURED);
   const headers: Record<string, string> = { accept: "application/json" };
@@ -246,13 +267,13 @@ async function call<T>(actor: ServiceActor | null, method: "GET" | "POST" | "DEL
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     });
   } catch (err) {
     const name = err instanceof Error ? err.name : "";
     if (name === "TimeoutError" || name === "AbortError") {
-      throw new BrokerServiceError(504, "The broker service did not answer within 8 seconds. Try again in a moment.");
+      throw new BrokerServiceError(504, `The broker service did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again in a moment.`);
     }
     throw new BrokerServiceError(503, "The broker service cannot be reached right now. Try again in a moment.");
   }
@@ -303,13 +324,119 @@ export async function getConnection(actor: ServiceActor, id: string): Promise<{ 
   return { connection: mapServiceConnection(r.connection) };
 }
 
-export async function renewConnection(actor: ServiceActor, id: string): Promise<{ connection: BrokerConnection; loginUrl?: string }> {
-  const r = await call<{ connection: ServiceConnection; loginUrl?: string }>(actor, "POST", `/v1/connections/${enc(id)}/renew`);
-  return { connection: mapServiceConnection(r.connection), ...(typeof r.loginUrl === "string" && r.loginUrl ? { loginUrl: r.loginUrl } : {}) };
+/**
+ * POST /v1/connections/:id/renew. `body` carries a new login's return origin and binding hash, which
+ * OAuth and SnapTrade connections need when the broker asks for a new login (next.kind "redirect").
+ * `loginUrl` is the IBKR or E*TRADE link (IBKR's stays on the server).
+ */
+export async function renewConnection(
+  actor: ServiceActor,
+  id: string,
+  body?: { returnOrigin: string; bindingHash: string },
+): Promise<{ connection: BrokerConnection; loginUrl?: string; next?: RenewNext }> {
+  const r = await call<{ connection: ServiceConnection; loginUrl?: string; next?: RenewNext }>(actor, "POST", `/v1/connections/${enc(id)}/renew`, body ?? {});
+  return {
+    connection: mapServiceConnection(r.connection),
+    ...(typeof r.loginUrl === "string" && r.loginUrl ? { loginUrl: r.loginUrl } : {}),
+    ...(r.next && typeof r.next === "object" && typeof r.next.kind === "string" ? { next: r.next } : {}),
+  };
 }
 
 export function deleteConnection(actor: ServiceActor, id: string): Promise<{ ok: true }> {
   return call(actor, "DELETE", `/v1/connections/${enc(id)}`);
+}
+
+/* ---------------------------------------------------------------- generic connect steps ("Connect flows") */
+
+/** GET /v1/options: every way of connecting and whether this user may use it now. */
+export function getOptions(actor: ServiceActor): Promise<BrokerOptions> {
+  return call<BrokerOptions>(actor, "GET", "/v1/options");
+}
+
+/** POST /v1/keys/connect: an API key or personal token. `connectionId` re-keys that connection. */
+export async function connectKey(
+  actor: ServiceActor,
+  body: { brokerId: BrokerId; method?: ConnectionMethod; environment?: ConnectionEnvironment; keyId?: string; secret: string; connectionId?: string },
+): Promise<{ connection: BrokerConnection }> {
+  const r = await call<{ connection: ServiceConnection }>(actor, "POST", "/v1/keys/connect", body, SLOW_TIMEOUT_MS);
+  return { connection: mapServiceConnection(r.connection) };
+}
+
+/**
+ * POST /v1/oauth/start: a pending connection and its hand-off row. `bindingHash` is sha256 hex of the
+ * nonce the app keeps in the ns_oauth_<connectionId> cookie; `returnOrigin` is the user's own host.
+ * The browser then opens the canonical hop (docs/real-backend.md, "Connect flows").
+ */
+export function startOAuth(
+  actor: ServiceActor,
+  body: {
+    brokerId: BrokerId;
+    method?: ConnectionMethod;
+    client?: ConnectClient;
+    environment?: ConnectionEnvironment;
+    clientId?: string;
+    clientSecret?: string;
+    returnOrigin: string;
+    bindingHash: string;
+  },
+): Promise<{ connectionId: string }> {
+  return call(actor, "POST", "/v1/oauth/start", body);
+}
+
+/** POST /v1/aggregator/start: the same for a SnapTrade broker. */
+export function startAggregator(
+  actor: ServiceActor,
+  body: { brokerId: BrokerId; environment?: ConnectionEnvironment; returnOrigin: string; bindingHash: string },
+): Promise<{ connectionId: string }> {
+  return call(actor, "POST", "/v1/aggregator/start", body);
+}
+
+/**
+ * POST /v1/connect/hop (canonical host, FLOW_ACTOR): proves the binding nonce and answers the
+ * broker's URL (a fresh state, or SnapTrade's portal link), plus who asked, for the confirmation
+ * page. `repeat` only when the canonical host already holds this login's cookie. `preview` runs the
+ * same checks for the confirmation page and answers no `redirectUrl` (nothing is used up).
+ * The real hop gets the long timeout: it may ask the broker for a link (SnapTrade's portal), and a
+ * hop the app gave up on while the service finished it is used up (only `repeat` opens it again).
+ */
+export function connectHop(body: { connectionId: string; binding: string; repeat?: boolean; preview?: boolean }): Promise<{
+  redirectUrl?: string;
+  brokerId: BrokerId;
+  workspaceName: string | null;
+  requestedBy: string | null;
+}> {
+  return call(FLOW_ACTOR, "POST", "/v1/connect/hop", body, body.preview ? TIMEOUT_MS : SLOW_TIMEOUT_MS);
+}
+
+/**
+ * POST /v1/oauth/complete (canonical callback, FLOW_ACTOR): exchanges the code. `bindings` is every
+ * ns_oauth_<id> cookie on the canonical host, by connection id. Answers the opaque one-time ticket the
+ * user's own host claims with.
+ */
+export function completeOAuth(body: {
+  brokerId: BrokerId;
+  state: string;
+  code?: string;
+  error?: string;
+  bindings: Record<string, string>;
+}): Promise<{ connectionId: string; returnOrigin: string; ticket: string }> {
+  return call(FLOW_ACTOR, "POST", "/v1/oauth/complete", body, SLOW_TIMEOUT_MS);
+}
+
+/** POST /v1/aggregator/complete (canonical callback, FLOW_ACTOR): SnapTrade's result for a connection. */
+export function completeAggregator(body: {
+  connectionId: string;
+  status: string;
+  authorizationId?: string;
+  binding: string;
+}): Promise<{ connectionId: string; returnOrigin: string; ticket: string }> {
+  return call(FLOW_ACTOR, "POST", "/v1/aggregator/complete", body, SLOW_TIMEOUT_MS);
+}
+
+/** POST /v1/connect/claim (the user's own host, the user's own actor): ticket + binding -> active. */
+export async function claimConnection(actor: ServiceActor, body: { connectionId: string; ticket: string; binding: string }): Promise<{ connection: BrokerConnection }> {
+  const r = await call<{ connection: ServiceConnection }>(actor, "POST", "/v1/connect/claim", body, SLOW_TIMEOUT_MS);
+  return { connection: mapServiceConnection(r.connection) };
 }
 
 /** Arrays from a reply that may be empty or not an object (an empty 200 body reads as null). */
