@@ -2,7 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { TraderDetail } from "@/components/console/trader-detail";
-import { getTenant, getWorkspace, listAuditEvents, listBrokerConnectionsAll, listMembers } from "@/lib/server/console";
+import { getTenant, getWorkspace, getWorkspaceOrderEntry, listAuditEvents, listBrokerConnectionsAll, listMembers, listWorkspaceOrderRequests } from "@/lib/server/console";
 
 const loadWorkspace = cache((id: string) => getWorkspace(id));
 
@@ -16,11 +16,23 @@ export default async function TraderDetailPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const workspace = await loadWorkspace(id);
   if (!workspace) notFound();
-  const [tenant, members, connections, events] = await Promise.all([
+  const [tenant, members, connections, events, orderEntry, orderRows] = await Promise.all([
     workspace.tenantId ? getTenant(workspace.tenantId) : Promise.resolve(null),
     listMembers({ workspaceId: workspace.id }),
     listBrokerConnectionsAll({ workspaceId: workspace.id }),
     listAuditEvents({ workspaceId: workspace.id, limit: 50 }),
+    getWorkspaceOrderEntry(workspace.id),
+    listWorkspaceOrderRequests(workspace.id),
   ]);
-  return <TraderDetail workspace={workspace} tenant={tenant} members={members} connections={connections} events={events} />;
+  return (
+    <TraderDetail
+      workspace={workspace}
+      tenant={tenant}
+      members={members}
+      connections={connections}
+      events={events}
+      orderEntry={orderEntry}
+      orderRows={orderRows}
+    />
+  );
 }

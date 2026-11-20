@@ -20,8 +20,8 @@ const SWITCHES: ReadonlyArray<{ key: SwitchKey; label: string; help: string }> =
   { key: "emailAlerts", label: "Email alerts", help: "To the address on your account. Saved for later: Nasscord sends no alerts in this release." },
   { key: "pushAlerts", label: "Push notifications", help: "In your browser. Saved for later: nothing is sent in this release." },
   { key: "smsAlerts", label: "SMS", help: "Text messages. Saved for later: Nasscord does not ask for a mobile number or send texts yet." },
-  { key: "extendedHours", label: "Extended hours", help: "When order entry opens: allow limit orders outside 09:30 to 16:00 ET." },
-  { key: "paperMode", label: "Start in paper mode", help: "When order entry opens: orders go to paper accounts until you switch the terminal to live." },
+  { key: "extendedHours", label: "Extended hours", help: "Saved for later. Nasscord sends regular-session orders only (09:30 to 16:00 ET)." },
+  { key: "paperMode", label: "Start in paper mode", help: "With order entry on for your workspace, the order ticket picks a paper account first when no account is picked in the header." },
 ];
 
 /** Step 4: risk per trade and notification switches, saved to user_settings. */

@@ -25,7 +25,7 @@ const COUNT_WORD = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
 export async function generateMetadata(): Promise<Metadata> {
   const a = await publicBrokers();
   const today = a.today.length
-    ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today, read-only: accounts, balances, positions, orders and executions.`
+    ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today: accounts, balances, positions, orders and executions.`
     : "No broker connects yet.";
   const soon = a.soon.length ? ` ${a.soon.length} more ${a.soon.length === 1 ? "broker is" : "brokers are"} listed and wait for an approval.` : "";
   return { title: "Brokers", description: `${today}${soon}` };
@@ -36,7 +36,7 @@ const GROUPS: Array<{ status: BrokerStatus; title: string; intro: string }> = [
   {
     status: "live",
     title: "Connect today",
-    intro: "Read-only in this release. Nasscord shows your accounts, balances, positions, orders and executions from these brokers; order entry is switched off, so you keep placing orders in the broker's own app.",
+    intro: "Nasscord shows your accounts, balances, positions, orders and executions from these brokers. Order entry for IBKR, E*TRADE and Alpaca (API key) is switched on per workspace by Nasscord; until then, and for every other broker, you place orders in the broker's own app.",
   },
   {
     status: "sync",
@@ -59,7 +59,7 @@ const NOT_OFFERED = [
 ];
 
 const NEVER = [
-  "Place, change or cancel an order in this release.",
+  "Place or cancel an order you did not confirm, or change an existing order.",
   "Move money in or out of a brokerage account.",
   "Change the account owner, beneficiaries or bank links.",
   "Keep reading after you disconnect it.",
@@ -100,7 +100,7 @@ function connectSteps(a: PublicAvailability): Step[] {
   if (alpaca && flowOf(alpaca) === "api_key") {
     steps.push({
       title: "Alpaca: paste your own API key",
-      body: "Generate a key for your live account or one of your paper accounts at app.alpaca.markets and paste the Key ID and Secret. Alpaca keys can trade, so Nasscord blocks every order call in code and keeps the key encrypted. Regenerate the key in Alpaca to revoke it everywhere.",
+      body: "Generate a key for your live account or one of your paper accounts at app.alpaca.markets and paste the Key ID and Secret. Alpaca keys can trade: Nasscord sends an order only when order entry is on for your workspace and you confirm it, and keeps the key encrypted. Regenerate the key in Alpaca to revoke it everywhere.",
     });
   }
   const signIn = a.direct.filter((b) => flowOf(b) === "oauth2_platform");
@@ -132,7 +132,7 @@ export default async function BrokersPage() {
   const steps = connectSteps(a);
   const paper = a.today.filter((b) => b.paperToday);
   const word = COUNT_WORD[a.today.length] ?? String(a.today.length);
-  const ctaNames = a.today.length && a.today.length <= 3 ? `Connect ${brokerNames(a.today, { joiner: "or" })}, read-only.` : "Connect your broker, read-only.";
+  const ctaNames = a.today.length && a.today.length <= 3 ? `Connect ${brokerNames(a.today, { joiner: "or" })}.` : "Connect your broker.";
 
   return (
     <>
@@ -144,7 +144,7 @@ export default async function BrokersPage() {
           </>
         }
         lede={[
-          a.today.length ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today, read-only.` : "No broker connects yet.",
+          a.today.length ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today.` : "No broker connects yet.",
           a.soon.length
             ? `The other ${a.soon.length} ${a.soon.length === 1 ? "broker" : "brokers"} in the registry ${a.soon.length === 1 ? "waits" : "wait"} for an approval from the broker or from SnapTrade, and ${a.soon.length === 1 ? "does" : "do"} not connect yet.`
             : "",
@@ -205,7 +205,7 @@ export default async function BrokersPage() {
             <CapabilityMatrix brokers={a.brokers} />
           </div>
           <p className="max-w-2xl font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
-            Order entry is switched off in this release for every broker.{" "}
+            Order entry works for IBKR, E*TRADE and Alpaca (API key) in workspaces where Nasscord switches it on: Market and Limit orders at all three, plus Stop, Stop limit and brackets where the broker and Nasscord support them. E*TRADE takes no bracket orders through its API. Every other broker is read only.{" "}
             {paper.length ? `Paper login means your own paper account connects the same way as a live one (${brokerNames(paper, { short: true })}). ` : ""}
             Sample-data environments, such as E*TRADE&apos;s sandbox, are for Nasscord&apos;s developers only and never connect on this site.
           </p>

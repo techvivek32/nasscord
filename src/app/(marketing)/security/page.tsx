@@ -13,13 +13,13 @@ import { SECURITY_CONTROLS, SecurityControlDetails, SOFTWARE_DISCLAIMER } from "
 export const metadata: Metadata = {
   title: "Security",
   description:
-    "How Nasscord isolates broker connections, stores credentials and secures accounts in this read-only release. Plain statements, no certification claims. Terms and privacy summaries.",
+    "How Nasscord isolates broker connections, stores credentials, secures accounts and handles order entry. Plain statements, no certification claims. Terms and privacy summaries.",
 };
 
 const PIPELINE = [
   { name: "Your browser", note: "Your Nasscord sign-in. No broker credentials." },
   { name: "Nasscord app", note: "Checks your session and workspace on every request. Holds no broker secrets." },
-  { name: "Broker service", note: "A separate process: the encryption key, and every call to your brokers through a list of read-only requests" },
+  { name: "Broker service", note: "A separate process: the encryption key, and every call to your brokers through a fixed list of allowed requests" },
   { name: "Gateway or broker API", note: "Your IBKR gateway on localhost, the broker's own API, or SnapTrade for the brokers read through it" },
   { name: "Your broker", note: "Accounts, balances, positions, orders; custody stays here" },
 ];
@@ -51,15 +51,15 @@ const ISOLATION = [
   },
 ];
 
-/** How broker access is kept read-only, whatever the key could do at the broker. */
+/** How broker access is limited, whatever the key could do at the broker. */
 const ACCESS = [
   {
     title: "Read-only by scope, where the broker allows it",
     body: "When a broker lets Nasscord ask for read access only, it does: TradeStation, Tradier and tastytrade logins ask for read permission, and SnapTrade connections open read-only. A Schwab or Webull login has no read-only choice: what you approve there could also trade.",
   },
   {
-    title: "Read-only in code, where it does not",
-    body: "Some keys and logins can always trade: an Alpaca API key, an E*TRADE developer key, a personal API token, a Schwab or Webull login. This release has no code that places an order, and the broker service checks each call to the brokers added since IBKR and E*TRADE against a fixed list of read requests: anything else, an order included, is refused before it leaves the server. Each list has a test that proves it.",
+    title: "Limited in code, where it does not",
+    body: "Some keys and logins can always trade: an Alpaca API key, an E*TRADE developer key, a personal API token, a Schwab or Webull login. The broker service sends every call to every broker through a fixed list of allowed requests and refuses anything else before it leaves the server; each list has a test that proves it. Order requests are on the lists for IBKR, E*TRADE and Alpaca (API key) only, and go out only when order entry is on for your workspace and you confirmed the order. Every other broker's list holds read requests only.",
   },
   {
     title: "Encrypted, and never shown again",
@@ -77,13 +77,14 @@ const STORE = [
   "The broker's id of your login (for example your Alpaca account id), so the same login is not connected twice",
   "Broker keys and tokens: your E*TRADE consumer key and secret, an API key you paste (Alpaca), and the tokens of logins you approve on a broker's own page, all encrypted with AES-256-GCM by the broker service",
   "For brokers read through SnapTrade: one SnapTrade user for your workspace, named by the workspace id (never your email), with its secret encrypted, and when SnapTrade last updated the data",
-  "An audit log of sign-in, connection, tenant and console actions with who and when, and the IP address for the actions the app records itself (sign-in, settings, account choices, console changes)",
+  "An audit log of sign-in, connection, order, tenant and console actions with who and when, and the IP address for the actions the app records itself (sign-in, settings, account choices, console changes)",
+  "Each order you preview and send from Nasscord: the account, symbol, side, quantity, prices, the broker's order number and the outcome, so an order whose answer was lost can be checked and is never sent twice",
   "What you send through the public forms: tenant applications (name, company, email, expected traders, notes) and broker requests (broker name, email)",
 ];
 
 const NEVER = [
   "Broker passwords or second-factor codes",
-  "Positions, balances, orders or executions: they are read from the broker when you open a page and kept in the broker service's memory for a short time (seconds to minutes for most brokers; through SnapTrade up to 30 minutes, and past executions up to a day)",
+  "Positions, balances, executions, or orders you place in your broker's own app: they are read from the broker when you open a page and kept in the broker service's memory for a short time (seconds to minutes for most brokers; through SnapTrade up to 30 minutes, and past executions up to a day)",
   "Bank details, Social Security numbers or tax documents",
   "Card numbers: billing is not switched on in this release",
 ];
@@ -104,9 +105,9 @@ const ACCOUNT = [
   },
 ];
 
-/** What each role does in this release. Written here so the public page matches the read-only product. */
+/** What each role does in this release. Written here so the public page matches the product. */
 const ROLE_TODAY: Record<Role, string> = {
-  superadmin: "Owns the platform. Runs the console, creates tenants, grants white-label and has a terminal of their own.",
+  superadmin: "Owns the platform. Runs the console, creates tenants, grants white-label, switches order entry on per workspace and has a terminal of their own.",
   tenant: "A distributor. Sees its code, its link and the traders who joined with them, and its branding once white-label is granted.",
   trader: "Signed up directly. Connects brokers and sees them in the terminal.",
   tenant_user: "Joined with a tenant's code. Uses the terminal, in the tenant's brand when white-label is on.",
@@ -125,7 +126,7 @@ export default async function SecurityPage() {
             Built like <em>infrastructure</em>.
           </>
         }
-        lede="This page describes how the system behaves in this release, which is read-only. It makes no certification claims; it states controls you can check against the terminal."
+        lede="This page describes how the system behaves in this release. It makes no certification claims; it states controls you can check against the terminal."
         aside={<RequestPath steps={PIPELINE} />}
       >
         <p className="max-w-xl border-l-2 border-site-accent py-1 pl-4 font-medium">{SOFTWARE_DISCLAIMER}</p>
@@ -169,8 +170,8 @@ export default async function SecurityPage() {
           <SectionHead
             index={3}
             eyebrow="Broker access"
-            title={<>Keys that can trade, used <em>read-only</em>.</>}
-            lede="Brokers often hand out keys and logins that could place orders. This release never does, and the reason is in code, not only in a promise."
+            title={<>Keys that can trade, used <em>only as you confirm</em>.</>}
+            lede="Brokers often hand out keys and logins that could place orders. Nasscord sends an order only to IBKR, E*TRADE or Alpaca (API key), only where order entry is on for your workspace, and only after you confirm it. The limits are in code, not only in a promise."
             className="mb-0 sm:mb-0"
           />
           <div className="grid border-t border-foreground md:grid-cols-3">
@@ -238,8 +239,9 @@ export default async function SecurityPage() {
           </div>
           <p className="max-w-2xl leading-relaxed text-muted-foreground">
             Disconnecting a broker deletes its stored key or tokens at once. It also revokes the E*TRADE token, stops the IBKR gateway, and removes a
-            SnapTrade connection at SnapTrade. Because positions, orders and executions are never written to the database, there is no trading
-            history of yours to keep once a connection is gone.
+            SnapTrade connection at SnapTrade. Positions, balances and executions are never written to the database. Orders you preview or send from
+            Nasscord are kept in your workspace&apos;s order record (account, symbol, side, quantity, prices, the broker&apos;s order number and the outcome)
+            after a connection is gone, so a lost answer can still be checked; they are deleted with the workspace.
           </p>
         </Container>
       </Section>
@@ -302,6 +304,10 @@ export default async function SecurityPage() {
               <ul className="mt-5 grid gap-3 border-t border-foreground pt-4 text-sm leading-relaxed text-muted-foreground">
                 <li>Nasscord is software. It is not a broker-dealer or investment adviser and does not hold your assets or execute trades on its own behalf.</li>
                 <li>Nothing Nasscord shows is a recommendation. You decide what to trade and you carry the risk of every order you place at your broker.</li>
+                <li>
+                  Orders you confirm in Nasscord go to your broker as you confirmed them. Nasscord does not guarantee that a broker receives or fills an order;
+                  check your broker when Nasscord says an outcome is unconfirmed.
+                </li>
                 <li>Billing is not switched on in this release. Once it is, subscriptions bill monthly or yearly in USD and can be cancelled at any time.</li>
                 <li>You may not use the service to violate a broker&apos;s terms, to trade on behalf of others without authority, or to attack the platform.</li>
                 <li>Either party can end the agreement; we give 30 days notice for material changes to these terms.</li>

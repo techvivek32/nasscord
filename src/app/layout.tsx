@@ -27,7 +27,7 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: { default: "Nasscord", template: "%s · Nasscord" },
   description:
-    "One read-only terminal for your US brokerage accounts: balances, positions, orders and executions in one place.",
+    "One terminal for your US brokerage accounts: balances, positions, orders and executions in one place.",
   applicationName: "Nasscord",
 };
 

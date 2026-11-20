@@ -17,8 +17,8 @@ export const metadata: Metadata = {
 
 /** The brokers every plan connects today (the broker service's answer, see publicBrokers). */
 function connectsToday(a: PublicAvailability): string {
-  if (!a.today.length || a.today.length > 6) return "Every plan connects the brokers the Brokers page lists as connecting today, read-only";
-  return `Every plan connects ${brokerNames(a.today, { max: 6 })} read-only`;
+  if (!a.today.length || a.today.length > 6) return "Every plan connects the brokers the Brokers page lists as connecting today";
+  return `Every plan connects ${brokerNames(a.today, { max: 6 })}`;
 }
 
 function buildFaq(a: PublicAvailability): FaqItem[] {
@@ -32,7 +32,7 @@ function buildFaq(a: PublicAvailability): FaqItem[] {
     },
     {
       q: "What do I get in this release?",
-      a: `${connectsToday(a)}: your accounts, balances, positions, orders and executions in one place, with a switch for which accounts count. Items marked Planned, such as TradeScope alerts, order entry and extra seats, are not switched on yet.`,
+      a: `${connectsToday(a)}: your accounts, balances, positions, orders and executions in one place, with a switch for which accounts count. Items marked Planned, such as TradeScope alerts and extra seats, are not switched on yet. Order entry for IBKR, E*TRADE and Alpaca (API key) is not part of a plan: Nasscord switches it on per workspace.`,
     },
     {
       q: "What counts as a seat?",
@@ -98,7 +98,7 @@ export default async function PricingPage() {
         </Container>
       </Section>
 
-      <CtaBand title={<>Start on Starter. Connect your first <em>broker</em>.</>} lede="No card for any plan in this release. Connections are read-only." />
+      <CtaBand title={<>Start on Starter. Connect your first <em>broker</em>.</>} lede="No card for any plan in this release. Order entry is switched on per workspace, not by plan." />
     </>
   );
 }

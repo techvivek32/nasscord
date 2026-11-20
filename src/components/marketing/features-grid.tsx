@@ -10,12 +10,12 @@ import { cn } from "@/lib/utils";
 interface Feature {
   title: string;
   body: string;
-  /** "today" works in this release; "later" is not switched on yet and says why. */
-  status: "today" | "later";
+  /** "today" works in this release; "request" works once Nasscord switches it on for a workspace; "later" is not switched on yet and says why. */
+  status: "today" | "request" | "later";
   href?: string;
 }
 
-const STATUS_LABEL: Record<Feature["status"], string> = { today: "Today", later: "Not yet" };
+const STATUS_LABEL: Record<Feature["status"], string> = { today: "Today", request: "On request", later: "Not yet" };
 
 /** What connecting each broker means, for the brokers with a line of their own. Others use their connect spec's summary. */
 const BROKER_LINE: Partial<Record<PublicBroker["id"], string>> = {
@@ -36,11 +36,11 @@ function features(a: PublicAvailability): Feature[] {
   const brokerRows: Feature[] = own.map((b) => ({
     status: "today",
     title: `Connect ${b.short}`,
-    body: BROKER_LINE[b.id] ?? `${b.open[0]?.summary ?? ""} Read-only in this release.`.trim(),
+    body: BROKER_LINE[b.id] ?? `${b.open[0]?.summary ?? ""}`.trim(),
     href: "/brokers#how",
   }));
   if (others.length) {
-    brokerRows.push({ status: "today", title: "More direct brokers", body: `${brokerNames(others)} connect directly too, read-only.`, href: "/brokers#live" });
+    brokerRows.push({ status: "today", title: "More direct brokers", body: `${brokerNames(others)} connect directly too.`, href: "/brokers#live" });
   }
   if (a.sync.length) {
     brokerRows.push({
@@ -63,9 +63,13 @@ function features(a: PublicAvailability): Feature[] {
   return [
     ...brokerRows,
     { status: "today", title: "One combined book", body: "Accounts, balances and positions from every connected account in one view, with the broker on every row.", href: "/signup" },
-    { status: "today", title: "Orders and executions", body: "Your orders and executions straight from your brokers, read-only, next to the account they belong to.", href: "/signup" },
-    { status: "today", title: "Risk sizing", body: "The order ticket works out a quantity from your stop and your net liquidation. It does not place the order.", href: "#try-it" },
-    { status: "later", title: "Order entry", body: "Placing orders from Nasscord is switched off in this release. Use your broker's own app for now." },
+    { status: "today", title: "Orders and executions", body: "Your orders and executions straight from your brokers, next to the account they belong to.", href: "/signup" },
+    { status: "today", title: "Risk sizing", body: "The order ticket works out a quantity from your stop and your net liquidation.", href: "#try-it" },
+    {
+      status: "request",
+      title: "Order entry",
+      body: "Preview and confirm Market and Limit orders at IBKR, E*TRADE and Alpaca (API key), plus Stop, Stop limit and brackets where the broker and Nasscord support them; the ticket shows what each account takes. Nasscord switches order entry on per workspace; it is off by default.",
+    },
     {
       status: "later",
       title: "TradeScope alerts",
@@ -88,14 +92,14 @@ export async function FeaturesGrid({ className }: { className?: string }) {
           <>
             <span className="row-span-2 grid content-start gap-1.5 md:row-span-1">
               <span className="font-mono text-xs text-site-accent-ink">{code}</span>
-              <span className={cn("site-caption w-fit border px-1.5 py-px", f.status === "today" ? "border-site-accent text-site-accent-ink" : "border-border text-muted-foreground")}>
+              <span className={cn("site-caption w-fit border px-1.5 py-px", f.status === "today" ? "border-site-accent text-site-accent-ink" : f.status === "request" ? "border-border text-site-accent-ink" : "border-border text-muted-foreground")}>
                 {STATUS_LABEL[f.status]}
               </span>
             </span>
             <span
               className={cn(
                 "font-serif text-3xl leading-tight transition-transform duration-300 sm:text-4xl",
-                f.status === "today" ? "text-foreground" : "text-muted-foreground",
+                f.status === "later" ? "text-muted-foreground" : "text-foreground",
                 f.href && "group-hover/f:translate-x-1.5",
               )}
             >
@@ -131,7 +135,7 @@ interface Principle {
 }
 
 const PRINCIPLES: Principle[] = [
-  { icon: Landmark, label: "Custody stays put", body: "Your money never leaves your broker. Nasscord stores no broker password, has no way to move funds and, in this release, places no orders.", link: { label: "How connections work", href: "/brokers#how" } },
+  { icon: Landmark, label: "Custody stays put", body: "Your money never leaves your broker. Nasscord stores no broker password, has no way to move funds, and sends an order only when you confirm it.", link: { label: "How connections work", href: "/brokers#how" } },
   { icon: Eye, label: "Honest numbers", body: "Every balance, position, order and execution in the terminal comes from your broker. Where there is no source yet, the page says so instead of filling in numbers.", link: { label: "What works today", href: "/#features" } },
   { icon: BookOpenCheck, label: "One book, every account", body: "Every account you include, at every broker you connect, rolls up into one set of positions, with the broker on every row.", link: { label: "Browse brokers", href: "/brokers" } },
   { icon: Scale, label: "Risk first", body: "The order ticket starts from the stop. Quantity follows from what you are willing to lose, not from a hunch.", link: { label: "Try the sizing", href: "#try-it" } },

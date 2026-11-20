@@ -37,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const a = await publicBrokers();
   return {
     title: { absolute: "Nasscord · One terminal for your US brokers" },
-    description: `Connect ${connectNames(a)} and see your accounts, balances, positions, orders and executions in one place. Read-only in this release; custody stays at your broker.`,
+    description: `Connect ${connectNames(a)} and see your accounts, balances, positions, orders and executions in one place. Custody stays at your broker.`,
   };
 }
 
@@ -50,7 +50,7 @@ const verb = (list: unknown[], one: string, many: string) => (list.length === 1 
 /** "Which brokers can I connect?": what connects today, how, and what waits. */
 function whichBrokers(a: PublicAvailability): string {
   const out: string[] = [];
-  if (a.direct.length) out.push(`${andList(a.direct.map((b) => b.name))} ${verb(a.direct, "connects", "connect")} directly, read-only.`);
+  if (a.direct.length) out.push(`${andList(a.direct.map((b) => b.name))} ${verb(a.direct, "connects", "connect")} directly.`);
   if (a.sync.length) out.push(`${andList(a.sync.map((b) => b.name))} ${verb(a.sync, "connects", "connect")} read-only through SnapTrade, a data intermediary.`);
   if (!a.today.length) out.push("No broker connects yet.");
   if (a.soon.length) {
@@ -71,7 +71,7 @@ function passwordAnswer(a: PublicAvailability): string {
   }
   if (has(a.direct, "etrade")) out.push("For E*TRADE you approve Nasscord on E*TRADE's page; Nasscord keeps your developer key and the access token, encrypted with AES-256-GCM, never your password.");
   const keyed = a.direct.filter((b) => b.open[0]?.flow === "api_key");
-  if (keyed.length) out.push(`For ${andList(keyed.map((b) => b.name))} you paste an API key of your own account; it is kept encrypted the same way, and order calls are blocked in code.`);
+  if (keyed.length) out.push(`For ${andList(keyed.map((b) => b.name))} you paste an API key of your own account; it is kept encrypted the same way, and every call made with it goes through a fixed list of allowed requests.`);
   const signIn = a.direct.filter((b) => b.open[0]?.flow === "oauth2_platform" || b.open[0]?.flow === "oauth2_user_app");
   if (signIn.length) out.push(`For ${andList(signIn.map((b) => b.name))} you sign in on the broker's own page, and Nasscord keeps only the encrypted access token.`);
   if (a.sync.length) out.push("Through SnapTrade you log in on the broker's own page inside SnapTrade's connection page; Nasscord never sees that password.");
@@ -116,7 +116,7 @@ function buildFaq(a: PublicAvailability): FaqItem[] {
     },
     {
       q: "Can I place orders from Nasscord?",
-      a: "Not in this release. Order entry is switched off: the order ticket works out a size from your stop and shows why it cannot place the order, and nothing is sent to your broker. Keep placing orders in your broker's own app for now.",
+      a: "For IBKR, E*TRADE and Alpaca (API key), yes, once Nasscord switches order entry on for your workspace; it is off by default, and you can ask for it from the Orders page. You preview every order and confirm it before it goes to your broker. Market and Limit orders work at all three; Stop, Stop limit and brackets work where the broker and Nasscord support them, and the order ticket shows what each account takes. E*TRADE takes no bracket orders through its API, and every other broker stays read only, so you place those orders in the broker's own app.",
     },
     {
       q: "Do you store my broker password?",
@@ -186,8 +186,8 @@ export default async function HomePage() {
               </span>
             </h1>
             <p className="max-w-[34rem] animate-site-rise text-lg leading-relaxed text-pretty text-muted-foreground sm:text-xl" style={delay(320)}>
-              Connect {names}, then see every account, balance, position, order and execution in one place. Read-only in this release: custody
-              and order entry stay at your broker.
+              Connect {names}, then see every account, balance, position, order and execution in one place. Custody stays at your broker, and order
+              entry stays off until Nasscord switches it on for your workspace.
             </p>
             <div className="flex animate-site-rise flex-wrap items-center gap-x-8 gap-y-4" style={delay(420)}>
               <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/signup" />}>
@@ -216,7 +216,7 @@ export default async function HomePage() {
         </Container>
       </section>
 
-      <Statement caption="No broker passwords stored · Read-only in this release · Custody stays put">
+      <Statement caption="No broker passwords stored · Orders only when you confirm them · Custody stays put">
         Most trading tools are built around one broker. Nasscord is built around <em>you</em>.
       </Statement>
 
@@ -253,7 +253,7 @@ export default async function HomePage() {
           <div className="mb-12 grid gap-8 sm:mb-16 lg:grid-cols-2 lg:items-end">
             <SectionHead index={3} eyebrow="Features" title={<>What works today, and what does <em>not</em> yet.</>} className="mb-0 sm:mb-0" />
             <p className="max-w-[34rem] text-lg leading-relaxed text-muted-foreground lg:justify-self-end" {...reveal(120)}>
-              This release is read-only. Rows marked Today work for everyone who signs up; rows marked Not yet are switched off, and the terminal says so where they would be.
+              Rows marked Today work for everyone who signs up. Rows marked On request work once Nasscord switches them on for your workspace; you ask from the Orders page after you sign up. Rows marked Not yet are switched off, and the terminal says so where they would be.
             </p>
           </div>
           <FeaturesGrid />
@@ -306,7 +306,7 @@ export default async function HomePage() {
               </>
             }
             lede={[
-              a.today.length ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today, read-only.` : "No broker connects yet.",
+              a.today.length ? `${brokerNames(a.today, { max: 6 })} ${a.today.length === 1 ? "connects" : "connect"} today.` : "No broker connects yet.",
               a.soon.length
                 ? a.soon.length === 1
                   ? "The other broker is listed so you can see what is planned; it does not connect yet."

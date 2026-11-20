@@ -61,7 +61,7 @@ export function AvailabilityCard({ availability, className }: { availability: Pu
   );
 }
 
-/** The legend for the statuses in use, with the read-only note. */
+/** The legend for the statuses in use, with the order entry note. */
 export function AvailabilityLegend({ availability, className }: { availability: PublicAvailability; className?: string }) {
   return (
     <div className={cn("grid gap-4 text-sm", className)}>
@@ -76,8 +76,8 @@ export function AvailabilityLegend({ availability, className }: { availability: 
         ))}
       </dl>
       <p className="max-w-[44rem] text-sm text-muted-foreground">
-        Order entry is switched off in this release for every broker, so you keep placing orders in your broker&apos;s own app. Nasscord shows what is
-        there: accounts, balances, positions, orders and executions.
+        Order entry works for IBKR, E*TRADE and Alpaca (API key) in workspaces where Nasscord switches it on; every other broker is read only, so you
+        place those orders in the broker&apos;s own app. Nasscord shows what is there: accounts, balances, positions, orders and executions.
       </p>
     </div>
   );

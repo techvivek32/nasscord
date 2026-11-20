@@ -91,7 +91,7 @@ export function StepBrokers() {
           <p className="text-sm text-muted-foreground">Your workspace could not be read right now, so connect your broker from Brokers in your terminal after setup.</p>
         </>
       )}
-      <p className="text-xs text-muted-foreground">This release is read-only: Nasscord shows balances, positions, orders and executions from your broker and places no orders.</p>
+      <p className="text-xs text-muted-foreground">Nasscord shows balances, positions, orders and executions from your broker. It places no orders until Nasscord switches order entry on for your workspace, and then only orders you confirm.</p>
     </StepShell>
   );
 }

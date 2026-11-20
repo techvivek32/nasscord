@@ -65,8 +65,8 @@ export function RiskCalculator({ defaults }: { defaults: { netLiq: number; entry
           <span className="text-foreground">FIG. 1</span>
           <span>
             Stop at {ENGINE_DEFAULTS.atrStopMultiple}x ATR below entry ({fmtPrice(lv.stop)}), target at {ENGINE_DEFAULTS.rewardToRisk} R ({fmtPrice(lv.target)}). Quantity is sized so a
-            stop-out costs 1% of net liquidation, the default risk per trade, capped at 95% of it{size.cappedByCash ? " (the cap applies here)" : ""}. Example values, not advice. In this release the
-            order ticket shows a size like this but does not place the order.
+            stop-out costs 1% of net liquidation, the default risk per trade, capped at 95% of it{size.cappedByCash ? " (the cap applies here)" : ""}. Example values, not advice. The order ticket starts
+            from a size like this; with order entry on, you preview the order and confirm it before it goes to your broker.
           </span>
         </figcaption>
       </figure>

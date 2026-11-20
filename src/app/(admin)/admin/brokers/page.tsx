@@ -87,7 +87,7 @@ export default async function BrokersAdminPage() {
         title="Brokers"
         description={
           connect.reachable
-            ? `The brokers in the registry, who may connect each one on this server right now, and the connections stored for each. ${everyone.length ? `Open to everyone today: ${everyone.join(", ")}.` : "No broker is open to everyone yet."} Read-only in this release.`
+            ? `The brokers in the registry, who may connect each one on this server right now, and the connections stored for each. ${everyone.length ? `Open to everyone today: ${everyone.join(", ")}.` : "No broker is open to everyone yet."} Order entry works for IBKR, E*TRADE and Alpaca (API key) in the workspaces where you switch it on; every other broker is read only.`
             : "The brokers in the registry and the connections stored for each. Who may connect each one is shown once the broker service answers."
         }
       />

@@ -7,6 +7,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/page-header";
 import { BrokerMarks } from "@/components/brokers/broker-mark";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PLANS } from "@/lib/plans";
@@ -17,12 +18,18 @@ import { fmtDay, WORKSPACE_STATUS, WORKSPACE_STATUSES } from "./lib";
 /** A workspace with the tenant it came through and the host its terminal lives on, resolved on the server. */
 export type TraderRow = Workspace & { tenantName: string | null; tenantWhiteLabel: boolean; host: string };
 
+/** Order entry per workspace id (listOrderEntryFlags): on, or requested from the terminal while off. */
+export type OrderFlags = Record<string, "on" | "requested">;
+
+/** A row as the table shows it, with its order entry flag. */
+type Row = TraderRow & { orderFlag?: "on" | "requested" };
+
 type PlanFilter = "all" | PlanId;
 type StatusFilter = "all" | WorkspaceStatus;
 
 const STATUS_ITEMS = [{ value: "all", label: "All statuses" }, ...WORKSPACE_STATUSES.map((s) => ({ value: s, label: WORKSPACE_STATUS[s].label }))];
 
-const COLUMNS: ColumnDef<TraderRow>[] = [
+const COLUMNS: ColumnDef<Row>[] = [
   {
     id: "name",
     accessorFn: (w) => `${w.name} ${w.slug} ${w.host}`,
@@ -86,13 +93,27 @@ const COLUMNS: ColumnDef<TraderRow>[] = [
     ),
   },
   { accessorKey: "status", header: "Status", cell: ({ row }) => <WorkspaceStatusBadge status={row.original.status} /> },
+  {
+    id: "orders",
+    accessorFn: (w) => (w.orderFlag === "on" ? "On" : w.orderFlag === "requested" ? "Requested" : ""),
+    header: "Orders",
+    cell: ({ row }) =>
+      row.original.orderFlag === "on" ? (
+        <Badge variant="secondary">On</Badge>
+      ) : row.original.orderFlag === "requested" ? (
+        <Badge variant="outline" className="text-muted-foreground">
+          Requested
+        </Badge>
+      ) : null,
+  },
   { accessorKey: "createdAt", header: "Created", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{fmtDay(row.original.createdAt)}</span> },
 ];
 
-export function TradersTable({ rows: all }: { rows: TraderRow[] }) {
+export function TradersTable({ rows: base, orderFlags = {} }: { rows: TraderRow[]; orderFlags?: OrderFlags }) {
   const router = useRouter();
   const [plan, setPlan] = React.useState<PlanFilter>("all");
   const [status, setStatus] = React.useState<StatusFilter>("all");
+  const all = React.useMemo<Row[]>(() => base.map((w) => (orderFlags[w.id] ? { ...w, orderFlag: orderFlags[w.id] } : w)), [base, orderFlags]);
   const rows = React.useMemo(() => all.filter((w) => (plan === "all" || w.plan === plan) && (status === "all" || w.status === status)), [all, plan, status]);
 
   if (all.length === 0) return <EmptyState title="No traders yet" description="Workspaces appear here when someone finishes signup." />;

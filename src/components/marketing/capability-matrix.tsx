@@ -14,15 +14,16 @@ type MatrixBroker = Broker & { paperToday?: boolean };
 const connects = (b: MatrixBroker) => b.status !== "soon";
 
 /**
- * What a connection does in this release. The read-only views come with every broker that connects today
- * (its `status`, which the brokers page takes from the broker service), order entry follows
- * `capabilities.trading` (off for every broker), paper follows what connects today.
+ * What a connection does in this release. The read views come with every broker that connects today
+ * (its `status`, which the brokers page takes from the broker service); order entry follows
+ * `capabilities.trading`: On request (switched on per workspace) for IBKR, E*TRADE and Alpaca (the API key
+ * method), Read only for the others; paper follows what connects today.
  */
 const CAPS: Array<{ key: string; label: string; value: (b: MatrixBroker) => CellValue }> = [
   { key: "balances", label: "Accounts and balances", value: connects },
   { key: "positions", label: "Positions", value: connects },
   { key: "orders", label: "Orders and executions", value: connects },
-  { key: "entry", label: "Order entry", value: (b) => (b.capabilities.trading ? true : connects(b) ? "Off in this release" : false) },
+  { key: "entry", label: "Order entry", value: (b) => (connects(b) ? (b.capabilities.trading ? "On request" : "Read only") : false) },
   { key: "paper", label: "Paper login", value: (b) => connects(b) && (b.paperToday ?? b.capabilities.paper) },
 ];
 

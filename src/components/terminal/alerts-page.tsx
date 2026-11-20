@@ -9,8 +9,8 @@ import { TerminalStatRow } from "@/components/terminal/stat-row";
 
 /**
  * /app: account totals from the brokers, the TradeScope alert feed (not connected to workspaces
- * yet, so an empty state), the published backtest, the read-only order ticket for sizing, and the
- * broker sessions.
+ * yet, so an empty state), the published backtest, the order ticket (sizing, and placing where order
+ * entry is on), and the broker sessions.
  */
 export function AlertsPage({ riskPct }: { riskPct: number }) {
   const scope = useAccountScope();

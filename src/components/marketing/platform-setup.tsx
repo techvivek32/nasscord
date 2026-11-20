@@ -29,7 +29,7 @@ function steps(a: PublicAvailability) {
   return [
     { title: "Create your account", body: "Email and a password. Confirm your address from the email we send, then name your workspace. Starter is free and needs no card." },
     { title: "Connect a broker", body: connectBody(a) },
-    { title: "See it in one place", body: "Accounts, balances, positions, orders and executions from every connection, read-only, in one terminal." },
+    { title: "See it in one place", body: "Accounts, balances, positions, orders and executions from every connection, in one terminal." },
   ];
 }
 
@@ -50,13 +50,13 @@ const SYSTEMS = [
   },
   {
     name: "Broker service",
-    now: "Holds the key that encrypts your broker keys and tokens, and makes every call to your brokers through a fixed list of read-only requests.",
+    now: "Holds the key that encrypts your broker keys and tokens, and makes every call to your brokers through a fixed list of allowed requests: reads, plus order requests for IBKR, E*TRADE and Alpaca (API key).",
     was: "Keep API keys and tokens in files",
     meta: "AES-256-GCM",
   },
   {
     name: "Terminal",
-    now: "The web terminal: every account, position, order and execution across your connections. Read-only in this release.",
+    now: "The web terminal: every account, position, order and execution across your connections, and order entry where it is switched on.",
     was: "Host and update a trading screen",
     meta: "in the browser",
   },

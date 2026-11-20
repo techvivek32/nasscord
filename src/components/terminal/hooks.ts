@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { useConnectionsResult } from "@/hooks/queries";
+import { useConnectionsResult, useOrderCapabilities } from "@/hooks/queries";
 import type { PartialError } from "@/lib/api";
-import type { BrokerAccount, BrokerConnection, ConnectionStatus, Execution, Order, Position } from "@/lib/types";
+import { ORDER_COPY } from "@/lib/order-entry";
+import type { BrokerAccount, BrokerConnection, ConnectionStatus, Execution, Order, OrderCapabilities, Position, TradingCaps } from "@/lib/types";
 import { useExecutionsResult, useOrdersResult, usePositionsResult } from "@/components/terminal/broker-queries";
 import { useTerminalStore } from "@/components/terminal/store";
 
@@ -191,4 +192,47 @@ const minuteServer = () => null;
 export function useMinuteClock(): Date | null {
   const bucket = React.useSyncExternalStore(subscribeMinute, minuteNow, minuteServer);
   return React.useMemo(() => (bucket === null ? null : new Date(bucket * 60_000)), [bucket]);
+}
+
+/* ---------------------------------------------------------------- order entry */
+
+/**
+ * Where order entry stands for this workspace and user, from GET /api/broker/orders/capabilities (polled):
+ * loading (no answer yet), unavailable (the route failed and there is no earlier answer), off (the answer says
+ * not enabled; its message says why: off, suspended or paused) or on. A failed poll keeps the last good answer.
+ */
+export type OrderEntryStatus = "loading" | "unavailable" | "off" | "on";
+
+/** An included account on a live connection that this user may place orders through, with that connection's caps. */
+export type TradableAccount = BrokerAccount & { connection: BrokerConnection; caps: TradingCaps };
+
+export interface TradableAccounts {
+  caps: OrderCapabilities | null;
+  state: OrderEntryStatus;
+  /** Why order entry is not available (off, unavailable), as a sentence. */
+  message: string | null;
+  /** True while connections or capabilities load, so "none of your accounts can take orders" never flashes. */
+  isLoading: boolean;
+  accounts: TradableAccount[];
+}
+
+/** The accounts the order ticket may send to: included, on a live connection, and listed in the capabilities' connections. */
+export function useTradableAccounts(): TradableAccounts {
+  const scope = useAccountScope();
+  const { data, error, isLoading: capsLoading } = useOrderCapabilities();
+  return React.useMemo(() => {
+    const caps = data ?? null;
+    const state: OrderEntryStatus = caps ? (caps.enabled ? "on" : "off") : error ? "unavailable" : "loading";
+    const message = state === "unavailable" ? ORDER_COPY.unavailable : state === "off" ? (caps?.message ?? ORDER_COPY.offWorkspace) : null;
+    const byId = new Map(scope.connections.map((c) => [c.id, c] as const));
+    const accounts: TradableAccount[] = [];
+    if (caps?.enabled) {
+      for (const a of scope.included) {
+        const connection = a.connectionId ? byId.get(a.connectionId) : undefined;
+        const tc = connection ? caps.connections[connection.id] : undefined;
+        if (connection && tc && LIVE_STATUSES.has(connection.status) && connection.environment !== "sandbox") accounts.push({ ...a, connection, caps: tc });
+      }
+    }
+    return { caps, state, message, isLoading: scope.isLoading || (capsLoading && !caps), accounts };
+  }, [data, error, capsLoading, scope.connections, scope.included, scope.isLoading]);
 }

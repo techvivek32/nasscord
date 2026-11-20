@@ -23,7 +23,8 @@ What you need:
 1. Open **SQL Editor**, then **New query**.
 2. Open `supabase/migrations/20261103120000_init.sql` from this repo, copy all of it, paste it into the editor and press **Run**.
 3. Do the same with `supabase/migrations/20261116120000_more_brokers.sql`. It adds the other brokers: their ids and connect methods, two columns on `broker_connections` (`data_as_of`, `scope`) plus `external_ref`, which the app never reads, and two tables only the service role reads.
-4. Open **Table Editor**. You should see 12 tables: `tenants`, `workspaces`, `members`, `user_settings`, `broker_connections`, `broker_accounts`, `broker_secrets`, `broker_oauth_pending`, `broker_aggregator_users`, `tenant_applications`, `broker_requests`, `audit_events`.
+4. Do the same with `supabase/migrations/20261121120000_order_entry.sql`. It adds the order entry switch per workspace (off for every workspace), the "Before your first order" time per user and the `order_requests` table (step 14).
+5. Open **Table Editor**. You should see 13 tables: `tenants`, `workspaces`, `members`, `user_settings`, `broker_connections`, `broker_accounts`, `broker_secrets`, `broker_oauth_pending`, `broker_aggregator_users`, `tenant_applications`, `broker_requests`, `audit_events`, `order_requests`.
 
 Run each migration once, in that order. Running the init migration again fails because its tables already exist, which is harmless; the more-brokers migration can be run again safely, since every statement in it checks first and it changes nothing the second time. On a project that already runs Nasscord, run only the new migration, and run it **before** deploying the new broker service and app (step 13.2).
 
@@ -196,7 +197,7 @@ Locally, broker sign-ins (OAuth) and SnapTrade return to `NASSCORD_APP_URL` (or 
 - **E\*TRADE**: on developer.etrade.com, create an individual **Production** key for your own account. In the terminal's Brokers page, choose E\*TRADE, paste the consumer key and secret, open E\*TRADE, approve, and paste the verification code. E\*TRADE ends every session at midnight Eastern, so you reconnect once a day. A sandbox key returns E\*TRADE's sample accounts, so it is for a developer machine only: the dialog offers it only with `NEXT_PUBLIC_ETRADE_SANDBOX=1`, and a broker service with `NODE_ENV=production` refuses it whatever the settings say.
 - **Alpaca**: open a free Paper Only account at app.alpaca.markets, generate an API key, and connect it on the Brokers page. It shows as Paper. Step 13 has every other broker.
 
-The first release is read-only: balances, positions, orders and executions. Order entry stays off.
+The first release reads balances, positions, orders and executions. Order entry is off for every workspace until you switch it on in the console (step 14).
 
 ## 11. Deploy the broker service on a VPS
 
@@ -205,7 +206,7 @@ The full commands are in `services/broker/README.md`, "Deploy on the VPS". In sh
 1. **The VPS**: one Ubuntu 24.04 (or similar) server **in the US**. IBKR's login page checks the visitor's location (`ip2loc=US`) and the gateway runs on this server. Run **one instance only**: the IBKR sessions live in the service's memory, so two copies would each hold half of them. Open only ports 80 and 443 to the internet; the API (8710), the login host (8711) and the gateway slots (7200 to 7249) stay on localhost behind Caddy.
 2. **DNS**: A records pointing at the VPS for `ibkr-login.<domain>` (the IBKR login host, opened in users' browsers) and, only when the app runs on another host, `broker.<domain>` (the JSON API, called only by the app). When the app runs on this VPS it calls the API on `http://127.0.0.1:8710` and the API stays private.
 3. **Software**: `sudo apt install -y openjdk-17-jre-headless caddy`, plus Node 24 (NodeSource or the official tarball). Check `java -version` and `node -v`.
-4. **Code and gateway bundle**: copy `services/broker/` to `/opt/nasscord-broker/` (without `.env` and `runtime/`), and the unzipped IBKR Client Portal Gateway to `/opt/nasscord-broker/vendor/clientportal.gw/` (the default `IBKR_GATEWAY_BUNDLE`). Create the `nasscord` system user and make the folder readable by it only, as the README shows.
+4. **Code and gateway bundle**: copy `services/broker/` to `/opt/nasscord-broker/` (without `.env` and `runtime/`), and the unzipped IBKR Client Portal Gateway to `/opt/nasscord-broker/vendor/clientportal.gw/` (the default `IBKR_GATEWAY_BUNDLE`). Create the `nasscord-broker` system user and make the folder readable by it only, as the README shows and "Keep the gateway slots to the broker service" below says.
 5. **Configuration**: create `/etc/nasscord-broker.env` with `chmod 600`, owned by root, as `KEY=value` lines (no quotes, no `export`). Use the step 9 variables with production values:
    - `PUBLIC_LOGIN_URL=https://ibkr-login.<domain>` (https is required in production)
    - `NASSCORD_APP_URL=https://nasscord.com`
@@ -222,6 +223,26 @@ The full commands are in `services/broker/README.md`, "Deploy on the VPS". In sh
 8. **The app**: set `BROKER_SERVICE_URL` (`http://127.0.0.1:8710` on the same VPS, `https://broker.<domain>` from elsewhere) and the same `BROKER_SERVICE_SECRET`, then rebuild and restart it. The console's Health page shows the service as answering.
 
 Run one broker service only. Keep the `log default` filter at the top of `/etc/caddy/Caddyfile` and add no `log` directive to a site block: broker sign-ins come back with login codes in the address (step 13.1). Back up `BROKER_TOKEN_KEY` somewhere other than the VPS.
+
+### Keep the gateway slots to the broker service
+
+With order entry, a gateway slot is an open door into a logged-in IBKR account for anything running on the server. The broker service and its gateways run as their own user, and only that user may reach the slot ports. Do this before you switch order entry on for any workspace (step 14).
+
+1. The user: `sudo useradd --system --home-dir /var/lib/nasscord-broker --shell /usr/sbin/nologin nasscord-broker`. The app must not run as `nasscord-broker`.
+2. Make the code and the gateway bundle readable by it: `sudo chown -R root:nasscord-broker /opt/nasscord-broker && sudo chmod -R g+rX,o-rwx /opt/nasscord-broker` (or the same group read on wherever the code and `clientportal.gw` live).
+3. Install the unit of `deploy/nasscord-broker.service` (it has `User=nasscord-broker`, `KillMode=mixed`, `TimeoutStopSec=60`), then `sudo systemctl daemon-reload && sudo systemctl restart nasscord-broker`.
+4. The port rules (use your `IBKR_GATEWAY_PORTS` range):
+   ```
+   sudo iptables -A OUTPUT -o lo -p tcp --dport 7200:7249 -m owner ! --uid-owner nasscord-broker -j REJECT
+   sudo ip6tables -A OUTPUT -o lo -p tcp --dport 7200:7249 -m owner ! --uid-owner nasscord-broker -j REJECT
+   ```
+   Keep them across reboots with `sudo apt install iptables-persistent && sudo netfilter-persistent save`.
+
+Checks (all must pass):
+- `sudo iptables -C OUTPUT -o lo -p tcp --dport 7200:7249 -m owner ! --uid-owner nasscord-broker -j REJECT && echo rule-present` prints `rule-present`.
+- `ps -o user= -p "$(systemctl show -p MainPID --value nasscord-broker)"` prints `nasscord-broker`.
+- `ps -o user= -C java | sort -u` prints `nasscord-broker` only.
+- With an IBKR connection logged in, take its port from `sudo ss -ltnp | grep java`, then `sudo -u nasscord curl -s -m 3 http://127.0.0.1:<port>/v1/api/iserver/auth/status; echo "exit $?"` must fail (exit 7), and `sudo -u nasscord-broker curl -s -m 3 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:<port>/v1/api/iserver/auth/status` must print an HTTP status.
 
 ## 12. Optional: workspace addresses and white-label domains
 
@@ -465,7 +486,7 @@ Plaid's free Trial (10 real connections) is an option later only if Merrill or F
    TradeStation (partner).
 6. **Before users connect a new broker:** update the full privacy policy and terms. Name SnapTrade as a data
    intermediary, list what broker data is stored, and add the Tradier consent exhibit and the tastytrade disclosure.
-   The Security page already names SnapTrade and says that keys that can trade are used read-only.
+   The Security page names SnapTrade and says how order entry is limited.
 
 ### 13.6 Check each broker on a real account
 
@@ -488,6 +509,38 @@ Plaid's free Trial (10 real connections) is an option later only if Merrill or F
 - Back up `BROKER_TOKEN_KEY` somewhere other than the VPS. It now protects every stored broker key, token and
   SnapTrade user secret.
 - The full reference for the service (routes, secrets, every variable) is `services/broker/README.md`.
+
+## 14. Order entry
+
+Order entry places real orders with real money at IBKR, E\*TRADE and Alpaca (API key). It is off for every workspace, yours included, until you switch it on in the console. `docs/real-backend.md` section 13 has the rules.
+
+0. **Release gate.** Step 11's user and port rule are in place and its checks pass. Do not switch on any workspace before that.
+1. **Migration and deploy.** Run `supabase/migrations/20261121120000_order_entry.sql` in the SQL editor, then deploy the broker service, then the app (same order as step 13.2).
+2. **Broker service settings** (all optional, in `/etc/nasscord-broker.env`): `ORDER_ENTRY=on` (set `off` to stop every new order at once; cancels keep working), `ORDER_MAX_QTY=10000`, `ORDER_MAX_NOTIONAL=250000`, `IBKR_STOP_ORDERS=paper`, `IBKR_BRACKETS=paper`, `ETRADE_ORDER_BODY=xml`. Restart the broker service after a change.
+3. **Your own desk first.** Console, **Traders**, your own desk, **Order entry**: turn it on. Every workspace starts off, yours included. The first time you open the order ticket, read and accept "Before your first order".
+4. **Check each broker on paper first.**
+   - Alpaca with a Paper key: the account number starts with `PA`; a far-from-market Limit buy of 1 share, then cancel it; a bracket (it is sent as GTC; Alpaca shows two held exits); a Market order in market hours; a Sell of more than you hold, which Nasscord refuses.
+   - IBKR with your paper username: the checks of 14.1.
+   - E\*TRADE has no paper: first run a Preview only (no order is created) of a 1-share Limit buy about 10% below the market. If E\*TRADE refuses the request format, set `ETRADE_ORDER_BODY=json`, restart the broker service and preview again; tell the developer which one worked. Then place and cancel that order.
+5. **IBKR logins with more than one account** stay read only in this release; the ticket says why.
+6. **Traders.** Turn order entry on for a trader's workspace only when they ask: a request shows on their page in the console ("Requested ...") and as "Requested" in the Traders list. Turning it off takes effect at once in the broker service.
+7. **Records.** The audit log (console, **Activity**) holds every preview refused after the rate limit (a refused ticket, position, price or broker answer), every place that reached the claim or was refused after the rate limit, every cancel, "mark as checked", "Request order entry" and switch change. Refusals by the gate (order entry off, suspended, paused, restarting) and by the rate limits, and a place refused before its claim (another user's preview, an expired preview, notices not confirmed, changed IBKR questions), are only in the broker service's log (`order refused` with the code). The trader's page also lists the orders sent from Nasscord.
+8. **Deploys.** On a restart the broker service finishes orders in flight first (up to 45 s) and refuses new ones meanwhile. Avoid deploying while people are placing orders.
+
+### 14.1 IBKR paper checks
+
+On a DU (paper) account, far from the market, cancelling each order after it:
+
+- (a) After a fresh IBKR login, open Orders: the list fills within a few seconds (IBKR's first answer is empty).
+- (b) A Stop sell: in IBKR the stop price is where you entered it, and Nasscord shows no "differ" warning.
+- (c) A Stop limit sell: stop and limit both right.
+- (d) A Market order without market data: IBKR's o354 question appears in Nasscord's second dialog; "Send anyway" places it.
+- (e) A bracket buy: one parent and two children in IBKR. Then a bracket whose take-profit is just above the market: when it fills, the stop-loss turns Cancelled in IBKR. Then one whose stop-loss is just below the market: when it fills, the take-profit turns Cancelled.
+- (f) SPY by symbol, and BRK B from its Positions row (typing BRK.B is refused for IBKR).
+- (g) With a Stop sell working, press Close on that position: Nasscord refuses it until you cancel the stop.
+- (h) While an order waits on IBKR's question, the Positions page keeps loading.
+
+After (b), (c) and (d) pass, set `IBKR_STOP_ORDERS=on`; after (e) passes, set `IBKR_BRACKETS=on`; restart the broker service after each change.
 
 
 ## Troubleshooting

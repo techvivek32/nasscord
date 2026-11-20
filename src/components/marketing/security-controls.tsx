@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Ban, FileClock, Gauge, KeyRound, Lock, ServerCog, ShieldCheck, Unplug } from "lucide-react";
+import { FileClock, Gauge, KeyRound, Lock, ServerCog, ShieldCheck, Unplug } from "lucide-react";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
 
@@ -50,12 +50,12 @@ export const SECURITY_CONTROLS: SecurityControl[] = [
       "The broker service checks every connection id against that workspace before it uses it, so one workspace can never read another's connection. An IBKR login link from the app is seconds old and opens only for someone signed in to the same workspace.",
   },
   {
-    id: "read-only",
-    icon: Ban,
-    title: "Read-only in this release",
-    body: "Order entry is switched off. Nothing Nasscord does in this release can place, change or cancel an order.",
+    id: "orders",
+    icon: ShieldCheck,
+    title: "Orders only when you confirm them",
+    body: "Order entry is off unless Nasscord switches it on for your workspace, and then only for IBKR, E*TRADE and Alpaca (API key). You preview and confirm every order; Nasscord never changes an order.",
     detail:
-      "The order ticket still works out a size from your stop, then shows why it cannot place the order. Accounts, balances, positions, orders and executions are read from the broker; nothing is sent back.",
+      "The broker service reads the workspace switch from the database on every request, sends each order once with an id of its own, and never repeats it by itself. When an answer is lost, the order is marked unconfirmed until Nasscord finds it at the broker. Every other broker connection stays read only.",
   },
   {
     id: "rate-limits",

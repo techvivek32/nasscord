@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { TradersTable, type TraderRow } from "@/components/console/traders-table";
 import { workspaceHostFor } from "@/components/console/lib";
-import { listTenants, listWorkspaces } from "@/lib/server/console";
+import { listOrderEntryFlags, listTenants, listWorkspaces } from "@/lib/server/console";
 
 export const metadata: Metadata = { title: "Traders · Console" };
 
 export default async function TradersPage() {
-  const [workspaces, tenants] = await Promise.all([listWorkspaces(), listTenants()]);
+  const [workspaces, tenants, orderFlags] = await Promise.all([listWorkspaces(), listTenants(), listOrderEntryFlags()]);
   const tenantById = new Map(tenants.map((t) => [t.id, t]));
   const rows: TraderRow[] = workspaces.map((w) => {
     const tenant = w.tenantId ? (tenantById.get(w.tenantId) ?? null) : null;
@@ -15,8 +15,8 @@ export default async function TradersPage() {
   });
   return (
     <>
-      <PageHeader title="Traders" description="Every trading workspace, organic or through a tenant. Open one to see its members and broker connections, or to change its plan or status." />
-      <TradersTable rows={rows} />
+      <PageHeader title="Traders" description="Every trading workspace, organic or through a tenant. Open one to see its members and broker connections, or to change its plan, its status or order entry." />
+      <TradersTable rows={rows} orderFlags={orderFlags} />
     </>
   );
 }

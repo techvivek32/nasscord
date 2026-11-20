@@ -45,7 +45,7 @@ export function SiteFooter() {
             <p className="max-w-md font-serif text-3xl leading-tight">
               Every account you hold, in <em className="italic">one book</em>.
             </p>
-            <p className="site-caption opacity-60">No broker passwords stored · Read-only in this release · Custody stays at your broker</p>
+            <p className="site-caption opacity-60">No broker passwords stored · Orders only when you confirm them · Custody stays at your broker</p>
           </div>
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
             {COLUMNS.map((col) => (

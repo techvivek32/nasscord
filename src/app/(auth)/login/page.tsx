@@ -31,8 +31,8 @@ function valueLines(brokers: string | null) {
     },
     {
       icon: BookOpenIcon,
-      title: "Read-only to start",
-      body: "This release reads your accounts. Placing orders from Nasscord comes in a later release.",
+      title: "Read first, trade when switched on",
+      body: "Nasscord reads your accounts from the start. Placing orders from Nasscord is switched on per workspace, for IBKR, E*TRADE and Alpaca (API key).",
     },
   ];
 }

@@ -13,7 +13,6 @@ interface Row {
   value: (plan: Plan) => CellValue;
 }
 
-const paid = (p: Plan) => p.id !== "starter";
 const limit = (n: number | "unlimited") => (n === "unlimited" ? "Unlimited" : String(n));
 
 /**
@@ -29,6 +28,7 @@ const groups = (connectLabel: string): Array<{ title: string; note?: string; row
       { label: "Accounts, balances and positions", value: () => true },
       { label: "Orders and executions", value: () => true },
       { label: "Choose which accounts count", value: () => true },
+      { label: "Order entry for IBKR, E*TRADE and Alpaca (API key)", value: () => "On request" },
     ],
   },
   {
@@ -37,7 +37,6 @@ const groups = (connectLabel: string): Array<{ title: string; note?: string; row
     rows: [
       { label: "Broker connection limit", value: (p) => limit(p.limits.brokers) },
       { label: "TradeScope alerts", value: (p) => (p.limits.alertDelayMin === 0 ? "Real-time" : `Delayed ${p.limits.alertDelayMin} min`) },
-      { label: "Order entry", value: paid },
       { label: "Seats", value: (p) => limit(p.limits.seats) },
     ],
   },

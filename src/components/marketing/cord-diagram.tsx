@@ -1,7 +1,7 @@
 import { andList, publicBrokers, type PublicBroker } from "@/lib/server/broker-availability";
 import { cn } from "@/lib/utils";
 
-/** What this read-only release shows from the brokers that connect today. */
+/** What this release shows from the brokers that connect today. */
 const OUTPUTS = ["Accounts & balances", "Positions", "Orders & executions"];
 const NODE_GAP = 132;
 /** At most this many broker nodes on the left; past it the last node says "+N". */
@@ -38,7 +38,7 @@ function leftNodes(today: PublicBroker[]): Node[] {
 
 /**
  * The "cord" chart: the brokers that connect today (the broker service's answer, see publicBrokers) feed one Nasscord
- * hub, which fans out into the read-only views of this release. Wires draw themselves in, signals flow along them, the
+ * hub, which fans out into the views of this release (orders go out only when you confirm them). Wires draw themselves in, signals flow along them, the
  * hub pulses and each output lights up as a signal arrives. Decorative motion only; it shows the shape of the product,
  * not live traffic. Colors come from tokens (the broker tiles use the registry colors), so it follows the theme.
  */
@@ -123,7 +123,7 @@ export async function CordDiagram({ className }: { className?: string }) {
         Nasscord
       </text>
       <text x={HUB.cx} y={HUB.cy + HUB.size / 2 + 41} textAnchor="middle" fontSize={10.5} fill="var(--muted-foreground)" className="font-sans">
-        read-only in this release
+        orders only when you confirm
       </text>
 
       {/* output pills, lit in turn as the signal arrives */}

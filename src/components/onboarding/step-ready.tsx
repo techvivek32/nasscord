@@ -85,7 +85,7 @@ export function StepReady({ tenantName, brandActive }: { tenantName: string | nu
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true">3.</span>
-            This release reads your accounts: balances, positions, orders and executions. Placing orders comes later.
+            Nasscord reads your accounts: balances, positions, orders and executions. Placing orders from Nasscord is switched on per workspace, for IBKR, E*TRADE and Alpaca (API key).
           </li>
         </ol>
       </div>

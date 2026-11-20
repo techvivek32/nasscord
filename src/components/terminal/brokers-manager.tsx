@@ -29,6 +29,7 @@ import type { BrokerConnection, BrokerId, RenewNext } from "@/lib/types";
 import { ConnectionsError } from "@/components/terminal/broker-health";
 import { useAccountScope, useMinuteClock } from "@/components/terminal/hooks";
 import { CardSkeleton } from "@/components/terminal/skeletons";
+import { RequestOrderEntryButton, useOrderEntry } from "@/components/terminal/order-entry";
 
 type Resume =
   | { kind: "ibkr"; connectionId: string; round: number }
@@ -154,9 +155,12 @@ export function BrokersManager() {
   return (
     <>
       <section className="grid gap-3" aria-labelledby="brokers-connected">
-        <h2 id="brokers-connected" className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-          Connected
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="brokers-connected" className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+            Connected
+          </h2>
+          <RequestOrderEntryButton />
+        </div>
         {scope.isLoading ? (
           <div className="grid gap-4 lg:grid-cols-2">
             <CardSkeleton lines={4} />
@@ -167,7 +171,7 @@ export function BrokersManager() {
         ) : scope.connections.length === 0 ? (
           <EmptyState
             title="No brokers connected"
-            description={`Connect ${names ?? "a broker"} below. Nasscord reads balances, positions, orders and executions; it never moves money or places orders in this release.`}
+            description={`Connect ${names ?? "a broker"} below. Nasscord reads balances, positions, orders and executions and never moves money. It places an order only when order entry is on for your workspace and you confirm the order.`}
           />
         ) : (
           <>
@@ -282,6 +286,9 @@ function ConnectionCard({
   onDisconnect: () => void;
 }) {
   const b = getBroker(c.brokerId);
+  const oe = useOrderEntry();
+  const ordersOn = oe.state === "on" && !!oe.caps?.connections[c.id];
+  const blocked = oe.state === "on" ? oe.caps?.blocked[c.id] : undefined;
   const tone = CONNECTION_TONE[c.status];
   const live = isLiveStatus(c.status);
   const warn = c.status === "expiring" || (live && !!c.statusDetail);
@@ -320,8 +327,13 @@ function ConnectionCard({
           emptyText={c.status === "pending" ? `Accounts appear here once you finish the ${b.short} login.` : `${b.short} listed no accounts for this connection.`}
         />
       </CardContent>
+      {blocked ? (
+        <CardContent>
+          <p className="text-xs text-muted-foreground">{blocked}</p>
+        </CardContent>
+      ) : null}
       <CardContent className="flex flex-wrap items-center justify-between gap-2">
-        <Badge variant="secondary">Read only</Badge>
+        <Badge variant="secondary">{ordersOn ? "Orders on" : "Read only"}</Badge>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" disabled={renewing || renewBusy} onClick={onReconnect}>
             {renewing ? <LoaderCircleIcon className="animate-spin" /> : keyFlow && !live ? <KeyRoundIcon /> : <RefreshCwIcon />}

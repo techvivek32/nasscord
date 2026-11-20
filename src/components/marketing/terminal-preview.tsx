@@ -48,7 +48,7 @@ const TOTAL = ACCOUNTS.reduce((t, a) => ({ netLiq: t.netLiq + a.netLiq, dayPnl: 
 
 /**
  * The terminal as a browser window: the accounts you connected and one positions table across them, which is what
- * this release shows. Read-only: nothing here is interactive.
+ * this release shows. An illustration with made-up figures: nothing here is interactive.
  */
 export function TerminalPreview({ className }: { className?: string }) {
   return (
@@ -73,7 +73,7 @@ export function TerminalPreview({ className }: { className?: string }) {
           <span className="inline-flex items-center gap-1.5 rounded-full border border-input px-2.5 py-0.5 text-xs font-medium">
             All accounts · {ACCOUNTS.length} brokers
           </span>
-          <span className="ml-auto text-xs text-muted-foreground">Read-only</span>
+          <span className="ml-auto text-xs text-muted-foreground">Example</span>
         </div>
         <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[1fr_1.15fr]">
           <section aria-label="Example accounts" className="grid content-start gap-3">

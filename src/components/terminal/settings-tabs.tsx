@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,6 +19,7 @@ import { sendMyPasswordReset } from "@/lib/server/terminal-actions-extra";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
 import { fmtMoney } from "@/lib/format";
 import type { SettingsValues } from "@/lib/signup";
+import { useOrderEntry } from "@/components/terminal/order-entry";
 
 /** The saved trading defaults this page edits (user_settings), without the default account. */
 export type EditableSettings = Omit<SettingsValues, "defaultAccountId">;
@@ -179,8 +181,18 @@ const riskSchema = z.object({
 });
 type RiskValues = z.infer<typeof riskSchema>;
 
+/** What the two switches change today: depends on whether order entry is on for the workspace. */
+function OrderEntrySwitchesNote() {
+  const { state, caps, message } = useOrderEntry();
+  if (state === "loading") return null;
+  if (state === "on") return <p className="text-xs text-muted-foreground">Extended-hours orders are not available yet, so only the paper switch changes the order ticket.</p>;
+  const first = caps?.reason === "off" || !message ? "Order entry is not switched on for this workspace, so these switches change nothing yet." : `${message} These switches change nothing yet.`;
+  return <p className="text-xs text-muted-foreground">{first}</p>;
+}
+
 function RiskForm({ saved, onSaved }: { saved: EditableSettings; onSaved: (s: EditableSettings) => void }) {
   const defaults: RiskValues = { riskPct: saved.riskPct, extendedHours: saved.extendedHours, paperMode: saved.paperMode };
+  const router = useRouter();
   const form = useForm<RiskValues>({ resolver: zodResolver(riskSchema), defaultValues: defaults });
   const { register, handleSubmit, formState, setValue, control, reset } = form;
   const v = { ...defaults, ...useWatch({ control }) };
@@ -192,6 +204,8 @@ function RiskForm({ saved, onSaved }: { saved: EditableSettings; onSaved: (s: Ed
     if (next) {
       onSaved(next);
       reset(values);
+      // The terminal layout hands riskPct and paperMode to the order ticket: read them again now, not on the next full load.
+      router.refresh();
     }
   };
 
@@ -216,10 +230,10 @@ function RiskForm({ saved, onSaved }: { saved: EditableSettings; onSaved: (s: Ed
             </p>
           </div>
           <div className="divide-y divide-border">
-            <SwitchRow id={`${id}-ext`} label="Extended hours" hint="Size and route orders outside 09:30 to 16:00 ET once order entry is on" checked={v.extendedHours} onChange={(c) => setValue("extendedHours", c, { shouldDirty: true })} disabled={formState.isSubmitting} />
-            <SwitchRow id={`${id}-paper`} label="Start in paper mode" hint="Send orders to a paper account by default once order entry is on" checked={v.paperMode} onChange={(c) => setValue("paperMode", c, { shouldDirty: true })} disabled={formState.isSubmitting} />
+            <SwitchRow id={`${id}-ext`} label="Extended hours" hint="Saved for later. Nasscord sends regular-session orders only (09:30 to 16:00 ET)." checked={v.extendedHours} onChange={(c) => setValue("extendedHours", c, { shouldDirty: true })} disabled={formState.isSubmitting} />
+            <SwitchRow id={`${id}-paper`} label="Start in paper mode" hint="With order entry on, the order ticket picks a paper account first when no account is picked in the header." checked={v.paperMode} onChange={(c) => setValue("paperMode", c, { shouldDirty: true })} disabled={formState.isSubmitting} />
           </div>
-          <p className="text-xs text-muted-foreground">Order entry is switched off in this release, so the two switches are saved for later and change nothing today.</p>
+          <OrderEntrySwitchesNote />
         </CardContent>
         <CardContent className="flex justify-end gap-2 border-t border-border pt-4">
           <Button type="button" variant="outline" disabled={!formState.isDirty || formState.isSubmitting} onClick={() => reset()}>

@@ -9,11 +9,11 @@ import { environmentLabel, METHOD_LABEL } from "@/lib/broker-connect";
 import { getBroker } from "@/lib/brokers";
 import { whiteLabelBranding } from "@/lib/branding";
 import { fmtDateTime } from "@/lib/format";
-import type { AuditEvent, BrokerConnection, Tenant, User, Workspace } from "@/lib/types";
+import type { AuditEvent, BrokerConnection, ConsoleOrderRow, OrderEntryState, Tenant, User, Workspace } from "@/lib/types";
 import { ConnectionStatusBadge, PlanBadge, ResultBadge, RoleBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
 import { fmtDay, lastSignInLabel, workspaceHostFor } from "./lib";
 import { KV, TH } from "./primitives";
-import { WorkspaceControls } from "./trader-sections";
+import { NasscordOrdersCard, OrderEntrySwitch, WorkspaceControls } from "./trader-sections";
 
 /** Who brought this trader: the tenant (linked to the Tenants page) or nobody. */
 function TenantSource({ workspace, tenant }: { workspace: Workspace; tenant: Tenant | null }) {
@@ -33,12 +33,16 @@ export function TraderDetail({
   members,
   connections,
   events,
+  orderEntry,
+  orderRows,
 }: {
   workspace: Workspace;
   tenant: Tenant | null;
   members: User[];
   connections: BrokerConnection[];
   events: AuditEvent[];
+  orderEntry: OrderEntryState;
+  orderRows: ConsoleOrderRow[];
 }) {
   const brand = whiteLabelBranding(tenant);
   const host = workspaceHostFor(workspace, tenant);
@@ -112,6 +116,33 @@ export function TraderDetail({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Order entry</CardTitle>
+          <CardDescription>
+            Lets members of this workspace place and cancel orders at their connected IBKR, E*TRADE and Alpaca (API key) accounts from the terminal. Each member
+            trades only the broker logins they connected; the workspace owner can trade all of them. Off by default. Each change asks first and is written to the
+            audit log under your login.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OrderEntrySwitch workspace={workspace} state={orderEntry} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Orders sent from Nasscord</CardTitle>
+          <CardDescription>
+            Every order a member of this workspace previewed or sent from the terminal, with what became of it. Unconfirmed orders nobody marked as checked come
+            first.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NasscordOrdersCard rows={orderRows} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
