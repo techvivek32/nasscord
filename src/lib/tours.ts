@@ -1,4 +1,5 @@
-import { SHELL_NAVS, type ShellNavId } from "@/lib/nav";
+import { navFor, type ShellNavId } from "@/lib/nav";
+import type { Role } from "@/lib/types";
 
 /* ------------------------------------------------------------------
    Intro tours, one per signed-in area. A tour runs once on the first
@@ -106,12 +107,19 @@ const REPLAY: TourStep = {
   optional: true,
 };
 
-export function tourFor(id: ShellNavId): TourStep[] {
-  const groups = SHELL_NAVS[id].map<TourStep>((group, i) => ({
-    title: GROUPS[id][i]?.title ?? group.label ?? "Pages",
-    body: GROUPS[id][i]?.body ?? "",
-    targets: [`[data-tour="nav-group-${i}"]`, SIDEBAR_TRIGGER],
-    items: group.items.map((it) => ({ label: it.title, text: it.description })),
-  }));
+/** The tour of an area as `role` sees it: sidebar steps list only that role's pages. */
+export function tourFor(id: ShellNavId, role?: Role): TourStep[] {
+  const groups = navFor(id, role).flatMap<TourStep>((group, i) =>
+    group.items.length === 0
+      ? []
+      : [
+          {
+            title: GROUPS[id][i]?.title ?? group.label ?? "Pages",
+            body: GROUPS[id][i]?.body ?? "",
+            targets: [`[data-tour="nav-group-${i}"]`, SIDEBAR_TRIGGER],
+            items: group.items.map((it) => ({ label: it.title, text: it.description })),
+          },
+        ],
+  );
   return [INTRO[id], AREA_SWITCHER, ...groups, ...EXTRA[id], USER_MENU, REPLAY];
 }

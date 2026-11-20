@@ -3,7 +3,8 @@ import {
   Activity, BarChart3, Bell, BookOpen, Briefcase, Building2, ChartCandlestick, ClipboardList, CreditCard, Gauge, Handshake,
   History, Layers, LineChart, ListOrdered, Palette, PlugZap, Radar, ScrollText, Settings, ShieldCheck, Users, Wallet,
 } from "lucide-react";
-import type { AreaId } from "@/lib/roles";
+import { ALERTS_ROLES, type AreaId } from "@/lib/roles";
+import type { Role } from "@/lib/types";
 
 export interface NavItem {
   title: string;
@@ -12,6 +13,8 @@ export interface NavItem {
   /** One plain sentence on what the page is for. The intro tour reads it, so the tour and the sidebar never drift apart. */
   description: string;
   badge?: string;
+  /** Only these roles see the item (the page checks the role too). Omitted: everyone who opens the area. */
+  roles?: Role[];
 }
 
 export interface NavGroup {
@@ -24,7 +27,7 @@ export const TERMINAL_NAV: NavGroup[] = [
   {
     label: "Trade",
     items: [
-      { title: "Alerts", href: "/app", icon: Bell, description: "TradeScope alerts, once the engine is connected to your workspace, and a ticket that sizes a trade to your risk." },
+      { title: "Alerts", href: "/app", icon: Bell, roles: ALERTS_ROLES, description: "TradeScope alerts, once the engine is connected to your workspace, and a ticket that sizes a trade to your risk." },
       { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across your connected broker accounts, with P&L." },
       { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders from your brokers. Read only in this release." },
       { title: "Options", href: "/app/options", icon: Layers, description: "Option ideas from TradeScope alerts. Not connected yet." },
@@ -123,6 +126,17 @@ export const SHELL_NAVS = {
 } satisfies Record<AreaId, NavGroup[]>;
 
 export type ShellNavId = keyof typeof SHELL_NAVS;
+
+/**
+ * An area's nav as one role sees it: items limited to other roles are left out. Groups stay in place,
+ * even when emptied, so their position still matches the tour's group titles and `nav-group-<i>`.
+ */
+export function navFor(id: ShellNavId, role?: Role): NavGroup[] {
+  return SHELL_NAVS[id].map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.roles || (role !== undefined && item.roles.includes(role))),
+  }));
+}
 
 /** The three signed-in areas, as the area switcher and the tours name them. Who may open which one is in lib/roles. */
 export const SHELL_AREAS: Record<ShellNavId, { title: string; description: string; href: string; icon: LucideIcon }> = {

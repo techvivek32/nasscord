@@ -6,6 +6,7 @@ import { CircleHelpIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ShellNavId } from "@/lib/nav";
 import { tourFor, type TourStep } from "@/lib/tours";
+import type { Role } from "@/lib/types";
 import { hasSeenTour, markTourSeen, useTourStore } from "@/components/tour/store";
 
 /** Space between the spotlight and the card, the card and the screen edge, and around the spotlighted element. */
@@ -28,15 +29,15 @@ function resolveTarget(step: TourStep): Element | null {
 }
 
 /** Opens the tour for an area with the steps that apply to this role, page and screen width. */
-export function startTour(id: ShellNavId) {
-  const steps = tourFor(id).filter((s) => !s.optional || resolveTarget(s) !== null);
+export function startTour(id: ShellNavId, role?: Role) {
+  const steps = tourFor(id, role).filter((s) => !s.optional || resolveTarget(s) !== null);
   useTourStore.getState().start(id, steps);
 }
 
 /** Header button that replays the area's tour. */
-export function TourButton({ id }: { id: ShellNavId }) {
+export function TourButton({ id, role }: { id: ShellNavId; role?: Role }) {
   return (
-    <Button variant="ghost" size="icon" aria-label="Take the tour" title="Take the tour" data-tour="tour-button" onClick={() => startTour(id)}>
+    <Button variant="ghost" size="icon" aria-label="Take the tour" title="Take the tour" data-tour="tour-button" onClick={() => startTour(id, role)}>
       <CircleHelpIcon />
     </Button>
   );
@@ -46,7 +47,7 @@ export function TourButton({ id }: { id: ShellNavId }) {
  * The tour for one area. Mounted once by AppShell: opens by itself on the first visit to the area,
  * and whenever the TourButton asks for it.
  */
-export function Tour({ id }: { id: ShellNavId }) {
+export function Tour({ id, role }: { id: ShellNavId; role?: Role }) {
   const active = useTourStore((s) => s.active === id);
   const steps = useTourStore((s) => s.steps);
   const index = useTourStore((s) => s.index);
@@ -58,10 +59,10 @@ export function Tour({ id }: { id: ShellNavId }) {
     if (hasSeenTour(id)) return;
     const t = window.setTimeout(() => {
       markTourSeen(id);
-      startTour(id);
+      startTour(id, role);
     }, AUTO_START_MS);
     return () => window.clearTimeout(t);
-  }, [id]);
+  }, [id, role]);
 
   // Leaving the area ends its tour.
   React.useEffect(

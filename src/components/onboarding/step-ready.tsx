@@ -6,12 +6,12 @@ import { ArrowRightIcon, CircleCheckIcon, LoaderCircleIcon } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { APP_DOMAIN } from "@/lib/branding";
 import { getPlan } from "@/lib/plans";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, terminalHomeForRole } from "@/lib/roles";
 import { MAX_REPORTED_SETUP_MS, formatElapsed } from "@/components/onboarding/data";
 import { StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { useSignupStore } from "@/components/onboarding/store";
 
-/** Step 5: what was set up, then "Open your terminal" (/app). */
+/** Step 5: what was set up, then "Open your terminal" (Positions for traders, terminalHomeForRole). */
 export function StepReady({ tenantName, brandActive }: { tenantName: string | null; brandActive: boolean }) {
   const router = useRouter();
   const workspace = useSignupStore((s) => s.workspace);
@@ -34,7 +34,7 @@ export function StepReady({ tenantName, brandActive }: { tenantName: string | nu
   const openTerminal = () => {
     setLaunching(true);
     markLaunched();
-    router.push("/app");
+    router.push(terminalHomeForRole(role));
   };
 
   return (

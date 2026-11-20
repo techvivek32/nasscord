@@ -44,6 +44,8 @@ export const CONSOLE_ROLES: Role[] = ["superadmin"];
 export const TENANT_PORTAL_ROLES: Role[] = ["tenant", "superadmin"];
 /** Everyone who trades. A tenant's own login does not. */
 export const TERMINAL_ROLES: Role[] = ["superadmin", "trader", "tenant_user"];
+/** The terminal's Alerts page (/app) is the super admin's alone; traders and tenant users start on Positions. */
+export const ALERTS_ROLES: Role[] = ["superadmin"];
 
 export function isStaff(role: Role) {
   return CONSOLE_ROLES.includes(role);
@@ -61,6 +63,11 @@ export function areasForRole(role: Role): AreaId[] {
   }
 }
 
+/** Where the terminal opens for a role: Alerts for those who see it, Positions for everyone else. */
+export function terminalHomeForRole(role: Role) {
+  return ALERTS_ROLES.includes(role) ? "/app" : "/app/positions";
+}
+
 export function homeForRole(role: Role) {
-  return role === "superadmin" ? "/admin" : role === "tenant" ? "/tenant" : "/app";
+  return role === "superadmin" ? "/admin" : role === "tenant" ? "/tenant" : terminalHomeForRole(role);
 }
