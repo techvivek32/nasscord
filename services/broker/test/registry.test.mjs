@@ -68,6 +68,46 @@ test("descriptors are checked at boot", () => {
   assert.throws(() => createRegistry([adapter({}), adapter({})], testConfig()), /registered twice/);
 });
 
+test("a trading part: only the three trading methods, with every order function", () => {
+  const fn = async () => ({});
+  const trading = { capabilities: () => null, previewOrder: fn, positionState: fn, placeOrder: fn, reconcileOrder: fn, cancelOrder: fn };
+  assert.doesNotThrow(() => validateAdapter(adapter({}, { trading })));
+  assert.throws(
+    () => validateAdapter(adapter({ method: "alpaca_oauth", environments: ["production"] }, { oauthProfile: () => ({}), identify: fn, trading })),
+    /may not trade: only ibkr_gateway, etrade_oauth1 and alpaca_key have a trading part/,
+  );
+  assert.throws(
+    () => validateAdapter(adapter({ method: "tradier_token", brokers: ["tradier"], environments: ["production"] }, { trading })),
+    /may not trade/,
+  );
+  for (const name of ["capabilities", "previewOrder", "positionState", "placeOrder", "reconcileOrder", "cancelOrder"]) {
+    assert.throws(() => validateAdapter(adapter({}, { trading: { ...trading, [name]: undefined } })), new RegExp(`trading needs ${name}\\(\\)`), name);
+  }
+  assert.throws(() => validateAdapter(adapter({}, { trading: null })), /trading needs/);
+  assert.throws(() => createRegistry([adapter({ method: "tradier_token", brokers: ["tradier"], environments: ["production"] }, { trading })], testConfig()), /may not trade/);
+
+  const reg = createRegistry([adapter({}, { trading })], testConfig());
+  assert.equal(reg.tradingFor({ method: "alpaca_key" }), trading);
+  assert.equal(reg.tradingFor({ method: "alpaca_oauth" }), null);
+  assert.equal(reg.tradingFor({ method: "ibkr_oauth" }), null);
+  assert.equal(createRegistry([adapter({})], testConfig()).tradingFor({ method: "alpaca_key" }), null);
+});
+
+test("order entry config: defaults, limits and warnings", () => {
+  const c = testConfig();
+  assert.deepEqual({ ...c.orders }, { entry: "on", maxQty: 10_000, maxNotional: 250_000, ibkrStopOrders: "paper", ibkrBrackets: "paper", etradeBody: "xml" });
+  assert.ok(Object.isFrozen(c.orders));
+  const off = testConfig({ ORDER_ENTRY: "off", IBKR_BRACKETS: "on" });
+  assert.ok(off.warnings.includes("ORDER_ENTRY=off: every preview and place is refused"));
+  assert.ok(off.warnings.includes("IBKR_BRACKETS=on needs IBKR_STOP_ORDERS=on: live IBKR accounts get no brackets until both are on"));
+  assert.throws(() => testConfig({ ORDER_MAX_QTY: "0" }), (e) => e instanceof ConfigError && e.problems.includes("ORDER_MAX_QTY must be a whole number from 1 to 1000000"));
+  assert.throws(() => testConfig({ ORDER_MAX_NOTIONAL: "999" }), /ORDER_MAX_NOTIONAL must be a whole number from 1000 to 100000000/);
+  assert.throws(() => testConfig({ ORDER_ENTRY: "maybe" }), /ORDER_ENTRY must be one of on, off/);
+  assert.throws(() => testConfig({ IBKR_STOP_ORDERS: "yes" }), /IBKR_STOP_ORDERS must be one of off, paper, on/);
+  assert.throws(() => testConfig({ ETRADE_ORDER_BODY: "form" }), /ETRADE_ORDER_BODY must be one of xml, json/);
+  assert.equal(testConfig({ ETRADE_ORDER_BODY: "json", IBKR_STOP_ORDERS: "on" }).orders.etradeBody, "json");
+});
+
 test("BROKER_AUDIENCE: per method and client, with the binding defaults", () => {
   const c = testConfig();
   assert.equal(c.audience.ibkr_gateway, "all");

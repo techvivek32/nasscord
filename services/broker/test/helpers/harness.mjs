@@ -3,6 +3,7 @@ import { badGateway, badRequest, BrokerAuthError, SessionExpiredError } from "..
 import { createLogger } from "../../src/log.mjs";
 import { maskAccountNumber } from "../../src/mapping.mjs";
 import { randomToken, sha256Hex } from "../../src/oauth2.mjs";
+import { OrderNotSentError } from "../../src/order-contract.mjs";
 import { createBrokerService } from "../../src/server.mjs";
 import { iso } from "../../src/time.mjs";
 import { call, jwtFor, listen, testConfig } from "./common.mjs";
@@ -81,6 +82,10 @@ export async function createHarness(opts = {}) {
     /** @param {number} ms */
     advance(ms) {
       offset += ms;
+    },
+    /** Puts the clock at an instant (it keeps running from there). @param {number} ms */
+    setTime(ms) {
+      offset = ms - Date.now();
     },
     close: () => api.close(),
   };
@@ -348,4 +353,225 @@ export function fakeAggregatorAdapter(o = {}) {
       return req.headers["x-test-signature"] === "ok" ? { status: 200, body: { received: true } } : { status: 401 };
     },
   });
+}
+
+// ─────────────────────────────────────────────────────────────── order entry fakes
+
+/**
+ * @typedef {import("../../src/order-contract.mjs").TradingCapabilities} TradingCapabilities
+ * @typedef {import("../../src/order-contract.mjs").PositionState} PositionState
+ * @typedef {import("../../src/order-contract.mjs").PlaceOutcome} PlaceOutcome
+ * @typedef {import("../../src/order-contract.mjs").ReconcileOutcome} ReconcileOutcome
+ * @typedef {import("../../src/order-contract.mjs").CancelOutcome} CancelOutcome
+ * @typedef {import("../../src/order-contract.mjs").Ticket} Ticket
+ */
+
+/** Every type, both terms, brackets with either stop: what the fake allows unless a test says otherwise. */
+export const FAKE_CAPS = Object.freeze({
+  types: /** @type {Array<"MKT" | "LMT" | "STP" | "STP_LMT">} */ (["MKT", "LMT", "STP", "STP_LMT"]),
+  tif: /** @type {Array<"DAY" | "GTC">} */ (["DAY", "GTC"]),
+  marketGtc: true,
+  bracket: { entryTypes: /** @type {Array<"MKT" | "LMT">} */ (["MKT", "LMT"]), stopTypes: /** @type {Array<"STP" | "STP_LMT">} */ (["STP", "STP_LMT"]) },
+  notes: /** @type {string[]} */ ([]),
+});
+
+/**
+ * The fake trading part's knobs and counters.
+ * Knobs: caps (or { blocked }, or null), position (symbol -> PositionState; default flat with the
+ * working orders read), referencePrice (default 100), quote, instrument, marketOpen (default true;
+ * undefined lets the core use its NYSE calendar), previewError, positionError, notices, warnings,
+ * place (queue of PlaceOutcome | "throw" | "not_sent"; default placed with brokerOrderId "fake-<n>"),
+ * slowPlaceMs, slowReconcileMs, reconcile (queue of ReconcileOutcome; default { found: false }),
+ * cancel (CancelOutcome or an HttpError).
+ * Counters: calls.{ preview, positionState, place, reconcile, cancel }, sent: [{ clientOrderId, ticket }]
+ * and lastPlaceInput (acknowledged, approvedMessages, position, previousClientOrderIds).
+ * @param {Record<string, unknown>} [over]
+ */
+export function fakeTradingState(over = {}) {
+  return {
+    /** @type {TradingCapabilities | { blocked: string } | null} */
+    caps: /** @type {TradingCapabilities | { blocked: string } | null} */ ({ ...FAKE_CAPS, types: [...FAKE_CAPS.types], tif: [...FAKE_CAPS.tif], notes: [] }),
+    /** @type {Record<string, PositionState>} */
+    position: {},
+    /** @type {number | null} */
+    referencePrice: 100,
+    /** @type {import("../../src/order-contract.mjs").Quote | null} */
+    quote: { bid: 99.99, ask: 100.01, source: "Fake quote" },
+    /** @type {import("../../src/order-contract.mjs").Instrument | null} */
+    instrument: { name: "Fake Instrument Inc", exchange: "FAKE" },
+    /** @type {boolean | undefined} */
+    marketOpen: true,
+    /** @type {Error | null} */
+    previewError: null,
+    /** @type {Error | null} */
+    positionError: null,
+    /** @type {import("../../src/order-contract.mjs").OrderNotice[]} */
+    notices: [],
+    /** @type {import("../../src/order-contract.mjs").OrderWarning[]} */
+    warnings: [],
+    /** @type {Array<PlaceOutcome | "throw" | "not_sent">} */
+    place: [],
+    slowPlaceMs: 0,
+    slowReconcileMs: 0,
+    /** @type {ReconcileOutcome[]} */
+    reconcile: [],
+    /** @type {CancelOutcome | Error | null} */
+    cancel: null,
+    calls: { preview: 0, positionState: 0, place: 0, reconcile: 0, cancel: 0 },
+    /** @type {Array<{ clientOrderId: string, ticket: Ticket }>} */
+    sent: [],
+    /** @type {any} */
+    lastPlaceInput: null,
+    /** @type {any} */
+    lastReconcileInput: null,
+    /** @type {string[]} */
+    cancelled: [],
+    ...over,
+  };
+}
+
+/** @param {number} ms */
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * An alpaca_key adapter with a fake trading part (src/order-contract.mjs) over `o.state`: the order
+ * core's tests (and the app's order route tests) run against it. Reads are trivial.
+ * @param {{ state: ReturnType<typeof fakeTradingState> }} o
+ * @returns {AdapterFactory} method alpaca_key, broker alpaca, environments production and paper, trivial reads.
+ */
+export function fakeTradingAdapter(o) {
+  const st = o.state;
+  /** @param {Ticket} ticket @returns {PositionState} */
+  const positionOf = (ticket) => st.position[ticket.symbol] ?? { qty: 0, workingSell: 0, workingBuy: 0, working: true };
+  return () => ({
+    descriptor: {
+      method: "alpaca_key",
+      brokers: ["alpaca"],
+      name: "Alpaca",
+      environments: ["production", "paper"],
+      readTtlMs: { portfolio: 15_000, orders: 30_000, executions: 30_000 },
+    },
+    async connectKey() {
+      throw badRequest("The fake trading adapter does not connect keys.", "fake");
+    },
+    async balances(_c, accounts) {
+      return { accounts: accounts.map((a) => ({ accountId: a.id, netLiq: 100_000, currency: "USD" })) };
+    },
+    async positions() {
+      return [];
+    },
+    async orders() {
+      return [];
+    },
+    async executions() {
+      return [];
+    },
+    trading: {
+      capabilities() {
+        return st.caps;
+      },
+      async previewOrder(_ctx, ticket) {
+        st.calls.preview += 1;
+        if (st.previewError) throw st.previewError;
+        if (st.positionError) throw st.positionError;
+        const price = ticket.limitPrice ?? ticket.stopPrice ?? st.referencePrice ?? 0;
+        return {
+          position: positionOf(ticket),
+          referencePrice: st.referencePrice,
+          quote: st.quote,
+          instrument: st.instrument,
+          estimate: { notional: ticket.quantity * price, source: "Fake broker" },
+          ...(st.marketOpen === undefined ? {} : { marketOpen: st.marketOpen }),
+          warnings: [...st.warnings],
+          notices: [...st.notices],
+          brokerState: { fake: true },
+        };
+      },
+      async positionState(_ctx, ticket) {
+        st.calls.positionState += 1;
+        if (st.positionError) throw st.positionError;
+        return positionOf(ticket);
+      },
+      async placeOrder(_ctx, input) {
+        st.calls.place += 1;
+        st.lastPlaceInput = {
+          acknowledged: [...input.acknowledged],
+          approvedMessages: [...input.approvedMessages],
+          position: input.position,
+          previousClientOrderIds: [...input.previousClientOrderIds],
+          clientOrderId: input.clientOrderId,
+        };
+        if (st.slowPlaceMs) await pause(st.slowPlaceMs);
+        const next = st.place.shift();
+        if (next === "not_sent") throw new OrderNotSentError(409, "The fake broker did not take the order. Nothing was placed.", "fake_not_sent");
+        st.sent.push({ clientOrderId: input.clientOrderId, ticket: input.ticket });
+        if (next === "throw") throw new Error("socket hang up");
+        if (next) return next;
+        return { status: "placed", brokerOrderId: `fake-${st.sent.length}` };
+      },
+      async reconcileOrder(_ctx, input) {
+        st.calls.reconcile += 1;
+        st.lastReconcileInput = input;
+        if (st.slowReconcileMs) await pause(st.slowReconcileMs);
+        return st.reconcile.shift() ?? { found: false };
+      },
+      async cancelOrder(_ctx, brokerOrderId) {
+        st.calls.cancel += 1;
+        if (st.cancel instanceof Error) throw st.cancel;
+        st.cancelled.push(brokerOrderId);
+        return st.cancel ?? { status: "cancel_requested", message: "The fake broker received the cancel." };
+      },
+    },
+  });
+}
+
+/** Broker of each connect method, for seeded connection rows. */
+const SEED_BROKER = /** @type {Record<string, string>} */ ({
+  alpaca_key: "alpaca",
+  alpaca_oauth: "alpaca",
+  ibkr_gateway: "ibkr",
+  ibkr_oauth: "ibkr",
+  etrade_oauth1: "etrade",
+  schwab_oauth: "schwab",
+});
+
+/**
+ * Inserts an active alpaca_key connection (user_id = o.userId ?? the harness user) and one included
+ * account in the harness workspace (owner_id = o.ownerId ?? the harness user), sets
+ * workspaces.orders_enabled (default true) and status "active", and answers { connectionId, accountId }.
+ * o.externalId and o.method override the defaults (o.environment too: default "paper").
+ * @param {Awaited<ReturnType<typeof createHarness>>} h
+ * @param {{ userId?: string, ownerId?: string | null, ordersEnabled?: boolean, externalId?: string, method?: string,
+ *   environment?: "production" | "paper" | "sandbox", status?: string, included?: boolean, workspaceStatus?: string }} [o]
+ */
+export async function seedTradingAccount(h, o = {}) {
+  const method = o.method ?? "alpaca_key";
+  const brokerId = SEED_BROKER[method] ?? "alpaca";
+  const environment = o.environment ?? "paper";
+  const [conn] = await h.db.insert("broker_connections", {
+    workspace_id: h.wid,
+    user_id: o.userId ?? h.user,
+    broker_id: brokerId,
+    method,
+    environment,
+    status: o.status ?? "active",
+  });
+  const externalId = o.externalId ?? `PA${String(Math.floor(Math.random() * 1e8)).padStart(8, "0")}`;
+  const [account] = await h.db.insert("broker_accounts", {
+    connection_id: conn.id,
+    workspace_id: h.wid,
+    broker_id: brokerId,
+    external_id: externalId,
+    display_number: maskAccountNumber(externalId),
+    label: "Fake account",
+    type: environment === "paper" ? "paper" : "individual",
+    included: o.included ?? true,
+  });
+  const ws = h.rows("workspaces").find((w) => w.id === h.wid);
+  if (ws) {
+    ws.owner_id = o.ownerId === undefined ? h.user : o.ownerId;
+    ws.orders_enabled = o.ordersEnabled ?? true;
+    ws.status = o.workspaceStatus ?? "active";
+  }
+  return { connectionId: String(conn.id), accountId: String(account.id), externalId };
 }

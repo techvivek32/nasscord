@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { ORDER_REQUEST_STATUSES } from "../../src/order-contract.mjs";
 
 /**
  * In-memory stand-in for the PostgREST Db interface in src/db.mjs (select, insert, update, upsert,
  * remove), with the table defaults, unique keys, check constraints and cascades of
- * supabase/migrations/20261103120000_init.sql and 20261116120000_more_brokers.sql that the service
+ * supabase/migrations/20261103120000_init.sql, 20261116120000_more_brokers.sql and
+ * 20261121120000_order_entry.sql that the service
  * relies on. A write Postgres would refuse throws here too (code 23514 for a check, 23505 for a
  * unique key), so the service tests fail the same way production would.
  */
@@ -74,6 +76,31 @@ function defaults(now) {
     broker_aggregator_users: () => ({ provider: "snaptrade", key_version: 1, created_at: ts(), updated_at: ts() }),
     audit_events: () => ({ at: ts(), result: "ok" }),
     members: () => ({ created_at: ts() }),
+    // workspaces and user_settings keep no defaults: a row without orders_enabled reads as off, and
+    // one without order_terms_accepted_at as not accepted (tests rely on both).
+    order_requests: () => ({
+      id: randomUUID(),
+      user_id: null,
+      connection_id: null,
+      account_id: null,
+      bracket: false,
+      intent: "trade",
+      preview: null,
+      broker_state: {},
+      status: "preview",
+      broker_order_id: null,
+      broker_order_ids: null,
+      broker_messages: null,
+      error: null,
+      attempts: 0,
+      sent_at: null,
+      placed_at: null,
+      reconciled_at: null,
+      resolved_at: null,
+      resolved_by: null,
+      created_at: ts(),
+      updated_at: ts(),
+    }),
   };
 }
 
@@ -84,6 +111,7 @@ const KEYS = /** @type {Record<string, string[]>} */ ({
   broker_oauth_pending: ["connection_id"],
   broker_aggregator_users: ["workspace_id"],
   members: ["user_id"],
+  order_requests: ["id"],
 });
 
 /** Other unique keys (null values never collide, as in Postgres). */
@@ -91,6 +119,7 @@ const UNIQUE = /** @type {Record<string, string[][]>} */ ({
   broker_accounts: [["connection_id", "external_id"]],
   broker_oauth_pending: [["state_hash"], ["ticket_hash"]],
   broker_aggregator_users: [["external_user_id"]],
+  order_requests: [["client_order_id"]],
 });
 
 /**
@@ -126,6 +155,31 @@ function check(table, r) {
       throw checkError("broker_oauth_pending_external_ref_check");
     }
     if (!r.expires_at) throw checkError("broker_oauth_pending.expires_at not null");
+  }
+  if (table === "order_requests") {
+    /** @param {string} col */
+    const bad = (col) => checkError(`order_requests_${col}_check`);
+    /** @param {unknown} v @param {number} min @param {number} max */
+    const len = (v, min, max) => typeof v === "string" && v.length >= min && v.length <= max;
+    if (!r.workspace_id) throw bad("workspace_id");
+    if (!["ibkr", "etrade", "alpaca"].includes(r.broker_id)) throw bad("broker_id");
+    if (!["ibkr_gateway", "etrade_oauth1", "alpaca_key"].includes(r.method)) throw bad("method");
+    if (!["production", "paper"].includes(r.environment)) throw bad("environment");
+    if (!len(r.account_display, 1, 40)) throw bad("account_display");
+    if (typeof r.account_key !== "string" || !/^[0-9a-f]{16}$/.test(r.account_key)) throw bad("account_key");
+    if (typeof r.client_order_id !== "string" || !/^nc[0-9a-f]{18}$/.test(r.client_order_id)) throw bad("client_order_id");
+    if (typeof r.symbol !== "string" || !/^[A-Z][A-Z0-9.]{0,9}$/.test(r.symbol)) throw bad("symbol");
+    if (!["BUY", "SELL"].includes(r.side)) throw bad("side");
+    if (!Number.isInteger(r.quantity) || r.quantity < 1 || r.quantity > 1_000_000) throw bad("quantity");
+    if (!["MKT", "LMT", "STP", "STP_LMT"].includes(r.order_type)) throw bad("order_type");
+    if (!["DAY", "GTC"].includes(r.tif)) throw bad("tif");
+    if (!["trade", "close"].includes(r.intent)) throw bad("intent");
+    if (!ORDER_REQUEST_STATUSES.includes(r.status)) throw bad("status");
+    if (r.broker_order_id !== null && r.broker_order_id !== undefined && !len(r.broker_order_id, 1, 64)) throw bad("broker_order_id");
+    if (r.error !== null && r.error !== undefined && !len(r.error, 0, 500)) throw bad("error");
+    if (!Number.isInteger(r.attempts) || r.attempts < 0 || r.attempts > 10) throw bad("attempts");
+    if (!r.expires_at) throw bad("expires_at");
+    if (!r.request || typeof r.request !== "object" || Array.isArray(r.request)) throw bad("request");
   }
   if (table === "broker_aggregator_users") {
     if (r.provider !== "snaptrade") throw checkError("broker_aggregator_users_provider_check");
@@ -246,9 +300,21 @@ export function createMemoryDb(opts = {}) {
   function cascade(name, /** @type {Record<string, unknown>[]} */ gone) {
     if (name === "broker_connections") {
       const ids = gone.map((r) => r.id);
+      const accountIds = table("broker_accounts")
+        .filter((r) => ids.includes(r.connection_id))
+        .map((r) => r.id);
       for (const child of ["broker_accounts", "broker_secrets", "broker_oauth_pending"]) {
         tables.set(child, table(child).filter((r) => !ids.includes(r.connection_id)));
       }
+      // order_requests keep their record of what was sent: the references become null.
+      for (const r of table("order_requests")) {
+        if (ids.includes(r.connection_id)) r.connection_id = null;
+        if (accountIds.includes(r.account_id)) r.account_id = null;
+      }
+    }
+    if (name === "broker_accounts") {
+      const ids = gone.map((r) => r.id);
+      for (const r of table("order_requests")) if (ids.includes(r.account_id)) r.account_id = null;
     }
   }
 

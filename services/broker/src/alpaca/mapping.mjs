@@ -132,7 +132,8 @@ export function alpacaPosition(p, account) {
 export function alpacaOrderType(raw) {
   const t = clean(/** @type {any} */ (raw)).toLowerCase();
   if (t === "limit") return "LMT";
-  if (t === "stop" || t === "stop_limit") return "STP";
+  if (t === "stop") return "STP";
+  if (t === "stop_limit") return "STP_LMT";
   if (t === "trailing_stop") return "TRAIL";
   return "MKT";
 }
@@ -145,11 +146,33 @@ export function alpacaOrderStatus(raw) {
   const s = clean(/** @type {any} */ (raw)).toLowerCase();
   if (s === "new" || s === "accepted" || s === "pending_new") return "submitted";
   if (s === "filled") return "filled";
-  if (s === "canceled" || s === "cancelled" || s === "expired" || s === "done_for_day" || s === "replaced" || s === "pending_cancel") return "cancelled";
+  if (s === "canceled" || s === "cancelled" || s === "expired" || s === "replaced") return "cancelled";
+  // A cancel Alpaca has not confirmed yet: the order can still fill.
+  if (s === "pending_cancel") return "cancel_requested";
   if (s === "rejected") return "rejected";
   // partially_filled, held (a bracket leg waiting), accepted_for_bidding, pending_replace,
-  // calculated, stopped, suspended
+  // calculated, stopped, suspended, and done_for_day (done for today, it works again next session)
   return "working";
+}
+
+/** The roles of the orders of a bracket (Alpaca's group_role). */
+const LEG_ROLES = new Set(["entry", "take_profit", "stop_loss"]);
+
+/**
+ * The role of an order in a bracket: Alpaca's group_role when it names one, else for a leg under its
+ * parent the type (the take-profit is a limit, the stop-loss a stop or stop limit).
+ * @param {any} o
+ * @param {OrderType} type
+ * @param {boolean} isLeg
+ * @returns {"entry" | "take_profit" | "stop_loss" | undefined}
+ */
+export function legRoleOf(o, type, isLeg) {
+  const role = clean(o?.group_role).toLowerCase();
+  if (LEG_ROLES.has(role)) return /** @type {"entry" | "take_profit" | "stop_loss"} */ (role);
+  if (!isLeg) return undefined;
+  if (type === "LMT") return "take_profit";
+  if (type === "STP" || type === "STP_LMT") return "stop_loss";
+  return undefined;
 }
 
 /** @param {unknown} v @param {number} fallback */
@@ -187,8 +210,10 @@ export function alpacaOrder(o, account, fetchedAt, parentId) {
   };
   const limit = num(o?.limit_price);
   const stop = num(o?.stop_price);
-  const price = type === "LMT" ? limit : type === "STP" ? stop ?? limit : undefined;
+  // price: the limit of LMT and STP_LMT orders, the stop of STP orders; stopPrice: the stop trigger.
+  const price = type === "LMT" || type === "STP_LMT" ? limit : type === "STP" ? stop : undefined;
   if (price !== undefined) out.price = price;
+  if ((type === "STP" || type === "STP_LMT") && stop !== undefined) out.stopPrice = stop;
   if (type === "TRAIL") {
     const pct = num(o?.trail_percent);
     if (pct !== undefined) out.trailPct = pct;
@@ -198,6 +223,10 @@ export function alpacaOrder(o, account, fetchedAt, parentId) {
   const avg = num(o?.filled_avg_price);
   if (avg !== undefined && avg > 0) out.avgFill = avg;
   if (parentId) out.parentId = parentId;
+  const role = legRoleOf(o, type, !!parentId);
+  if (role) out.legRole = role;
+  const expires = Date.parse(clean(o?.expires_at));
+  if (Number.isFinite(expires)) out.expiresAt = new Date(expires).toISOString();
   if (typeof o?.extended_hours === "boolean") out.outsideRth = o.extended_hours;
   return out;
 }

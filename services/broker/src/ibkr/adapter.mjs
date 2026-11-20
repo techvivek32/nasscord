@@ -3,6 +3,8 @@ import { badGateway, badRequest, conflict, HttpError, SessionExpiredError, unava
 import { createLocks } from "../locks.mjs";
 import { ibkrAccountSummary, ibkrExecution, ibkrOrder, ibkrPosition } from "../mapping.mjs";
 import { iso } from "../time.mjs";
+import { GatewayHttpError } from "./gateway-http.mjs";
+import { createIbkrOrders } from "./orders.mjs";
 import { IBKR_DETAIL } from "./session.mjs";
 
 /**
@@ -11,7 +13,12 @@ import { IBKR_DETAIL } from "./session.mjs";
  * session lives inside the gateway JVM.
  *
  * Reads (contract section 7): /portfolio/{acct}/summary, /portfolio/{acct}/positions/{page},
- * /iserver/account/orders, /iserver/account/trades, /iserver/account/pnl/partitioned.
+ * /iserver/account/orders, /iserver/account/trades, /iserver/account/pnl/partitioned. They go through
+ * the gateway client's read door (gw.get / gw.post, IBKR_READ_ALLOW) and never send an order.
+ *
+ * Order calls (docs/real-backend.md section 13) live in the trading part, `trading`
+ * (src/ibkr/orders.mjs), which only the order core calls, after the workspace switch and inside the
+ * lock "order:<connectionId>". It uses the order door (gw.trade / gw.pacedGet, IBKR_TRADE_ALLOW).
  *
  * The same interface (start, renew, disconnect, portfolio, orders, executions) is what a later
  * IBKR OAuth adapter ("ibkr_oauth") implements.
@@ -40,7 +47,9 @@ const MIN_PAGE_SIZE = 30;
  *   maxPendingLogins?: number,
  *   log: import("../log.mjs").Logger,
  *   now?: () => number,
+ *   orders?: { ibkrStopOrders: "off" | "paper" | "on", ibkrBrackets: "off" | "paper" | "on" },
  * }} deps
+ *   orders: config.orders (IBKR_STOP_ORDERS, IBKR_BRACKETS); without it stops and brackets are off.
  */
 export function createIbkrAdapter(deps) {
   const { store, manager, sessions, gw, tokens, cache, publicLoginUrl, loginWindowMs, log, now = Date.now } = deps;
@@ -79,10 +88,22 @@ export function createIbkrAdapter(deps) {
    * @param {string} path
    */
   async function read(connection, port, path) {
-    let res = await gw.get(connection.id, port, path);
+    /** @param {string} p */
+    const get = async (p) => {
+      try {
+        return await gw.get(connection.id, port, p);
+      } catch (e) {
+        // The pacing gate of the orders and trades lists (or the limiter in front of it) said wait.
+        if (e instanceof GatewayHttpError && (e.code === "paced" || e.code === "not_sent")) {
+          throw new HttpError(429, "IBKR is limiting requests right now. Try again in a few seconds.", { code: "rate_limited", retryAfterSec: 5 });
+        }
+        throw e;
+      }
+    };
+    let res = await get(path);
     if (res.status === 400 && path.startsWith("/iserver/account")) {
-      await gw.get(connection.id, port, "/iserver/accounts");
-      res = await gw.get(connection.id, port, path);
+      await get("/iserver/accounts");
+      res = await get(path);
     }
     if (res.status === 401) {
       void sessions.checkNow(connection.id);
@@ -134,7 +155,20 @@ export function createIbkrAdapter(deps) {
     return { connection: row ?? connection, loginUrl: url };
   }
 
+  /** The trading part: previews, orders, reconcile and cancel (src/ibkr/orders.mjs). */
+  const trading = createIbkrOrders({
+    gw,
+    manager,
+    sessions,
+    log,
+    now,
+    stopOrders: deps.orders?.ibkrStopOrders ?? "off",
+    brackets: deps.orders?.ibkrBrackets ?? "off",
+  });
+
   return {
+    trading,
+
     /**
      * @param {{ claims: import("../jwt.mjs").ServiceClaims, environment: unknown }} input
      * @returns {Promise<{ connection: ConnectionRow, loginUrl: string }>}
@@ -345,5 +379,7 @@ export function ibkrRegistryAdapter(ibkr, manager) {
       return { connection: out.connection, loginUrl: out.loginUrl, next: { kind: "gateway_login" } };
     },
     revoke: (c) => ibkr.disconnect(c),
+    // Order calls: only the order core calls them (docs/real-backend.md section 13).
+    trading: ibkr.trading,
   };
 }

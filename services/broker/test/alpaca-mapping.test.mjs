@@ -13,6 +13,7 @@ import {
   alpacaPosition,
   alpacaSecType,
   isAccountClosed,
+  legRoleOf,
 } from "../src/alpaca/mapping.mjs";
 
 // Recorded-style payloads: the field names and string encoding of Alpaca's Trading API v2 docs.
@@ -132,7 +133,7 @@ test("orders: types, statuses, prices and legs", () => {
     ["market", "MKT"],
     ["limit", "LMT"],
     ["stop", "STP"],
-    ["stop_limit", "STP"],
+    ["stop_limit", "STP_LMT"],
     ["trailing_stop", "TRAIL"],
     ["", "MKT"],
   ])) {
@@ -148,9 +149,9 @@ test("orders: types, statuses, prices and legs", () => {
     ["filled", "filled"],
     ["canceled", "cancelled"],
     ["expired", "cancelled"],
-    ["done_for_day", "cancelled"],
+    ["done_for_day", "working"],
     ["replaced", "cancelled"],
-    ["pending_cancel", "cancelled"],
+    ["pending_cancel", "cancel_requested"],
     ["rejected", "rejected"],
     ["something_new", "working"],
   ])) {
@@ -203,10 +204,25 @@ test("orders: types, statuses, prices and legs", () => {
   });
 
   const stopLimit = alpacaOrder({ id: "s1", symbol: "MSFT", type: "stop_limit", side: "sell", qty: "1", time_in_force: "day", stop_price: "300", limit_price: "299", status: "new", submitted_at: "2026-11-10T14:00:00Z" }, acct, T0);
-  assert.equal(stopLimit.type, "STP");
-  assert.equal(stopLimit.price, 300, "a stop order shows its stop price");
+  assert.equal(stopLimit.type, "STP_LMT", "a stop limit keeps its own type");
+  assert.equal(stopLimit.price, 299, "a stop limit shows its limit as the price");
+  assert.equal(stopLimit.stopPrice, 300, "and its stop as the trigger");
   assert.equal(stopLimit.tif, "DAY");
   assert.equal(stopLimit.side, "SELL");
+  assert.equal(stopLimit.legRole, undefined, "a single order has no bracket role");
+
+  const stop = alpacaOrder({ id: "s2", symbol: "MSFT", type: "stop", side: "sell", qty: "1", time_in_force: "gtc", stop_price: "300", limit_price: null, status: "new", expires_at: "2027-02-08T21:00:00Z" }, acct, T0);
+  assert.equal(stop.type, "STP");
+  assert.equal(stop.price, 300, "a stop order shows its stop price");
+  assert.equal(stop.stopPrice, 300);
+  assert.equal(stop.expiresAt, "2027-02-08T21:00:00.000Z", "a GTC order ends on Alpaca's expires_at");
+  assert.equal(alpacaOrder({ id: "s3", type: "limit", limit_price: "10", expires_at: "not a date" }, acct, T0).expiresAt, undefined, "an unreadable expiry is left out");
+  const lim = alpacaOrder({ id: "s4", type: "limit", limit_price: "10", stop_price: "9" }, acct, T0);
+  assert.equal(lim.price, 10);
+  assert.equal(lim.stopPrice, undefined, "a limit order has no stop trigger");
+
+  const cancelling = alpacaOrder({ id: "s5", type: "limit", limit_price: "10", status: "pending_cancel" }, acct, T0);
+  assert.equal(cancelling.status, "cancel_requested", "a cancel Alpaca has not confirmed can still fill");
 
   const trail = alpacaOrder({ id: "t1", symbol: "SPY", type: "trailing_stop", side: "sell", qty: "2", trail_percent: "1.5", status: "new" }, acct, T0);
   assert.equal(trail.type, "TRAIL");
@@ -244,7 +260,37 @@ test("orders: types, statuses, prices and legs", () => {
   assert.equal(leg?.parentId, "alpaca:acc-uuid-1:p1");
   assert.equal(list.find((o) => o.brokerRef === "l2")?.status, "working");
   assert.equal(list.find((o) => o.brokerRef === "l2")?.price, 115);
+  assert.equal(leg?.legRole, "take_profit", "a limit leg without group_role is the take-profit");
+  assert.equal(list.find((o) => o.brokerRef === "l2")?.legRole, "stop_loss", "a stop leg is the stop-loss");
+  assert.equal(list.find((o) => o.brokerRef === "p1")?.legRole, undefined, "an entry without group_role is not guessed");
   assert.deepEqual(alpacaOrders(/** @type {any} */ (null), acct, T0), []);
+
+  // Alpaca's group_role wins over the type, and names the entry too.
+  const grouped = alpacaOrders(
+    [
+      {
+        ...bracket,
+        id: "p2",
+        group_role: "entry",
+        legs: [
+          { ...bracket.legs[0], id: "g1", type: "stop_limit", stop_price: "115", limit_price: "114", group_role: "stop_loss" },
+          { ...bracket.legs[1], id: "g2", type: "limit", limit_price: "130", stop_price: null, group_role: "take_profit" },
+        ],
+      },
+    ],
+    acct,
+    T0,
+  );
+  assert.deepEqual(
+    grouped.map((o) => [o.brokerRef, o.legRole, o.type]),
+    [
+      ["p2", "entry", "MKT"],
+      ["g1", "stop_loss", "STP_LMT"],
+      ["g2", "take_profit", "LMT"],
+    ],
+  );
+  assert.equal(legRoleOf({ group_role: "something" }, "MKT", true), undefined, "an unknown role and a market leg get none");
+  assert.equal(legRoleOf({}, "LMT", false), undefined, "an order without a parent gets no role from its type");
 });
 
 test("executions: fills and partial fills, options, unknown activity types", () => {

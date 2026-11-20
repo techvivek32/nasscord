@@ -89,13 +89,14 @@ export class BrokerAuthError extends HttpError {
 }
 
 /**
- * A broker call outside an adapter's read-only allowlist (createBrokerHttp). It is a bug, so it is
- * never an HttpError: the user sees the generic 500 sentence and nothing reaches the broker.
+ * A broker call outside an adapter's allowlist (createBrokerHttp, the IBKR gateway client, the
+ * E*TRADE write transport). It is a bug, so it is never an HttpError: the user sees the generic 500
+ * sentence and nothing reaches the broker.
  */
 export class ReadOnlyViolation extends Error {
   /** @param {string} brokerName @param {string} method */
   constructor(brokerName, method) {
-    super(`${brokerName}: a ${method} call outside the read-only allowlist was blocked`);
+    super(`${brokerName}: a ${method} call outside the allowlist was blocked`);
     this.name = "ReadOnlyViolation";
   }
 }

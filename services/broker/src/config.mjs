@@ -120,9 +120,28 @@ export const DEFAULT_SNAPTRADE_BROKERS = Object.freeze(["fidelity", "robinhood",
  *   },
  *   limits: { ibkrPerSec: number, etradePerSec: number, globalPerSec: number, maxWaitMs: number },
  *   steps: { connectPerUser: number, connectGlobalPerMin: number },
+ *   orders: OrdersConfig,
  *   cacheMs: number,
  *   warnings: readonly string[],
  * }} Config
+ */
+
+/**
+ * Order entry (docs/real-backend.md section 13).
+ * - entry: ORDER_ENTRY, the server-wide switch: "off" refuses every preview and place (cancel and
+ *   status keep working).
+ * - maxQty, maxNotional: ORDER_MAX_QTY shares and ORDER_MAX_NOTIONAL US dollars per order.
+ * - ibkrStopOrders, ibkrBrackets: IBKR_STOP_ORDERS and IBKR_BRACKETS: "paper" allows them on paper
+ *   accounts only, "on" on live accounts too.
+ * - etradeBody: ETRADE_ORDER_BODY, the request body format of E*TRADE order calls.
+ * @typedef {{
+ *   entry: "on" | "off",
+ *   maxQty: number,
+ *   maxNotional: number,
+ *   ibkrStopOrders: "off" | "paper" | "on",
+ *   ibkrBrackets: "off" | "paper" | "on",
+ *   etradeBody: "xml" | "json",
+ * }} OrdersConfig
  */
 
 export class ConfigError extends Error {
@@ -486,6 +505,19 @@ export function loadConfig(env = process.env) {
   }
   const snapPlan = oneOf("SNAPTRADE_PLAN", /** @type {const} */ (["realtime", "daily"]), "daily");
 
+  // ── Order entry (section 13). Off per workspace until the super admin switches it on; these are
+  // the server-wide switch and limits on top of that.
+  const orderEntry = oneOf("ORDER_ENTRY", /** @type {const} */ (["on", "off"]), "on");
+  const orderMaxQty = int("ORDER_MAX_QTY", 10_000, 1, 1_000_000);
+  const orderMaxNotional = int("ORDER_MAX_NOTIONAL", 250_000, 1_000, 100_000_000);
+  const ibkrStopOrders = oneOf("IBKR_STOP_ORDERS", /** @type {const} */ (["off", "paper", "on"]), "paper");
+  const ibkrBrackets = oneOf("IBKR_BRACKETS", /** @type {const} */ (["off", "paper", "on"]), "paper");
+  const etradeBody = oneOf("ETRADE_ORDER_BODY", /** @type {const} */ (["xml", "json"]), "xml");
+  if (orderEntry === "off") warnings.push("ORDER_ENTRY=off: every preview and place is refused");
+  if (ibkrBrackets === "on" && ibkrStopOrders !== "on") {
+    warnings.push("IBKR_BRACKETS=on needs IBKR_STOP_ORDERS=on: live IBKR accounts get no brackets until both are on");
+  }
+
   if (problems.length) throw new ConfigError(problems);
 
   return Object.freeze({
@@ -556,6 +588,14 @@ export function loadConfig(env = process.env) {
       maxWaitMs: 5_000,
     }),
     steps: Object.freeze({ connectPerUser, connectGlobalPerMin }),
+    orders: Object.freeze({
+      entry: orderEntry,
+      maxQty: orderMaxQty,
+      maxNotional: orderMaxNotional,
+      ibkrStopOrders,
+      ibkrBrackets,
+      etradeBody,
+    }),
     cacheMs: 5_000,
     warnings: Object.freeze(warnings),
   });

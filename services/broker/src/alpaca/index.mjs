@@ -1,8 +1,9 @@
 import { badGateway, badRequest, BrokerAuthError, conflict, HttpError, SessionExpiredError } from "../errors.mjs";
 import { clean } from "../mapping.mjs";
 import { iso } from "../time.mjs";
-import { alpacaHosts, createAlpacaClient, keyCheckTag } from "./client.mjs";
+import { alpacaDataHost, alpacaHosts, createAlpacaClient, keyCheckTag } from "./client.mjs";
 import { alpacaAccountRow, alpacaAccountSummary, alpacaExecutions, alpacaOrders, alpacaPosition, isAccountClosed } from "./mapping.mjs";
+import { createAlpacaOrders } from "./orders.mjs";
 
 /**
  * Alpaca with the user's own API key (method alpaca_key, flow api_key): the Live account or one of
@@ -15,7 +16,10 @@ import { alpacaAccountRow, alpacaAccountSummary, alpacaExecutions, alpacaOrders,
  *   workspace already has. The check runs on the bucket of that key pair alone (keyCheckTag), so a
  *   429 on one user's account never pauses anyone else's Connect.
  * - Reads: balances and positions (15 s cache), orders and fills of the last 30 days plus every
- *   open order (30 s cache). Read-only: client.mjs allows GET on the read endpoints only.
+ *   open order (30 s cache). Read-only: client.mjs allows GET on the read endpoints only, except
+ *   the trading part (`trading`, src/alpaca/orders.mjs, docs/real-backend.md section 13): order
+ *   entry with its own clients and allowlists, which only the order core calls, after the workspace
+ *   switch. It always gets the order's account (ctx.account), never accountOf's first-account fallback.
  * - Keys do not expire. When Alpaca refuses the key (401 or 403, also on /v2/account, so a refusal
  *   of one endpoint does not end a working connection) the user regenerated it, or reset or
  *   deleted the paper account: the connection becomes expired and renew answers next.kind
@@ -75,6 +79,7 @@ const isKey = (s) => !!s && typeof s === "object" && typeof (/** @type {any} */ 
 export function createAdapter(deps) {
   const { config, store, oauth2, cache, limiter, log, now } = deps;
   const hosts = alpacaHosts(deps.urls, config.production);
+  const dataHost = alpacaDataHost(deps.urls, config.production);
   /** @type {Map<string, number>} last time last_ok_at was written */
   const lastOkWrite = new Map();
   /** @type {Map<string, number>} key-check tags whose bucket a 429 paused -> when it may be dropped */
@@ -244,6 +249,8 @@ export function createAdapter(deps) {
   /** @type {import("../adapter-types.mjs").BrokerAdapter} */
   const adapter = {
     descriptor: ALPACA_DESCRIPTOR,
+
+    trading: createAlpacaOrders({ deps, hosts: { ...hosts, data: dataHost }, log: log.child({ part: "orders" }), now }),
 
     async connectKey(ctx, input) {
       const keyId = clean(input.keyId);

@@ -1,5 +1,6 @@
 import { gateKey, SNAPTRADE_BROKER_IDS } from "./config.mjs";
 import { forbidden, HttpError, unavailable } from "./errors.mjs";
+import { TRADING_METHODS } from "./order-contract.mjs";
 
 /**
  * The adapter registry (docs/real-backend.md, "Adapters"): connect methods -> adapters, and who may
@@ -155,6 +156,15 @@ export function validateAdapter(a) {
   if (flows.includes("aggregator_portal") && (typeof a.portalUrl !== "function" || typeof a.aggregatorComplete !== "function")) {
     bad("needs portalUrl() and aggregatorComplete()");
   }
+  // Order entry (src/order-contract.mjs): only three methods may carry a trading part.
+  if (a.trading !== undefined) {
+    if (!TRADING_METHODS.includes(d.method)) bad("may not trade: only ibkr_gateway, etrade_oauth1 and alpaca_key have a trading part");
+    const t = /** @type {Record<string, unknown> | null} */ (a.trading);
+    if (!t || typeof t !== "object") bad("trading needs capabilities()");
+    for (const name of ["capabilities", "previewOrder", "positionState", "placeOrder", "reconcileOrder", "cancelOrder"]) {
+      if (typeof (/** @type {Record<string, unknown>} */ (t))[name] !== "function") bad(`trading needs ${name}()`);
+    }
+  }
 }
 
 /**
@@ -272,6 +282,17 @@ export function createRegistry(adapters, config) {
 
     /** @param {string} method */
     get: (method) => byMethod.get(method) ?? null,
+
+    /**
+     * The trading part of a stored connection's adapter (src/order-contract.mjs), or null: only the
+     * methods of TRADING_METHODS ever answer one, whatever an adapter carries.
+     * @param {{ method: string }} row
+     * @returns {import("./order-contract.mjs").TradingAdapter | null}
+     */
+    tradingFor(row) {
+      if (!TRADING_METHODS.includes(row.method)) return null;
+      return byMethod.get(row.method)?.trading ?? null;
+    },
 
     /**
      * The adapter of a stored connection.

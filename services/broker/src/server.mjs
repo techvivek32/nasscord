@@ -20,6 +20,7 @@ import { createLimiter, createWindowCounter } from "./limits.mjs";
 import { createLocks } from "./locks.mjs";
 import { createLogger } from "./log.mjs";
 import { createOAuth2 } from "./oauth2.mjs";
+import { createOrderService } from "./orders.mjs";
 import { createRegistry } from "./registry.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createSecretBox } from "./secrets.mjs";
@@ -141,6 +142,7 @@ function sendJson(res, status, body, headers = {}) {
  * @param {{
  *   config: { serviceSecret: string, version: string },
  *   service: import("./connections.mjs").ConnectionService,
+ *   orders: import("./orders.mjs").OrderService,
  *   registry?: import("./registry.mjs").Registry,
  *   log: import("./log.mjs").Logger,
  *   now?: () => number,
@@ -148,7 +150,7 @@ function sendJson(res, status, body, headers = {}) {
  * }} deps
  */
 export function createApiHandler(deps) {
-  const { config, service, registry, log, now = Date.now } = deps;
+  const { config, service, orders, registry, log, now = Date.now } = deps;
   const startedAt = deps.startedAt ?? now();
   const ID = "([0-9a-fA-F-]{36})";
 
@@ -180,6 +182,15 @@ export function createApiHandler(deps) {
     { method: "DELETE", pattern: new RegExp(`^/v1/connections/${ID}$`), auth: true, run: ({ claims, params }) => service.disconnect(/** @type {Claims} */ (claims), params[0]) },
     { method: "GET", pattern: /^\/v1\/portfolio$/, auth: true, run: ({ claims }) => service.portfolio(/** @type {Claims} */ (claims)) },
     { method: "GET", pattern: /^\/v1\/orders$/, auth: true, run: ({ claims }) => service.orders(/** @type {Claims} */ (claims)) },
+    // Order entry (docs/real-backend.md section 13). Routes see only the path, so each variant is its own path.
+    { method: "GET", pattern: /^\/v1\/orders\/capabilities$/, auth: true, run: ({ claims }) => orders.capabilities(/** @type {Claims} */ (claims)) },
+    { method: "POST", pattern: /^\/v1\/orders\/preview$/, auth: true, run: ({ claims, body }) => orders.preview(/** @type {Claims} */ (claims), body) },
+    { method: "POST", pattern: /^\/v1\/orders\/place$/, auth: true, run: ({ claims, body }) => orders.place(/** @type {Claims} */ (claims), body) },
+    { method: "GET", pattern: /^\/v1\/orders\/requests$/, auth: true, run: ({ claims }) => orders.requests(/** @type {Claims} */ (claims)) },
+    { method: "GET", pattern: new RegExp(`^/v1/orders/requests/${ID}$`), auth: true, run: ({ claims, params }) => orders.request(/** @type {Claims} */ (claims), params[0]) },
+    { method: "POST", pattern: new RegExp(`^/v1/orders/requests/${ID}/check$`), auth: true, run: ({ claims, params }) => orders.check(/** @type {Claims} */ (claims), params[0]) },
+    { method: "POST", pattern: new RegExp(`^/v1/orders/requests/${ID}/resolve$`), auth: true, run: ({ claims, params }) => orders.markChecked(/** @type {Claims} */ (claims), params[0]) },
+    { method: "POST", pattern: /^\/v1\/orders\/cancel$/, auth: true, run: ({ claims, body }) => orders.cancel(/** @type {Claims} */ (claims), body) },
     { method: "GET", pattern: /^\/v1\/executions$/, auth: true, run: ({ claims }) => service.executions(/** @type {Claims} */ (claims)) },
 
     // Generic connect steps (docs/real-backend.md, "Connect flows").
@@ -325,7 +336,7 @@ export function createBrokerService(config, overrides = {}) {
     spawn: overrides.spawn,
     now,
   });
-  const gw = createGatewayHttp({ isSlotPort: manager.isSlotPort, limiter });
+  const gw = createGatewayHttp({ isSlotPort: manager.isSlotPort, limiter, now, log: log.child({ part: "ibkr" }) });
   const sessions = createIbkrSessions({
     manager,
     gw,
@@ -339,7 +350,8 @@ export function createBrokerService(config, overrides = {}) {
     sessionHours: config.ibkr.sessionHours,
   });
   const tokens = createLoginTokens(config.serviceSecret, { now });
-  const ibkr = createIbkrAdapter({
+  // Named objects, so `orders` passes the call's excess property check before the adapters list it.
+  const ibkrDeps = {
     store,
     manager,
     sessions,
@@ -352,8 +364,10 @@ export function createBrokerService(config, overrides = {}) {
     maxPendingLogins: config.ibkr.maxPendingLogins,
     log: log.child({ part: "ibkr" }),
     now,
-  });
-  const etrade = createEtradeAdapter({
+    orders: config.orders,
+  };
+  const ibkr = createIbkrAdapter(ibkrDeps);
+  const etradeDeps = {
     store,
     secretBox,
     limiter,
@@ -364,7 +378,9 @@ export function createBrokerService(config, overrides = {}) {
     urls: overrides.etradeUrls ?? config.etrade,
     fetch: overrides.fetch,
     signer: overrides.signer,
-  });
+    orders: config.orders,
+  };
+  const etrade = createEtradeAdapter(etradeDeps);
   // Every broker behind the registry: IBKR and E*TRADE through their shims, then each broker
   // package that has landed (src/adapters.mjs).
   const oauth2 = createOAuth2({ store, secretBox, locks, cache, limiter, log: log.child({ part: "oauth" }), now, fetch: overrides.fetch });
@@ -423,7 +439,18 @@ export function createBrokerService(config, overrides = {}) {
     now,
     releaseAfterExpiryMs: config.ibkr.releaseAfterExpiryMs,
   });
-  const api = createApiHandler({ config, service, registry, log, now });
+  const orders = createOrderService({
+    config,
+    registry,
+    store,
+    audit,
+    cache,
+    locks,
+    log: log.child({ part: "orders" }),
+    now,
+    steps: createWindowCounter({ now }),
+  });
+  const api = createApiHandler({ config, service, orders, registry, log, now });
   const login = createLoginProxy({
     tokens,
     resolvePort: (cid) => manager.portFor(cid),
@@ -442,18 +469,19 @@ export function createBrokerService(config, overrides = {}) {
     log: log.child({ part: "login" }),
   });
 
-  return { config, log, db, store, secretBox, limiter, cache, audit, locks, manager, gw, sessions, tokens, ibkr, etrade, oauth2, registry, service, scheduler, api, login };
+  return { config, log, db, store, secretBox, limiter, cache, audit, locks, manager, gw, sessions, tokens, ibkr, etrade, oauth2, registry, service, orders, scheduler, api, login };
 }
 
 /**
- * Starts both listeners and wires graceful shutdown (SIGINT, SIGTERM): stop taking requests, stop
- * the keepalives and the scheduler, stop every gateway JVM, then exit.
+ * Starts both listeners and wires graceful shutdown (SIGINT, SIGTERM): refuse new previews and
+ * places and let the orders in flight finish (up to drainMs), then stop taking requests, stop the
+ * keepalives and the scheduler, stop every gateway JVM, then exit.
  * @param {import("./config.mjs").Config} config
  * @param {Parameters<typeof createBrokerService>[1]} [overrides]
  */
 export async function startBrokerService(config, overrides = {}) {
   const svc = createBrokerService(config, overrides);
-  const { log, manager, scheduler, sessions } = svc;
+  const { log, manager, scheduler, sessions, orders } = svc;
 
   if (!manager.bundleAvailable()) {
     log.warn("IBKR gateway bundle not found; IBKR connections answer 503 until IBKR_GATEWAY_BUNDLE points at it", {
@@ -491,11 +519,17 @@ export async function startBrokerService(config, overrides = {}) {
   });
 
   let stopping = false;
-  /** @param {string} reason */
-  async function stop(reason) {
+  /**
+   * @param {string} reason
+   * @param {{ drainMs?: number }} [opts] how long orders in flight may take to finish (0: no wait)
+   */
+  async function stop(reason, opts = {}) {
     if (stopping) return;
     stopping = true;
     log.info("shutting down", { reason });
+    // Orders first: no order is cut in half by a deploy. The gateways stay up while this waits
+    // (systemd KillMode=mixed sends SIGTERM to this process only).
+    await orders.drain(opts.drainMs ?? 0);
     scheduler.stop();
     sessions.stopAll();
     const closed = Promise.all([
@@ -529,19 +563,22 @@ async function main() {
   const { log, manager } = running;
 
   /**
-   * Graceful stop. SIGINT and SIGTERM end with 0 (asked to stop). A crash ends with 1, so systemd's
-   * Restart=on-failure brings the service back instead of leaving every connection offline.
+   * Graceful stop. SIGINT and SIGTERM end with 0 (asked to stop) and give orders in flight up to
+   * 45 s to finish. A crash ends with 1 without that wait, so systemd's Restart=on-failure brings
+   * the service back instead of leaving every connection offline. The hard exit after 55 s stays
+   * inside systemd's TimeoutStopSec=60.
    * @param {string} reason
    * @param {number} code
+   * @param {number} drainMs
    */
-  const shutdown = (reason, code) => {
+  const shutdown = (reason, code, drainMs) => {
     const hard = setTimeout(() => {
       log.error("shutdown took too long; exiting");
       manager.killAllSync();
       process.exit(1);
-    }, 20_000);
+    }, 55_000);
     hard.unref();
-    running.stop(reason).then(
+    running.stop(reason, { drainMs }).then(
       () => process.exit(code),
       (e) => {
         log.error("shutdown failed", { error: e });
@@ -550,12 +587,12 @@ async function main() {
       },
     );
   };
-  process.once("SIGINT", () => shutdown("SIGINT", 0));
-  process.once("SIGTERM", () => shutdown("SIGTERM", 0));
+  process.once("SIGINT", () => shutdown("SIGINT", 0, 45_000));
+  process.once("SIGTERM", () => shutdown("SIGTERM", 0, 45_000));
   process.on("uncaughtException", (e) => {
     log.error("uncaught exception", { error: e });
     process.exitCode = 1;
-    shutdown("uncaughtException", 1);
+    shutdown("uncaughtException", 1, 0);
   });
   process.on("unhandledRejection", (e) => {
     log.error("unhandled rejection", { error: e });

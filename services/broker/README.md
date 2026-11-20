@@ -12,15 +12,16 @@ A separate Node 24 process (zero npm dependencies) that holds everything broker-
 - The encryption key for `broker_secrets` and `broker_aggregator_users`, and every call to every broker. The Next app
   holds no broker secrets.
 
-This first release is **read-only**: nothing here places, changes or cancels an order. IBKR and E\*TRADE call only
-the read endpoints listed below. Every other adapter calls its broker through `http.mjs`, which refuses any method and
-path that is not on that adapter's read allowlist (plus its token endpoint) before the request leaves the process.
-Keys that can trade (an Alpaca key, a personal token) are therefore still used read-only, and each adapter has a test
-that proves its allowlist.
+Order entry is off for every workspace until the super admin switches it on.
+Only the trading part of three adapters (IBKR gateway, E\*TRADE, Alpaca key, `src/order-contract.mjs`) can send an order,
+through allowlists of their own; every other call, and every other adapter, goes through a read allowlist that
+refuses anything else before the request leaves the process. Each allowlist has a test.
 
 The binding contract is [`docs/real-backend.md`](../../docs/real-backend.md) sections 5 to 11, and the schema is
 [`supabase/migrations/20261103120000_init.sql`](../../supabase/migrations/20261103120000_init.sql) plus
-[`supabase/migrations/20261116120000_more_brokers.sql`](../../supabase/migrations/20261116120000_more_brokers.sql).
+[`supabase/migrations/20261116120000_more_brokers.sql`](../../supabase/migrations/20261116120000_more_brokers.sql)
+and [`supabase/migrations/20261121120000_order_entry.sql`](../../supabase/migrations/20261121120000_order_entry.sql)
+(order entry, contract section 13).
 The owner's steps for each broker (accounts, approvals, env vars, the order to switch things on) are in
 [`docs/SETUP.md`](../../docs/SETUP.md), step 13.
 
@@ -30,7 +31,7 @@ rotating refresh token (Webull, TradeStation keys that rotate) twice and lose th
 
 ```
 src/
-  server.mjs            both listeners, routing, graceful shutdown (stops every gateway JVM)
+  server.mjs            both listeners, routing, graceful shutdown (drains orders in flight, stops every gateway JVM)
   config.mjs            environment, validated; names problems, never prints values; BROKER_AUDIENCE gate keys
   jwt.mjs               service JWT (HS256, node:crypto, timingSafeEqual)
   secrets.mjs           AES-256-GCM, 12-byte IV, AAD = connection id, key_version
@@ -45,7 +46,12 @@ src/
                         rotated tokens saved before use, hard expiry, circuit breaker per broker and client
   flows.mjs             the generic connect steps: key connect, OAuth and SnapTrade start, hop, complete, claim,
                         duplicate merge by external_ref
-  locks.mjs             one lock per connection, shared by the routes, the IBKR adapter, keepalive and scheduler
+  locks.mjs             one lock per connection, shared by the routes, the IBKR adapter, keepalive and scheduler; a
+                        separate "order:<connection>" key for order calls, with a bounded wait (LockTimeoutError)
+  order-contract.mjs    the order entry contract: trading methods, client order ids, price rules, the NYSE calendar,
+                        OrderNotSentError and the TradingAdapter interface the three trading parts implement
+  orders.mjs            the order core: gate, account checks, ticket and no-short rules, price band, order_requests
+                        state machine, reconcile of unconfirmed outcomes, cancel, drain
   limits.mjs            token buckets: IBKR 8/s per connection, E*TRADE 2/s per connection and module, a bucket per
                         adapter, global
   cache.mjs             per-connection read cache with in-flight dedupe; TTL per adapter (5 s to 30 min; SnapTrade
@@ -57,12 +63,14 @@ src/
   etrade/oauth1.mjs     RFC 5849 HMAC-SHA1 signing
   etrade/client.mjs     E*TRADE OAuth and signed reads
   etrade/adapter.mjs    start, verify, renew, disconnect, portfolio, orders, executions; registry shim
+  etrade/orders.mjs     the E*TRADE trading part: preview, place, cancel, reconcile by order fields
   ibkr/gateway-manager.mjs  slots, conf.yaml rendering, java spawn, health, stop
   ibkr/gateway-http.mjs     loopback calls to a gateway (fresh socket per call, GET retry on parse errors)
   ibkr/login-proxy.mjs      the public login host: ticket, cookie, allowlist, hardened reverse proxy
   ibkr/session.mjs          keepalive, first-login bootstrap, competing sessions
   ibkr/adapter.mjs          start, renew, disconnect, portfolio, orders, executions; registry shim
-  alpaca/               index.mjs (adapter), client.mjs (allowlist, hosts), mapping.mjs
+  ibkr/orders.mjs           the IBKR trading part: contract, what-if, place with reply questions, cancel, reconcile
+  alpaca/               index.mjs (adapter), client.mjs (allowlists, hosts), mapping.mjs, orders.mjs (trading part)
   tradier/              the same three files (personal token and partner OAuth)
   schwab/               the same three files
   tastytrade/           the same three files
@@ -105,6 +113,14 @@ against the token's `wid`; a connection of another workspace answers 404. Errors
 | `GET /v1/portfolio` | | `{ accounts, positions, errors }` |
 | `GET /v1/orders` | | `{ orders, errors }` |
 | `GET /v1/executions` | | `{ executions, errors }` |
+| `GET /v1/orders/capabilities` | | `{ enabled, reason, message, limits, connections, blocked }`: what this caller may send now, per connection (200 with `enabled: false` when the workspace is off, suspended or the server is paused) |
+| `POST /v1/orders/preview` | the ticket (contract 13) | `{ request }` with status `preview`; nothing is sent to the broker as an order |
+| `POST /v1/orders/place` | `{ requestId, acknowledged?, confirmBrokerMessages? }` | `{ request }` with status `placed`, `rejected`, `unknown`, `needs_confirmation` or `sending`; a replay answers the stored row |
+| `GET /v1/orders/requests` | | `{ requests }`: unconfirmed requests of the last 24 hours (starts up to 3 reconciles) |
+| `GET /v1/orders/requests/:id` | | `{ request }` (reconciles an unconfirmed one at most every 5 s, for 30 minutes) |
+| `POST /v1/orders/requests/:id/check` | | `{ request }` after a reconcile ("Check again", any age) |
+| `POST /v1/orders/requests/:id/resolve` | | `{ request }` with `resolvedAt` ("I checked it") |
+| `POST /v1/orders/cancel` | `{ accountId, orderId }` | `{ status: "cancel_requested" \| "cancelled", message }` |
 | `POST /hooks/<name>` | raw body, at most 64 KB | no service JWT: handed to the adapter of that method or broker (`/hooks/snaptrade`), which checks the broker's own signature; 404 when no adapter takes it |
 
 `connection` is `{ id, brokerId, method, environment, status, statusDetail, sessionExpiresAt, lastOkAt, dataAsOf?,
@@ -341,6 +357,43 @@ and the connection stays `pending`. `GET /v1/connections/:id` re-attaches a watc
 - Reads: `/v1/accounts/list`, `/v1/accounts/{accountIdKey}/balance?instType=BROKERAGE&realTimeNAV=true`,
   `/v1/accounts/{accountIdKey}/portfolio` (all pages, with totals for day P&L), `/v1/accounts/{accountIdKey}/orders`.
 
+## Order entry
+
+Contract section 13 has every rule; this is the shape of it.
+
+- **Switches.** `workspaces.orders_enabled` (the super admin's console switch, off by default) is read from the
+  database on every preview, place and cancel, with the caller's `members` row and the workspace status (a
+  suspended workspace cannot trade). `ORDER_ENTRY=off` stops every new preview and place on this server at once.
+  Only the person who connected a broker login, or the workspace owner, may trade through it.
+- **Preview, then place.** A preview reads the broker without placing anything and stores an `order_requests` row
+  with a client order id made once (`nc` + 18 hex). Place names that row only; one conditional UPDATE moves it from
+  `preview` to `sending` while it has not expired (2 minutes), so a ticket is sent at most once. Inside the order lock
+  of the connection the core refuses a ticket when another one for the same broker account, symbol and side went out
+  after its preview, and reads the position and the working orders again before the send (a Buy previewed as a cover
+  of a short that is gone is refused; every Buy that opens a long runs the notional cap again). The claim names the
+  client order id it checked, so a confirmation queued behind another IBKR question round sends nothing. Duplicate
+  checks, the cancel update and reconcile key on `order_requests.account_key` (a hash of broker and account number),
+  so they hold across two connections and across a disconnect and reconnect.
+- **No short selling.** A Sell is at most the long position minus what working sell orders already cover; a Close
+  needs no working order on its side; brackets are buy-only and Good till cancelled. Whole shares, US stocks and
+  ETFs, regular session only.
+- **Limits.** `ORDER_MAX_QTY` shares and `ORDER_MAX_NOTIONAL` dollars per order; a price more than 30% from the
+  broker's reference price is refused and more than 5% warns; every order but a plain Limit needs a reference price.
+  Per user: 30 previews, 10 places (60 an hour), 30 cancels, 30 checks a minute; 6 places a minute per broker account;
+  120 places a minute for the whole process.
+- **Unknown outcomes.** A send is never retried. A timeout, socket error, 5xx or unreadable answer after a send makes
+  the row `unknown`; Nasscord then looks the order up by its client order id (IBKR, Alpaca) or its fields (E\*TRADE),
+  at once, on status reads for 30 minutes and on "Check again". A broker's "not found" never reads as "not placed".
+- **Audit and logs.** Places, cancels, refused previews, reconciles and "mark as checked" go to `audit_events` with a
+  readable target and no account number in full; logs hold ids, statuses and codes only.
+- **Release gate.** The service and its IBKR gateways run as their own user, `nasscord-broker`, and an `iptables`
+  owner rule lets only that user reach the gateway slot ports: a logged-in gateway takes orders from any local
+  process. No workspace is switched on before both are in place and checked (`docs/SETUP.md` steps 11 and 14).
+- **Shutdown.** SIGTERM and SIGINT refuse new previews and places (503 `shutting_down`), also those still waiting for
+  the order lock (and cancels waiting there), and wait up to 45 s for the orders in flight before the gateways stop;
+  the hard exit is at 55 s, inside the unit's `TimeoutStopSec=60`. An order step that waited in the rate limiter
+  measures its deadline again and is not sent when too little is left.
+
 ## Environment
 
 | Name | Default | Purpose |
@@ -383,12 +436,18 @@ and the connection stays `pending`. `GET /v1/connections/:id` re-attaches a watc
 | `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` | none | SnapTrade partner keys (the Build plan's keys connect real accounts too) |
 | `SNAPTRADE_BROKERS` | `fidelity,robinhood,public,moomoo,webull` | brokers SnapTrade may connect: add `tastytrade` once production is approved, `schwab` once SnapTrade approves its Schwab profile, and leave `fidelity` out until its Fidelity profile is approved (docs/SETUP.md 13.4) |
 | `SNAPTRADE_PLAN` | daily | `daily` or `realtime`, the SnapTrade plan you pay for: reads are kept 30 minutes on daily, 10 on realtime |
+| `ORDER_ENTRY` | on | `off` refuses every new preview and place on this server (cancels and status keep working) |
+| `ORDER_MAX_QTY` | 10000 | shares per order (1 to 1000000) |
+| `ORDER_MAX_NOTIONAL` | 250000 | US dollars per buy order (1000 to 100000000) |
+| `IBKR_STOP_ORDERS` | paper | IBKR Stop and Stop limit: `off`, `paper` (paper accounts only) or `on` (after the paper checks of SETUP 14.1) |
+| `IBKR_BRACKETS` | paper | IBKR brackets, same values; a bracket also needs stop orders allowed for that account |
+| `ETRADE_ORDER_BODY` | xml | E\*TRADE order request bodies: `xml` (E\*TRADE's own samples) or `json` |
 
 Every credential pair must be set together.
 
 Relative paths are resolved from `services/broker`. A bad configuration exits with code 78 and a list of the
 variables at fault (never their values). An uncaught exception stops every gateway and exits 1 (systemd restarts the
-service); SIGTERM and SIGINT exit 0.
+service); SIGTERM and SIGINT let the orders in flight finish (up to 45 s), then exit 0.
 
 ## Run it locally with the Next app
 
@@ -408,10 +467,13 @@ The other brokers are tested against local fakes in `test/helpers/` (`fake-oauth
 server; `fake-alpaca`, `fake-schwab`, `fake-tradestation`, `fake-tradier`, `fake-tastytrade`, `fake-webull` and
 `fake-snaptrade` follow each broker's answers), with `harness.mjs` for the service plus a memory database
 (`memory-db.mjs` enforces the same checks as the migration) and a fake clock. Per broker there is a flow test (connect,
-reads, refresh, expiry, the read-only allowlist, nothing secret in a log line) and a mapping test.
+reads, refresh, expiry, the allowlists, nothing secret in a log line) and a mapping test.
 `test/e2e-all-brokers.test.mjs` runs every package together in one service through the HTTP API: each connect flow
-(keys, OAuth with the canonical-callback ticket, the SnapTrade portal), reads from every broker, the read-only
+(keys, OAuth with the canonical-callback ticket, the SnapTrade portal), reads from every broker, the read
 allowlists, the BROKER_AUDIENCE gate, Reconnect, Disconnect and the production refusals of sample data.
+Order entry: `orders-core.test.mjs` runs the order core with a fake trading part (`fakeTradingAdapter` in
+`harness.mjs`); `ibkr-orders`, `etrade-orders` and `alpaca-orders` run each trading part against its fake broker and
+prove its order allowlists; `order-contract.test.mjs` and `locks.test.mjs` cover the shared rules.
 
 To click through the app against the fakes, `node scripts/fake-brokers.mjs [--port 9300]` starts all seven with
 seeded logins on fixed ports and prints the service settings (`BROKER_URL_OVERRIDES`, the platform client
@@ -427,12 +489,18 @@ A US VPS (the gateway's `ip2loc` is US), Ubuntu 24.04 or similar, with ports 80 
 ```sh
 # software
 sudo apt install -y openjdk-17-jre-headless caddy        # Node 24 from nodesource or the official tarball
-sudo useradd --system --home /opt/nasscord-broker --shell /usr/sbin/nologin nasscord
+# the service's own user (never the app's): only it may reach the gateway slot ports
+sudo useradd --system --home-dir /var/lib/nasscord-broker --shell /usr/sbin/nologin nasscord-broker
 
 # code and gateway bundle (read-only for the service)
 sudo mkdir -p /opt/nasscord-broker && sudo rsync -a services/broker/ /opt/nasscord-broker/ --exclude .env --exclude runtime
 sudo rsync -a <clientportal.gw bundle>/ /opt/nasscord-broker/vendor/clientportal.gw/
-sudo chown -R root:nasscord /opt/nasscord-broker && sudo chmod -R o-rwx /opt/nasscord-broker
+sudo chown -R root:nasscord-broker /opt/nasscord-broker && sudo chmod -R g+rX,o-rwx /opt/nasscord-broker
+
+# keep the gateway slots to the broker service (use your IBKR_GATEWAY_PORTS range); docs/SETUP.md step 11 has the checks
+sudo iptables -A OUTPUT -o lo -p tcp --dport 7200:7249 -m owner ! --uid-owner nasscord-broker -j REJECT
+sudo ip6tables -A OUTPUT -o lo -p tcp --dport 7200:7249 -m owner ! --uid-owner nasscord-broker -j REJECT
+sudo apt install iptables-persistent && sudo netfilter-persistent save
 
 # configuration: KEY=value lines (see .env.example), production values
 sudo install -m 600 -o root -g root /dev/null /etc/nasscord-broker.env
@@ -454,7 +522,9 @@ sudo caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile && sudo sy
 Then point the app at the service: `BROKER_SERVICE_URL=http://127.0.0.1:8710` when the app runs on the same VPS (the
 `broker.<domain>` block stays commented out), or `https://broker.<domain>` when it runs elsewhere. Logs:
 `journalctl -u nasscord-broker -f` (JSON lines; secrets are redacted by key name before anything is written). The
-unit uses `KillMode=control-group`, so stopping or restarting the service always stops every gateway JVM with it.
+unit runs as `nasscord-broker` with `KillMode=mixed`: a stop sends SIGTERM to the Node process only, so the gateway
+JVMs stay up while it finishes the orders in flight (up to 45 s); it then stops every gateway itself, and anything
+left in the unit's group is killed after it exits, so no JVM is orphaned (`TimeoutStopSec=60`).
 Run one instance only: gateway sessions, locks, buckets and token refreshes live in this process's memory.
 
 **Deploy order** when a release changes the schema: the migration first (Supabase SQL Editor), then this service,

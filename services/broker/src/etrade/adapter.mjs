@@ -7,14 +7,23 @@ import {
   etradeOrders,
   etradePosition,
 } from "../mapping.mjs";
+import { OrderNotSentError } from "../order-contract.mjs";
 import { iso, nextMidnightEt, parseTime } from "../time.mjs";
 import { createEtradeClient, ETRADE_URLS, EtradeAuthError } from "./client.mjs";
+import { createEtradeOrders, portfolioHasMore } from "./orders.mjs";
 
 /**
  * E*TRADE connections (contract section 8): start -> verify -> reads, renew, disconnect, and the
  * midnight-Eastern expiry. Consumer key, secret and tokens live only in `broker_secrets`,
  * encrypted; a short in-memory copy saves a database read per broker call.
+ *
+ * Reads go through withSession (GET only, a 401 gets one renew and one more read). Order calls
+ * (docs/real-backend.md section 13) live in the trading part, `trading` (src/etrade/orders.mjs), which
+ * only the order core calls after the workspace switch: previews through withSession (a preview creates
+ * no order), place and cancel through withWriteSession, which sends exactly once.
  */
+
+const WRITE_SESSION_ENDED = "E*TRADE ended the session. Reconnect E*TRADE to continue.";
 
 export const ETRADE_DETAIL = Object.freeze({
   pending: "Approve access on E*TRADE, then paste the verification code here.",
@@ -50,10 +59,13 @@ const CODE_SHAPE = /^[A-Za-z0-9]{3,32}$/;
  *   urls?: import("./client.mjs").EtradeUrls,
  *   fetch?: typeof fetch,
  *   signer?: import("./oauth1.mjs").OAuth1Signer,
+ *   orders?: { etradeBody?: "xml" | "json" },
  * }} deps
+ *   orders: config.orders; etradeBody is the request body format of order calls (ETRADE_ORDER_BODY).
  */
 export function createEtradeAdapter(deps) {
   const { store, secretBox, limiter, cache, log, allowSandbox, now = Date.now, urls = ETRADE_URLS } = deps;
+  const orderBody = deps.orders?.etradeBody === "json" ? "json" : "xml";
   /** @type {Map<string, { value: EtradeSecret | null, at: number }>} */
   const secrets = new Map();
   /** @type {Map<string, number>} last successful broker call per connection */
@@ -72,6 +84,7 @@ export function createEtradeAdapter(deps) {
       fetch: deps.fetch,
       signer: deps.signer,
       limiter,
+      orderBody,
     });
 
   /** @param {string} id @returns {Promise<EtradeSecret | null>} */
@@ -161,6 +174,53 @@ export function createEtradeAdapter(deps) {
     }
   }
 
+  /**
+   * Runs an order call (place, cancel) with the access token exactly once, and never again: unlike
+   * withSession there is no renew-and-rerun. Before fn runs it throws OrderNotSentError (the connection
+   * is not active, or the access token is gone). When fn answers { kind: "auth" }, the token gets a
+   * same-day renew afterwards (a dead one expires the connection as withSession does), and the auth
+   * answer is still returned. Nothing after fn throws.
+   * @template T
+   * @param {ConnectionRow} connection
+   * @param {(client: import("./client.mjs").EtradeClient, tokens: { token: string, secret: string }) => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  async function withWriteSession(connection, fn) {
+    if (connection.status !== "active") throw new OrderNotSentError(409, WRITE_SESSION_ENDED, "connection_not_live");
+    const secret = await loadSecret(connection.id);
+    if (!secret?.accessToken || !secret.accessSecret) throw new OrderNotSentError(409, WRITE_SESSION_ENDED, "connection_not_live");
+    const client = clientFor(connection, secret);
+    const tokens = { token: secret.accessToken, secret: secret.accessSecret };
+    const out = await fn(client, tokens);
+    try {
+      const answer = /** @type {any} */ (out);
+      if (answer && answer.kind === "auth") {
+        const expiresAt = parseTime(connection.session_expires_at) ?? 0;
+        let dead = answer.problem === "token_expired" || expiresAt <= now();
+        if (!dead) {
+          try {
+            await client.renewAccessToken(tokens);
+          } catch (e) {
+            if (e instanceof EtradeAuthError) dead = true;
+            else log.warn("etrade renew after an order call failed", { connectionId: connection.id, error: e });
+          }
+        }
+        if (dead) {
+          log.info("etrade session ended", { connectionId: connection.id, problem: answer.problem });
+          await expire(connection, expiresAt <= now() ? ETRADE_DETAIL.midnight : ETRADE_DETAIL.ended);
+        }
+      } else if (answer && (answer.kind === "ok" || answer.kind === "rejected")) {
+        await touch(connection.id);
+      }
+    } catch (e) {
+      log.warn("etrade session upkeep after an order call failed", { connectionId: connection.id, error: e });
+    }
+    return out;
+  }
+
+  /** The trading part: previews, orders, reconcile and cancel (src/etrade/orders.mjs). */
+  const trading = createEtradeOrders({ withSession, withWriteSession, log, now });
+
   /** @param {unknown} v @param {string} what */
   function credential(v, what) {
     const s = typeof v === "string" ? v.trim() : "";
@@ -214,6 +274,7 @@ export function createEtradeAdapter(deps) {
     ETRADE_DETAIL,
     loadSecret,
     expire,
+    trading,
 
     /**
      * @param {{ claims: import("../jwt.mjs").ServiceClaims, environment: unknown, consumerKey: unknown, consumerSecret: unknown }} input
@@ -430,7 +491,7 @@ export function createEtradeAdapter(deps) {
             for (const g of groups) {
               const list = Array.isArray(g.Position) ? g.Position : g.Position ? [g.Position] : [];
               for (const p of list) positions.push(etradePosition(p, account));
-              if (g.nextPageNo && Number(g.nextPageNo) > page && Number(g.totalPages ?? 0) > page) more = true;
+              if (portfolioHasMore(g, page)) more = true;
             }
             if (!more) break;
           }
@@ -522,5 +583,7 @@ export function etradeRegistryAdapter(etrade, opts) {
     },
     revoke: (c) => etrade.disconnect(c),
     forget: (id) => etrade.forget(id),
+    // Order entry (src/etrade/orders.mjs): only the order core calls it, after the workspace switch.
+    trading: etrade.trading,
   };
 }

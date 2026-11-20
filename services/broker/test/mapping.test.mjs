@@ -14,6 +14,9 @@ import {
   ibkrPosition,
   maskAccountNumber,
   mapOrderType,
+  mapOrderTypeExact,
+  ibkrOrderStatus,
+  etradeOrderStatus,
 } from "../src/mapping.mjs";
 import { etDateKey, etToUtc, nextMidnightEt } from "../src/time.mjs";
 
@@ -252,4 +255,59 @@ test("E*TRADE orders and the executions derived from them", () => {
   assert.equal(ex.length, 1);
   assert.deepEqual(ex[0], { id: `etrade:${acct.id}:482`, accountId: acct.id, brokerId: "etrade", symbol: "NVDA", side: "BUY", qty: 38, price: 121.38, commission: 0, net: -4612.44, tradedAt: "2026-11-03T14:31:02.000Z", provisional: true });
   assert.deepEqual(etradeOrders(null, acct, T), []);
+});
+
+test("stop limit keeps its own type for IBKR and E*TRADE; mapOrderType still folds it into STP", () => {
+  assert.equal(mapOrderType("STOP_LIMIT", true), "STP");
+  for (const raw of ["STOP_LIMIT", "STP LMT", "Stop Limit", "STOPLIMIT", "STPLMT"]) assert.equal(mapOrderTypeExact(raw, true), "STP_LMT", raw);
+  assert.equal(mapOrderTypeExact("STOP", false), "STP");
+  assert.equal(mapOrderTypeExact("LIMIT", true), "LMT");
+  assert.equal(mapOrderTypeExact("MARKET", false), "MKT");
+  assert.equal(mapOrderTypeExact("weird", false), "MKT");
+
+  const stopLimit = ibkrOrder({ acct: "U1234567", orderId: 7, ticker: "AAPL", side: "SELL", totalSize: 5, orderType: "Stop Limit", price: "179.5", auxPrice: "180", timeInForce: "GTC", status: "Submitted" }, acct, T);
+  assert.equal(stopLimit.type, "STP_LMT");
+  assert.equal(stopLimit.price, 179.5);
+  assert.equal(stopLimit.stopPrice, 180);
+  const stop = ibkrOrder({ acct: "U1234567", orderId: 8, ticker: "AAPL", side: "SELL", totalSize: 5, orderType: "STP", auxPrice: "178", status: "Submitted" }, acct, T);
+  assert.deepEqual([stop.type, stop.price, stop.stopPrice], ["STP", 178, 178]);
+  const stopOnlyPrice = ibkrOrder({ orderId: 9, ticker: "AAPL", side: "SELL", totalSize: 5, orderType: "STP", price: 177, status: "Submitted" }, acct, T);
+  assert.deepEqual([stopOnlyPrice.price, stopOnlyPrice.stopPrice], [177, 177]);
+
+  const legs = [
+    ibkrOrder({ orderId: 11, parentId: 10, ticker: "AAPL", side: "SELL", totalSize: 5, orderType: "LMT", price: 195, status: "PreSubmitted" }, acct, T),
+    ibkrOrder({ orderId: 12, parentId: 10, ticker: "AAPL", side: "SELL", totalSize: 5, orderType: "STP", auxPrice: 178, status: "PreSubmitted" }, acct, T),
+    ibkrOrder({ orderId: 10, ticker: "AAPL", side: "BUY", totalSize: 5, orderType: "LMT", price: 185, status: "Submitted" }, acct, T),
+  ];
+  assert.deepEqual(legs.map((o) => o.legRole), ["take_profit", "stop_loss", undefined]);
+
+  const et = etradeOrders(
+    {
+      OrdersResponse: {
+        Order: [
+          { orderId: 1, OrderDetail: [{ status: "OPEN", priceType: "STOP_LIMIT", limitPrice: 99.5, stopPrice: 100, orderTerm: "GOOD_FOR_DAY", Instrument: [{ Product: { symbol: "X" }, orderAction: "SELL", orderedQuantity: 1 }] }] },
+          { orderId: 2, OrderDetail: [{ status: "OPEN", priceType: "STOP", limitPrice: 0, stopPrice: 98, orderTerm: "GOOD_FOR_DAY", Instrument: [{ Product: { symbol: "X" }, orderAction: "SELL", orderedQuantity: 1 }] }] },
+        ],
+      },
+    },
+    acct,
+    T,
+  );
+  assert.deepEqual(
+    et.map((o) => [o.type, o.price, o.stopPrice]),
+    [
+      ["STP_LMT", 99.5, 100],
+      ["STP", 98, 98],
+    ],
+  );
+});
+
+test("a cancel the broker has not confirmed is cancel_requested", () => {
+  assert.equal(ibkrOrderStatus("PendingCancel"), "cancel_requested");
+  assert.equal(ibkrOrderStatus("PreCancelled"), "cancel_requested");
+  assert.equal(ibkrOrderStatus("Cancelled"), "cancelled");
+  assert.equal(ibkrOrderStatus("ApiCancelled"), "cancelled");
+  assert.equal(etradeOrderStatus("CANCEL_REQUESTED"), "cancel_requested");
+  assert.equal(etradeOrderStatus("OPEN"), "working");
+  assert.equal(etradeOrderStatus("CANCELLED"), "cancelled");
 });

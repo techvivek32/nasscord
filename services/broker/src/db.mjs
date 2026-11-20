@@ -183,6 +183,23 @@ export function createDb({ url, serviceRoleKey, fetch: doFetch = globalThis.fetc
  *   return_origin: string, external_ref: string | null,
  *   expires_at: string, created_at: string,
  * }} PendingRow
+ * @typedef {"preview" | "sending" | "placed" | "rejected" | "unknown" | "needs_confirmation" | "cancel_requested" | "cancelled"} OrderRequestStatus
+ * @typedef {{
+ *   id: string, workspace_id: string, user_id: string | null, connection_id: string | null, account_id: string | null,
+ *   account_key: string,
+ *   broker_id: "ibkr" | "etrade" | "alpaca", method: "ibkr_gateway" | "etrade_oauth1" | "alpaca_key",
+ *   environment: "production" | "paper", account_display: string, client_order_id: string,
+ *   symbol: string, side: "BUY" | "SELL", quantity: number, order_type: "MKT" | "LMT" | "STP" | "STP_LMT",
+ *   tif: "DAY" | "GTC", bracket: boolean, intent: "trade" | "close",
+ *   request: any, preview: any, broker_state: Record<string, unknown>, status: OrderRequestStatus,
+ *   broker_order_id: string | null, broker_order_ids: any, broker_messages: any, error: string | null, attempts: number,
+ *   expires_at: string, sent_at: string | null, placed_at: string | null, reconciled_at: string | null,
+ *   resolved_at: string | null, resolved_by: string | null,
+ *   created_at: string, updated_at: string,
+ * }} OrderRequestRow
+ *   One order ticket previewed in Nasscord (supabase/migrations/20261121120000_order_entry.sql).
+ * @typedef {{ id: string, status: string, orders_enabled?: boolean | null, owner_id: string | null }} OrderGateWorkspace
+ * @typedef {{ role: string, workspace_id: string | null }} OrderGateMember
  * @typedef {{
  *   workspace_id: string, provider: "snaptrade", external_user_id: string,
  *   key_version: number, iv: string, tag: string, ciphertext: string,
@@ -285,6 +302,86 @@ export function createStore(db) {
       if (!stale.length) return 0;
       await db.remove("broker_accounts", { connection_id: connectionId, id: ["in", stale] });
       return stale.length;
+    },
+
+    /** @param {string} id @returns {Promise<AccountRow | null>} */
+    async getAccount(id) {
+      return first(await db.select("broker_accounts", { filters: { id } }));
+    },
+
+    /**
+     * Every broker_accounts.id with this broker and broker account number, in any workspace: the
+     * same account can sit under two connections (order duplicate checks key on the account).
+     * @param {string} brokerId
+     * @param {string} externalId
+     * @returns {Promise<string[]>}
+     */
+    async accountIdsFor(brokerId, externalId) {
+      const rows = await db.select("broker_accounts", { filters: { broker_id: brokerId, external_id: externalId }, columns: "id" });
+      return rows.map((r) => String(r.id));
+    },
+
+    /**
+     * The order gate's rows: the workspace (status, switch, owner) and the caller's members row.
+     * Errors propagate (a missing column, 42703, included): the order core treats any error as off.
+     * @param {string} workspaceId
+     * @param {string} userId
+     * @returns {Promise<{ workspace: OrderGateWorkspace | null, member: OrderGateMember | null }>}
+     */
+    async orderGate(workspaceId, userId) {
+      const [ws, members] = await Promise.all([
+        db.select("workspaces", { filters: { id: workspaceId }, columns: "id,status,orders_enabled,owner_id" }),
+        db.select("members", { filters: { user_id: userId }, columns: "role,workspace_id" }),
+      ]);
+      return { workspace: first(ws), member: first(members) };
+    },
+
+    // ── order_requests: one row per order ticket previewed in Nasscord (no secrets)
+
+    /** @param {Partial<OrderRequestRow>} row @returns {Promise<OrderRequestRow>} */
+    async insertOrderRequest(row) {
+      return first(await db.insert("order_requests", row));
+    },
+
+    /** @param {string} id @returns {Promise<OrderRequestRow | null>} */
+    async getOrderRequest(id) {
+      return first(await db.select("order_requests", { filters: { id } }));
+    },
+
+    /**
+     * @param {string} id
+     * @param {Partial<OrderRequestRow>} patch
+     * @returns {Promise<OrderRequestRow | null>}
+     */
+    async updateOrderRequest(id, patch) {
+      return first(await db.update("order_requests", { id }, patch));
+    },
+
+    /**
+     * Moves a row on only while it still has one of `fromStatuses` and has not expired: one
+     * conditional UPDATE, so two place calls cannot both claim one ticket. Null: another call
+     * claimed it first, or it expired. With `clientOrderId`, the row must also still carry that client
+     * order id: a confirmation round rotates it, so a claim names the exact attempt it validated.
+     * @param {string} id
+     * @param {OrderRequestStatus[]} fromStatuses
+     * @param {Partial<OrderRequestRow>} patch
+     * @param {{ notExpiredAt: string, clientOrderId?: string }} opts
+     * @returns {Promise<OrderRequestRow | null>}
+     */
+    async claimOrderRequest(id, fromStatuses, patch, { notExpiredAt, clientOrderId }) {
+      /** @type {Filters} */
+      const filters = { id, status: ["in", fromStatuses], expires_at: ["gt", notExpiredAt] };
+      if (clientOrderId) filters.client_order_id = clientOrderId;
+      return first(await db.update("order_requests", filters, patch));
+    },
+
+    /**
+     * @param {Filters} filters
+     * @param {{ order?: string, limit?: number }} [opts]
+     * @returns {Promise<OrderRequestRow[]>}
+     */
+    listOrderRequests(filters, { order = "created_at.desc", limit = 50 } = {}) {
+      return db.select("order_requests", { filters, order, limit });
     },
 
     /** @param {string} connectionId */

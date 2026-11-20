@@ -5,8 +5,10 @@ import { parseTime } from "../time.mjs";
 
 /**
  * Alpaca Trading API v2 for one account, with that account's own key pair (contract "Connect
- * flows", api_key). Every call goes through createBrokerHttp with the read-only allowlist below:
- * an Alpaca key can trade, so the allowlist is what keeps Nasscord read-only. Nothing here logs.
+ * flows", api_key). Every read goes through createBrokerHttp with the read-only allowlist below:
+ * an Alpaca key can trade, so the allowlist is what keeps the reads read-only. Order entry has its
+ * own clients and allowlists (createAlpacaTradeClient, at the end), used only by src/alpaca/orders.mjs
+ * after the order core's gate. Nothing here logs.
  *
  * - Live and Paper are separate hosts, and a key works on its own host only. Every paper account
  *   has its own key pair and is its own connection.
@@ -75,6 +77,79 @@ export function alpacaHosts(urls, production) {
   if (production) return { ...ALPACA_HOSTS };
   return { live: urls?.live || ALPACA_HOSTS.live, paper: urls?.paper || ALPACA_HOSTS.paper };
 }
+
+/** Alpaca's market data host: one host for live and paper keys (order entry quotes only). */
+export const ALPACA_DATA_HOST = "https://data.alpaca.markets";
+
+/**
+ * The market data host this server calls: BROKER_URL_OVERRIDES.alpaca.data outside production only.
+ * @param {Readonly<Record<string, string>>} urls
+ * @param {boolean} production
+ */
+export function alpacaDataHost(urls, production) {
+  if (production) return ALPACA_DATA_HOST;
+  return urls?.data || ALPACA_DATA_HOST;
+}
+
+// ── Order entry (src/alpaca/orders.mjs, docs/real-backend.md section 13). The read client above and
+// ALPACA_READ_ALLOW do not change: the order core builds this trading client only after its gate.
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * The trading reads and the cancel of one order. Never: DELETE /v2/orders (cancel all), DELETE
+ * /v2/positions and /v2/positions/{id} (close), any PATCH (replace, configurations), watchlists,
+ * options, crypto.
+ * @type {import("../http.mjs").AllowRule[]}
+ */
+export const ALPACA_TRADE_ALLOW = /** @type {import("../http.mjs").AllowRule[]} */ (
+  Object.freeze([
+    Object.freeze(["GET", /^\/v2\/account$/]),
+    Object.freeze(["GET", /^\/v2\/clock$/]),
+    Object.freeze(["GET", /^\/v2\/assets\/[A-Z][A-Z0-9.]{0,9}$/]),
+    Object.freeze(["GET", new RegExp(`^/v2/positions/${UUID}$`)]),
+    Object.freeze(["GET", /^\/v2\/orders$/]),
+    Object.freeze(["GET", new RegExp(`^/v2/orders/${UUID}$`)]),
+    Object.freeze(["GET", /^\/v2\/orders:by_client_order_id$/]),
+    Object.freeze(["DELETE", new RegExp(`^/v2/orders/${UUID}$`)]),
+  ])
+);
+
+/**
+ * The one order write. Its client has no rate bucket: orders.mjs takes the token itself before the POST,
+ * so a limiter refusal is "not sent" and a 429 the POST answers can only be Alpaca's own.
+ * @type {import("../http.mjs").AllowRule[]}
+ */
+export const ALPACA_SEND_ALLOW = /** @type {import("../http.mjs").AllowRule[]} */ (Object.freeze([Object.freeze(["POST", /^\/v2\/orders$/])]));
+
+/** The latest quote of one symbol on the market data host. @type {import("../http.mjs").AllowRule[]} */
+export const ALPACA_DATA_ALLOW = /** @type {import("../http.mjs").AllowRule[]} */ (
+  Object.freeze([Object.freeze(["GET", /^\/v2\/stocks\/[A-Z][A-Z0-9.]{0,9}\/quotes\/latest$/])])
+);
+
+/**
+ * The order entry clients of one Alpaca key: `trade` (reads and the cancel, on the connection's bucket),
+ * `send` (POST /v2/orders only, no bucket) and `data` (quotes, a bucket of its own). Every call of the
+ * trading part uses `raw: true`, so Alpaca's 403 and 422 bodies are read and never expire the connection.
+ * @param {{
+ *   http: import("../adapter-types.mjs").AdapterDeps["http"],
+ *   base: string,
+ *   dataBase: string,
+ *   keyId: string,
+ *   secretKey: string,
+ *   bucketKey: string,
+ * }} o
+ */
+export function createAlpacaTradeClient(o) {
+  const headers = () => ({ "APCA-API-KEY-ID": o.keyId, "APCA-API-SECRET-KEY": o.secretKey });
+  return {
+    trade: o.http({ name: "Alpaca", base: o.base, allow: ALPACA_TRADE_ALLOW, bucket: { key: o.bucketKey, ratePerSec: ALPACA_RATE_PER_SEC }, headers, timeoutMs: 10_000 }),
+    send: o.http({ name: "Alpaca", base: o.base, allow: ALPACA_SEND_ALLOW, bucket: null, headers, timeoutMs: 10_000 }),
+    data: o.http({ name: "Alpaca market data", base: o.dataBase, allow: ALPACA_DATA_ALLOW, bucket: { key: `${o.bucketKey}:data`, ratePerSec: 3 }, headers, timeoutMs: 5_000 }),
+  };
+}
+
+/** @typedef {ReturnType<typeof createAlpacaTradeClient>} AlpacaTradeClient */
 
 const unreadable = () => badGateway("Alpaca sent a reply Nasscord could not read.", "broker_reply");
 

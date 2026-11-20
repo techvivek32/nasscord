@@ -4,8 +4,10 @@
  *
  * Shapes produced:
  *   Position  { id, accountId, brokerId, symbol, qty, avgCost?, last?, dayPnl?, marketValue?, unrealizedPnl?, currency?, secType? }
- *   Order     { id, clientId, accountId, brokerId, symbol, side, qty, type, price?, trailPct?, tif, status, placedAt,
- *               filledQty?, avgFill?, parentId?, outsideRth?, brokerRef? }
+ *   Order     { id, clientId, accountId, brokerId, symbol, side, qty, type, price?, stopPrice?, trailPct?, tif, status,
+ *               placedAt, filledQty?, avgFill?, parentId?, legRole?, expiresAt?, outsideRth?, brokerRef? }
+ *             price: the limit price of LMT and STP_LMT orders, the stop price of STP orders.
+ *             stopPrice: the stop trigger of STP and STP_LMT orders.
  *   Execution { id, accountId, brokerId, symbol, side, qty, price, commission, net, tradedAt, provisional? }
  *   Account   { accountId, netLiq?, buyingPower?, cash?, dayPnl?, currency }
  * `accountId` is always broker_accounts.id (a uuid), never the broker's own number.
@@ -14,7 +16,8 @@
  *
  * IBKR and E*TRADE mapping lives here. Every other broker maps in its own folder
  * (src/<broker>/mapping.mjs) with the shared helpers exported below: num, num0, cents, reported,
- * clean, side, mapOrderType, maskAccountNumber and TYPE_LABEL.
+ * clean, side, mapOrderType (stop limit folded into STP), mapOrderTypeExact (stop limit kept as
+ * STP_LMT), maskAccountNumber and TYPE_LABEL.
  */
 
 /**
@@ -22,11 +25,14 @@
  *   | "fidelity" | "robinhood" | "moomoo" | "public"} BrokerId
  * @typedef {{ id: string, accountId: string, brokerId: BrokerId, symbol: string, qty: number, avgCost?: number, last?: number,
  *   dayPnl?: number, marketValue?: number, unrealizedPnl?: number, currency?: string, secType?: string }} Position
- * @typedef {"MKT" | "LMT" | "STP" | "MIT" | "TRAIL"} OrderType
- * @typedef {"submitted" | "verifying" | "working" | "verified" | "filled" | "cancelled" | "rejected"} OrderStatus
+ * @typedef {"MKT" | "LMT" | "STP" | "STP_LMT" | "MIT" | "TRAIL"} OrderType
+ *   STP_LMT: stop limit (price is its limit, stopPrice its trigger).
+ * @typedef {"submitted" | "verifying" | "working" | "verified" | "cancel_requested" | "filled" | "cancelled" | "rejected"} OrderStatus
+ *   cancel_requested: a cancel went to the broker and it has not confirmed it; the order can still fill.
  * @typedef {{ id: string, clientId: string, accountId: string, brokerId: BrokerId, symbol: string, side: "BUY" | "SELL",
- *   qty: number, type: OrderType, price?: number, trailPct?: number, tif: "GTC" | "DAY", status: OrderStatus,
- *   placedAt: string, filledQty?: number, avgFill?: number, parentId?: string, outsideRth?: boolean, brokerRef?: string }} Order
+ *   qty: number, type: OrderType, price?: number, stopPrice?: number, trailPct?: number, tif: "GTC" | "DAY", status: OrderStatus,
+ *   placedAt: string, filledQty?: number, avgFill?: number, parentId?: string, legRole?: "entry" | "take_profit" | "stop_loss",
+ *   expiresAt?: string, outsideRth?: boolean, brokerRef?: string }} Order
  * @typedef {{ id: string, accountId: string, brokerId: BrokerId, symbol: string, side: "BUY" | "SELL", qty: number,
  *   price: number, commission: number, net: number, tradedAt: string, provisional?: boolean }} Execution
  * @typedef {{ accountId: string, netLiq?: number, buyingPower?: number, cash?: number, dayPnl?: number, currency: string }} AccountSummary
@@ -265,13 +271,27 @@ export function mapOrderType(raw, hasPrice) {
 }
 
 /**
+ * mapOrderType, except that stop limit stays its own type (STOPLIMIT, STPLMT, and so STOP_LIMIT,
+ * "STP LMT", "Stop Limit" answer "STP_LMT"). The IBKR and E*TRADE mappers use it.
+ * @param {string} raw
+ * @param {boolean} hasPrice
+ * @returns {OrderType}
+ */
+export function mapOrderTypeExact(raw, hasPrice) {
+  const t = normOrderType(raw);
+  if (t === "STOPLIMIT" || t === "STPLMT") return "STP_LMT";
+  return mapOrderType(raw, hasPrice);
+}
+
+/**
  * @param {string} raw
  * @returns {OrderStatus}
  */
 export function ibkrOrderStatus(raw) {
   const s = String(raw ?? "").toLowerCase().replace(/[\s_]/g, "");
   if (s === "filled") return "filled";
-  if (s === "cancelled" || s === "canceled" || s === "apicancelled" || s === "pendingcancel") return "cancelled";
+  if (s === "pendingcancel" || s === "precancelled") return "cancel_requested";
+  if (s === "cancelled" || s === "canceled" || s === "apicancelled") return "cancelled";
   if (s === "inactive" || s === "rejected") return "rejected";
   if (s === "pendingsubmit" || s === "apipending") return "submitted";
   if (s === "presubmitted" || s === "submitted") return "working";
@@ -312,7 +332,7 @@ export function ibkrOrder(o, account, fetchedAt) {
   const typeRaw = o.orderType ?? o.origOrderType ?? "";
   const limit = num(o.price);
   const aux = num(o.auxPrice) ?? num(o.stop_price);
-  const type = mapOrderType(typeRaw, limit !== undefined);
+  const type = mapOrderTypeExact(typeRaw, limit !== undefined);
   const filled = num(o.filledQuantity);
   const remaining = num(o.remainingQuantity);
   const qty = num(o.totalSize) ?? (filled ?? 0) + (remaining ?? 0);
@@ -332,14 +352,27 @@ export function ibkrOrder(o, account, fetchedAt) {
     placedAt: ibkrTime(o.lastExecutionTime_r, o.lastExecutionTime, fetchedAt),
     brokerRef: String(o.orderId),
   };
-  const price = type === "STP" ? aux ?? limit : limit ?? aux;
-  if (price !== undefined && type !== "MKT" && type !== "TRAIL") out.price = price;
+  if (type === "STP") {
+    const price = aux ?? limit;
+    if (price !== undefined) {
+      out.price = price;
+      out.stopPrice = price;
+    }
+  } else if (type === "STP_LMT") {
+    if (limit !== undefined) out.price = limit;
+    if (aux !== undefined) out.stopPrice = aux;
+  } else {
+    const price = limit ?? aux;
+    if (price !== undefined && type !== "MKT" && type !== "TRAIL") out.price = price;
+  }
   if (type === "TRAIL" && trailIsPct && num(o.trailingAmt) !== undefined) out.trailPct = num0(o.trailingAmt);
   if (filled !== undefined) out.filledQty = filled;
   const avg = num(o.avgPrice);
   if (avg !== undefined && avg > 0) out.avgFill = avg;
   if (o.parentId !== undefined && o.parentId !== null && String(o.parentId) !== "0") {
     out.parentId = `ibkr:${account.id}:${o.parentId}`;
+    const legRole = type === "LMT" ? "take_profit" : type === "STP" || type === "STP_LMT" ? "stop_loss" : undefined;
+    if (legRole) out.legRole = legRole;
   }
   if (typeof o.outsideRTH === "boolean") out.outsideRth = o.outsideRTH;
   return out;
@@ -482,7 +515,8 @@ export function etradeOrderStatus(raw) {
   if (s === "EXECUTED" || s === "DONE_TRADE_EXECUTED") return "filled";
   if (s === "CANCELLED" || s === "EXPIRED" || s === "DO_NOT_EXERCISE") return "cancelled";
   if (s === "REJECTED") return "rejected";
-  if (s === "OPEN" || s === "PARTIAL" || s === "INDIVIDUAL_FILLS" || s === "CANCEL_REQUESTED") return "working";
+  if (s === "CANCEL_REQUESTED") return "cancel_requested";
+  if (s === "OPEN" || s === "PARTIAL" || s === "INDIVIDUAL_FILLS") return "working";
   return "working";
 }
 
@@ -505,7 +539,7 @@ export function etradeOrders(resp, account, fetchedAt) {
         const priceType = String(d.priceType ?? "");
         const limit = num(d.limitPrice);
         const stop = num(d.stopPrice);
-        const type = mapOrderType(priceType, !!(limit || stop));
+        const type = mapOrderTypeExact(priceType, !!(limit || stop));
         const placed = num(d.placedTime);
         /** @type {Order} */
         const order = {
@@ -522,8 +556,18 @@ export function etradeOrders(resp, account, fetchedAt) {
           placedAt: new Date(placed && placed > 0 ? placed : fetchedAt).toISOString(),
           brokerRef: String(o.orderId),
         };
-        const price = type === "STP" ? stop || limit : limit || stop;
-        if (price && type !== "MKT" && type !== "TRAIL") order.price = price;
+        if (type === "STP") {
+          if (stop) {
+            order.price = stop;
+            order.stopPrice = stop;
+          }
+        } else if (type === "STP_LMT") {
+          if (limit) order.price = limit;
+          if (stop) order.stopPrice = stop;
+        } else {
+          const price = limit || stop;
+          if (price && type !== "MKT" && type !== "TRAIL") order.price = price;
+        }
         if (type === "TRAIL" && priceType.toUpperCase().includes("PRCT") && num(d.offsetValue) !== undefined) {
           order.trailPct = num0(d.offsetValue);
         }

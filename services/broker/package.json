@@ -2,7 +2,7 @@
   "name": "nasscord-broker",
   "version": "0.1.0",
   "private": true,
-  "description": "Nasscord broker service: IBKR Client Portal Gateway sessions and E*TRADE OAuth 1.0a, read-only.",
+  "description": "Nasscord broker service: broker connections, reads, and order entry for IBKR, E*TRADE and Alpaca where it is switched on.",
   "type": "module",
   "engines": {
     "node": ">=24"

@@ -9,8 +9,10 @@
  * skips it and GET /v1/options answers that method as not built.
  *
  * Rules every adapter follows:
- * - Read only. Every broker call goes through deps.http (createBrokerHttp) with an allowlist of the
- *   read endpoints plus the token endpoints; anything else throws before the network. A test per
+ * - Read only, except the trading part (`trading`, src/order-contract.mjs) of ibkr_gateway,
+ *   etrade_oauth1 and alpaca_key, which only the order core calls, after the workspace switch.
+ *   Every broker call goes through deps.http (createBrokerHttp) with an allowlist of the read
+ *   endpoints plus the token endpoints; anything else throws before the network. A test per
  *   adapter proves the allowlist.
  * - Never log a query string, token, key, code or response body. Log ids and statuses only.
  * - Sandbox (sample data) only when !config.production. Paper only for the user's own paper account.
@@ -136,6 +138,7 @@
  *   aggregatorRefused?: (c: ConnectionRow, input: { authorizationId: string, startedAt?: number | null }) => Promise<void>,
  *   webhook?: (req: { headers: Record<string, string | string[] | undefined>, rawBody: Buffer }) => Promise<{ status: number, body?: unknown }>,
  *   sweep?: () => Promise<void>,
+ *   trading?: import("./order-contract.mjs").TradingAdapter,
  * }} BrokerAdapter
  * Reads: implement portfolio (one combined call), or balances + positions (run in parallel).
  * - refresh: lazily before reads is the adapter's own business; the scheduler calls it every
@@ -160,5 +163,7 @@
  *   holds (a Reconnect). aggregatorRefused (optional): the canonical callback refused the login
  *   (binding, window, status); delete the authorization its portal made when no connection holds it.
  * - webhook: POST /hooks/<method or broker id>, no service JWT; verify the broker's signature.
+ * - trading: order entry (src/order-contract.mjs). Only ibkr_gateway, etrade_oauth1 and alpaca_key
+ *   may carry it (validateAdapter refuses it on any other method); only src/orders.mjs calls it.
  */
 export {};

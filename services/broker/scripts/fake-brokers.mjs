@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { etDateKey } from "../src/time.mjs";
 import { useFixedPorts } from "../test/helpers/common.mjs";
-import { startFakeAlpaca } from "../test/helpers/fake-alpaca.mjs";
+import { fakeAsset, startFakeAlpaca } from "../test/helpers/fake-alpaca.mjs";
 import { startFakeSchwab } from "../test/helpers/fake-schwab.mjs";
 import { snapTimeText, startFakeSnapTrade } from "../test/helpers/fake-snaptrade.mjs";
 import { CLIENT as TASTYTRADE_CLIENT, startFakeTastytrade } from "../test/helpers/fake-tastytrade.mjs";
@@ -61,27 +61,31 @@ export async function startFakeBrokers(o = {}) {
     const alpaca = await startFakeAlpaca();
     started.push(alpaca);
     alpaca.state.now = now;
+    // Asset records (UUID ids, as Alpaca's) and IEX quotes for order entry previews.
+    const assets = () => [fakeAsset("AAPL", { id: "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415", name: "Apple Inc. Common Stock" }), fakeAsset("SPY", { id: "b28f4066-5c6d-479b-a2af-85dc1a8f16fb", exchange: "ARCA", name: "SPDR S&P 500 ETF Trust" }), fakeAsset("MSFT", { id: "b6d1aa75-5c9c-4353-a305-9e2caa1925ab", name: "Microsoft Corporation Common Stock" })];
+    alpaca.state.quotes = { AAPL: { bp: 189.98, ap: 190.02 }, SPY: { bp: 589.95, ap: 590.05 }, MSFT: { bp: 409.9, ap: 410.1 } };
     const alpacaLive = alpaca.addAccount({
       host: "live",
-      accountNumber: "5AL00001",
+      accountNumber: "510000001",
       multiplier: "2",
       cash: "4200.50",
       equity: "25840.75",
       lastEquity: "25610.00",
       buyingPower: "40100.00",
       positions: [
-        { asset_id: "a-aapl", symbol: "AAPL", asset_class: "us_equity", qty: "20", side: "long", avg_entry_price: "180.00", current_price: "190.00", market_value: "3800.00", unrealized_pl: "200.00", unrealized_intraday_pl: "12.00" },
-        { asset_id: "a-spy", symbol: "SPY", asset_class: "us_equity", qty: "30", side: "long", avg_entry_price: "560.00", current_price: "590.00", market_value: "17700.00", unrealized_pl: "900.00", unrealized_intraday_pl: "-30.00" },
+        { asset_id: "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415", symbol: "AAPL", asset_class: "us_equity", qty: "20", side: "long", avg_entry_price: "180.00", current_price: "190.00", market_value: "3800.00", unrealized_pl: "200.00", unrealized_intraday_pl: "12.00" },
+        { asset_id: "b28f4066-5c6d-479b-a2af-85dc1a8f16fb", symbol: "SPY", asset_class: "us_equity", qty: "30", side: "long", avg_entry_price: "560.00", current_price: "590.00", market_value: "17700.00", unrealized_pl: "900.00", unrealized_intraday_pl: "-30.00" },
       ],
       orders: [
         { id: "al-ord-1", client_order_id: "c-1", symbol: "AAPL", asset_class: "us_equity", type: "limit", order_type: "limit", side: "buy", qty: "20", filled_qty: "20", filled_avg_price: "180.00", limit_price: "180.00", time_in_force: "day", status: "filled", submitted_at: iso(t - 2 * DAY), created_at: iso(t - 2 * DAY), legs: null },
         { id: "al-ord-2", client_order_id: "c-2", symbol: "MSFT", asset_class: "us_equity", type: "limit", order_type: "limit", side: "buy", qty: "5", filled_qty: "0", limit_price: "380.00", time_in_force: "gtc", status: "new", submitted_at: iso(t - 3 * 3_600_000), created_at: iso(t - 3 * 3_600_000), legs: null },
       ],
+      assets: assets(),
       fills: [
         { id: `${String(t - 2 * DAY).padStart(17, "0")}::al-fill-1`, activity_type: "FILL", transaction_time: iso(t - 2 * DAY), type: "fill", price: "180.00", qty: "20", side: "buy", symbol: "AAPL", leaves_qty: "0", order_id: "al-ord-1", cum_qty: "20", order_status: "filled" },
       ],
     });
-    const alpacaPaper = alpaca.addAccount({ host: "paper", accountNumber: "PA5AL00002", equity: "100000.00", lastEquity: "100000.00", cash: "100000.00", buyingPower: "200000.00", multiplier: "2" });
+    const alpacaPaper = alpaca.addAccount({ host: "paper", accountNumber: "PA5AL00002", equity: "100000.00", lastEquity: "100000.00", cash: "100000.00", buyingPower: "200000.00", multiplier: "2", assets: assets() });
 
     // ── Schwab: the owner's own Individual app with Nasscord's callback, the default login.
     const schwabApp = { key: "SchwabAppKeyQwErTyUiOpAsDfGhJkLz", secret: "SchwabSecret0123", callback: `${CALLBACK_BASE}/api/broker/callback/schwab` };
@@ -258,7 +262,7 @@ async function main() {
     "  tastytrade, Webull, Tradier OAuth and the SnapTrade brokers log in on the fake's page with no input.",
     "",
     "Hosts:",
-    `  Alpaca        live ${fakes.alpaca.urls.live}  paper ${fakes.alpaca.urls.paper}`,
+    `  Alpaca        live ${fakes.alpaca.urls.live}  paper ${fakes.alpaca.urls.paper}  data ${fakes.alpaca.urls.data}`,
     `  Schwab        ${fakes.schwab.url}`,
     `  TradeStation  signin ${fakes.tradestation.urls.signin}  live ${fakes.tradestation.urls.live}  sim ${fakes.tradestation.urls.sim}`,
     `  Tradier       live ${fakes.tradier.urls.live}  sandbox ${fakes.tradier.urls.sandbox}`,
