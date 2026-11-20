@@ -20,6 +20,8 @@ import {
   TENANT_COLUMNS,
   UNDEFINED_COLUMN,
   WORKSPACE_COLUMNS,
+  isMissingColumn,
+  isMissingTable,
   toAuditEvent,
   toBrokerConnection,
   toBrokerRequest,
@@ -42,7 +44,12 @@ import type {
   BrokerRequest,
   ConnectionStatus,
   ConnectOption,
+  ConsoleOrderRow,
+  OrderEntryState,
+  OrderRequestStatus,
+  OrderSide,
   PlanId,
+  TicketOrderType,
   PlatformCounts,
   Role,
   Tenant,
@@ -68,6 +75,131 @@ async function staff() {
 
 function fail(what: string, error: { code?: string } | null): never {
   throw new Error(`${what}: ${error?.code ?? "read failed"}`);
+}
+
+/* ---------------------------------------------------------------- order entry (docs/real-backend.md section 13) */
+
+/** As the broker service: a preview or question lives 2 minutes, a send without an answer for 2 minutes is unconfirmed. */
+const STALE_SENDING_MS = 120_000;
+const REQUEST_ACTION = "workspace.order_entry.request";
+
+/** Emails of members by user id (one read), for the console's "by ..." lines. */
+async function emailsOf(admin: ReturnType<typeof createAdminClient>, userIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter((v): v is string => typeof v === "string" && v.length > 0))];
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  const { data, error } = await admin.from("members").select("user_id, email").in("user_id", ids);
+  if (error) fail("members", error);
+  for (const r of (data ?? []) as Array<{ user_id: string; email: string | null }>) if (r.email) out.set(r.user_id, r.email);
+  return out;
+}
+
+/** The order entry switch of one workspace, who changed it last, and the latest "Request order entry". */
+export async function getWorkspaceOrderEntry(workspaceId: string): Promise<OrderEntryState> {
+  const admin = await staff();
+  const { data, error } = await admin.from("workspaces").select("orders_enabled, orders_updated_at, orders_updated_by").eq("id", workspaceId).maybeSingle();
+  if (error?.code === UNDEFINED_COLUMN) return { enabled: false, migrated: false };
+  if (error) fail("workspaces", error);
+  const row = (data ?? {}) as { orders_enabled?: boolean | null; orders_updated_at?: string | null; orders_updated_by?: string | null };
+  const requested = await admin
+    .from("audit_events")
+    .select("at, actor_email")
+    .eq("workspace_id", workspaceId)
+    .eq("action", REQUEST_ACTION)
+    .order("at", { ascending: false })
+    .limit(1);
+  if (requested.error) fail("audit_events", requested.error);
+  const req = ((requested.data ?? []) as Array<{ at: string; actor_email: string | null }>)[0];
+  const emails = await emailsOf(admin, [row.orders_updated_by]);
+  const updatedByEmail = row.orders_updated_by ? emails.get(row.orders_updated_by) : undefined;
+  return {
+    enabled: row.orders_enabled === true,
+    migrated: true,
+    ...(row.orders_updated_at ? { updatedAt: row.orders_updated_at } : {}),
+    ...(updatedByEmail ? { updatedByEmail } : {}),
+    ...(req ? { requestedAt: req.at } : {}),
+    ...(req?.actor_email ? { requestedByEmail: req.actor_email } : {}),
+  };
+}
+
+interface OrderRequestConsoleRow {
+  id: string;
+  user_id: string | null;
+  broker_id: BrokerId;
+  environment: "production" | "paper";
+  account_display: string;
+  symbol: string;
+  side: OrderSide;
+  quantity: number;
+  order_type: TicketOrderType;
+  bracket: boolean | null;
+  status: OrderRequestStatus;
+  broker_order_id: string | null;
+  expires_at: string;
+  sent_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+/** The status as the terminal shows it, computed like the broker service's view (expired, stale sending). */
+export function consoleOrderStatus(row: Pick<OrderRequestConsoleRow, "status" | "expires_at" | "sent_at">, now = Date.now()): OrderRequestStatus {
+  if ((row.status === "preview" || row.status === "needs_confirmation") && Date.parse(row.expires_at) <= now) return "expired";
+  if (row.status === "sending" && row.sent_at && now - Date.parse(row.sent_at) > STALE_SENDING_MS) return "unknown";
+  return row.status;
+}
+
+/** Order requests of one workspace, newest first, with the member who previewed each. Empty before the migration. */
+export async function listWorkspaceOrderRequests(workspaceId: string, limit = 25): Promise<ConsoleOrderRow[]> {
+  const admin = await staff();
+  const { data, error } = await admin
+    .from("order_requests")
+    .select("id, user_id, broker_id, environment, account_display, symbol, side, quantity, order_type, bracket, status, broker_order_id, expires_at, sent_at, resolved_at, created_at")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 200));
+  // Before the order entry migration: no table (PGRST205, or 42P01) or no column (42703).
+  if (isMissingTable(error?.code) || isMissingColumn(error?.code)) return [];
+  if (error) fail("order_requests", error);
+  const rows = (data ?? []) as OrderRequestConsoleRow[];
+  const emails = await emailsOf(admin, rows.map((r) => r.user_id));
+  const now = Date.now();
+  return rows.map((r) => {
+    const userEmail = r.user_id ? emails.get(r.user_id) : undefined;
+    return {
+      id: r.id,
+      createdAt: r.created_at,
+      ...(r.sent_at ? { sentAt: r.sent_at } : {}),
+      ...(userEmail ? { userEmail } : {}),
+      brokerId: r.broker_id,
+      environment: r.environment,
+      accountDisplay: r.account_display,
+      side: r.side,
+      quantity: r.quantity,
+      symbol: r.symbol,
+      orderType: r.order_type,
+      bracket: r.bracket === true,
+      status: consoleOrderStatus(r, now),
+      ...(r.broker_order_id ? { brokerOrderId: r.broker_order_id } : {}),
+      ...(r.resolved_at ? { resolvedAt: r.resolved_at } : {}),
+    };
+  });
+}
+
+/** For the Traders list: "on" where order entry is on, "requested" where a member asked in the last 30 days and it is off. */
+export async function listOrderEntryFlags(): Promise<Record<string, "on" | "requested">> {
+  const admin = await staff();
+  const on = await admin.from("workspaces").select("id").eq("orders_enabled", true);
+  if (on.error?.code === UNDEFINED_COLUMN) return {};
+  if (on.error) fail("workspaces", on.error);
+  const flags: Record<string, "on" | "requested"> = {};
+  for (const r of (on.data ?? []) as Array<{ id: string }>) flags[r.id] = "on";
+  const since = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+  const asked = await admin.from("audit_events").select("workspace_id").eq("action", REQUEST_ACTION).gte("at", since);
+  if (asked.error) fail("audit_events", asked.error);
+  for (const r of (asked.data ?? []) as Array<{ workspace_id: string | null }>) {
+    if (r.workspace_id && !flags[r.workspace_id]) flags[r.workspace_id] = "requested";
+  }
+  return flags;
 }
 
 /** Every workspace (the console's "Traders"), newest first. */

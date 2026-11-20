@@ -27,9 +27,9 @@ export const TERMINAL_NAV: NavGroup[] = [
   {
     label: "Trade",
     items: [
-      { title: "Alerts", href: "/app", icon: Bell, roles: ALERTS_ROLES, description: "TradeScope alerts, once the engine is connected to your workspace, and a ticket that sizes a trade to your risk." },
+      { title: "Alerts", href: "/app", icon: Bell, roles: ALERTS_ROLES, description: "TradeScope alerts, once the engine is connected to your workspace, and an order ticket that sizes a trade to your risk." },
       { title: "Positions", href: "/app/positions", icon: Briefcase, description: "Everything you hold across your connected broker accounts, with P&L." },
-      { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders from your brokers. Read only in this release." },
+      { title: "Orders", href: "/app/orders", icon: ListOrdered, description: "Working, filled and cancelled orders from your brokers. With order entry on for your workspace, you also place and cancel orders here." },
       { title: "Options", href: "/app/options", icon: Layers, description: "Option ideas from TradeScope alerts. Not connected yet." },
     ],
   },

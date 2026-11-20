@@ -11,21 +11,35 @@ import type {
   BrokerConnection,
   BrokerId,
   BrokerOptions,
+  CancelResult,
   ConnectClient,
   ConnectionEnvironment,
   ConnectionMethod,
   Execution,
   Order,
+  OrderCapabilities,
+  OrderRequest,
+  OrderTicket,
   Position,
   RenewNext,
 } from "@/lib/types";
+import { ORDER_COPY } from "@/lib/order-entry";
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** The route's `code`, when it sent one (order routes always do). */
+  readonly code?: string;
+  /** True when the body was JSON with a string `error`: the app or the broker service refused on purpose. */
+  readonly answered: boolean;
+  /** From Retry-After on a 429. */
+  readonly retryAfterSec?: number;
+  constructor(status: number, message: string, extra: { code?: string; answered?: boolean; retryAfterSec?: number } = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.answered = extra.answered ?? false;
+    if (extra.code !== undefined) this.code = extra.code;
+    if (extra.retryAfterSec !== undefined) this.retryAfterSec = extra.retryAfterSec;
   }
 }
 
@@ -50,8 +64,14 @@ async function request<T>(path: string, init: { method?: "GET" | "POST" | "PATCH
   }
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = body && typeof body === "object" && "error" in body && typeof (body as { error: unknown }).error === "string" ? (body as { error: string }).error : "Something went wrong. Try again in a moment.";
-    throw new ApiError(res.status, message);
+    const own = body && typeof body === "object" && "error" in body && typeof (body as { error: unknown }).error === "string" ? (body as { error: string }).error : null;
+    const code = body && typeof body === "object" && "code" in body && typeof (body as { code: unknown }).code === "string" ? (body as { code: string }).code : undefined;
+    const retry = Number(res.headers.get("retry-after"));
+    throw new ApiError(res.status, own ?? "Something went wrong. Try again in a moment.", {
+      code,
+      answered: own !== null,
+      retryAfterSec: res.status === 429 && Number.isFinite(retry) && retry > 0 ? retry : undefined,
+    });
   }
   return body as T;
 }
@@ -193,4 +213,81 @@ export function startAggregator(input: { brokerId: BrokerId; environment?: Conne
 /** Disconnects: revokes the broker's tokens where it has a revoke (E*TRADE, SnapTrade), stops an IBKR gateway, and forgets the stored credentials. */
 export async function disconnectConnection(id: string): Promise<void> {
   await request<{ ok: true }>(`/api/broker/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/* ---------- order entry (docs/real-backend.md section 13) ---------- */
+
+/** Whether order entry is on for the workspace and what each connection may send for this user. */
+export function fetchOrderCapabilities(): Promise<OrderCapabilities> {
+  return request("/api/broker/orders/capabilities");
+}
+
+/** Asks the broker for a preview of the ticket; nothing is placed. Answers the stored request (status preview). */
+export function previewOrder(ticket: OrderTicket): Promise<{ request: OrderRequest }> {
+  return request("/api/broker/orders/preview", { method: "POST", body: ticket });
+}
+
+export type PlaceResult = { request: OrderRequest } | { checking: true; requestId: string; error: string };
+
+/** A deliberate refusal of the place route: a 4xx whose body is JSON with an error sentence. */
+function isRefusal(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.answered && err.status >= 400 && err.status < 500;
+}
+
+/**
+ * Only a JSON 4xx is a refusal (thrown as ApiError: nothing was sent). A network failure, any 5xx, a 408 or 429
+ * without a JSON error, an answer that is not JSON, or a 2xx without `request` or `checking` all mean the order may
+ * have gone out: they answer { checking: true, requestId, error: ORDER_COPY.unknownOutcome } and the dialog polls.
+ */
+export async function placeOrder(input: { requestId: string; acknowledged: string[]; confirmBrokerMessages?: string[] }): Promise<PlaceResult> {
+  const checking: PlaceResult = { checking: true, requestId: input.requestId, error: ORDER_COPY.unknownOutcome };
+  let answer: unknown;
+  try {
+    answer = await request<unknown>("/api/broker/orders/place", { method: "POST", body: input });
+  } catch (err) {
+    if (isRefusal(err)) throw err;
+    return checking;
+  }
+  if (answer && typeof answer === "object") {
+    const a = answer as { request?: unknown; checking?: unknown; requestId?: unknown; error?: unknown };
+    if (a.request && typeof a.request === "object") return { request: a.request as OrderRequest };
+    if (a.checking === true) return { checking: true, requestId: input.requestId, error: typeof a.error === "string" && a.error ? a.error : ORDER_COPY.unknownOutcome };
+  }
+  return checking;
+}
+
+/** One order request as the broker service has it now (it may check an unconfirmed one at the broker first). */
+export function fetchOrderRequest(id: string): Promise<{ request: OrderRequest }> {
+  return request(`/api/broker/orders/requests/${encodeURIComponent(id)}`);
+}
+
+/** The workspace's unconfirmed orders of the last 24 hours that nobody marked as checked. */
+export function fetchOrderRequests(): Promise<{ requests: OrderRequest[] }> {
+  return request("/api/broker/orders/requests");
+}
+
+/** "Check again": asks the broker for an unconfirmed order now, at any age. */
+export function checkOrderRequest(id: string): Promise<{ request: OrderRequest }> {
+  return request(`/api/broker/orders/requests/${encodeURIComponent(id)}/check`, { method: "POST", body: {} });
+}
+
+/** "I checked it": Nasscord stops warning about an unconfirmed order. Nothing changes at the broker. */
+export function resolveOrderRequest(id: string): Promise<{ request: OrderRequest }> {
+  return request(`/api/broker/orders/requests/${encodeURIComponent(id)}/resolve`, { method: "POST", body: {} });
+}
+
+/** Same rule as placeOrder: anything but a JSON 4xx throws ApiError(status, ORDER_COPY.cancelUnknown, { code: "cancel_unknown" }). */
+export async function cancelOrder(input: { accountId: string; orderId: string }): Promise<CancelResult> {
+  let answer: unknown;
+  try {
+    answer = await request<unknown>("/api/broker/orders/cancel", { method: "POST", body: input });
+  } catch (err) {
+    if (isRefusal(err)) throw err;
+    throw new ApiError(err instanceof ApiError ? err.status : 0, ORDER_COPY.cancelUnknown, { code: "cancel_unknown" });
+  }
+  const a = answer && typeof answer === "object" ? (answer as { status?: unknown; message?: unknown }) : null;
+  if (a && (a.status === "cancel_requested" || a.status === "cancelled") && typeof a.message === "string") {
+    return { status: a.status, message: a.message };
+  }
+  throw new ApiError(502, ORDER_COPY.cancelUnknown, { code: "cancel_unknown" });
 }

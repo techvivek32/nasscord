@@ -22,6 +22,14 @@ export interface AuditInput {
 }
 
 export async function audit(input: AuditInput): Promise<void> {
+  await recordAudit(input);
+}
+
+/**
+ * The same row, for an action whose record IS the outcome (a request the console reads back): answers true
+ * only when the row was written. Never throws; a failure is logged without values.
+ */
+export async function recordAudit(input: AuditInput): Promise<boolean> {
   try {
     const ip = input.ip === undefined ? await requestIp() : input.ip;
     const { error } = await createAdminClient()
@@ -36,8 +44,13 @@ export async function audit(input: AuditInput): Promise<void> {
         ip,
         meta: input.meta ?? null,
       });
-    if (error) console.error(`[audit] could not record ${input.action}: ${error.code ?? "unknown error"}`);
+    if (error) {
+      console.error(`[audit] could not record ${input.action}: ${error.code ?? "unknown error"}`);
+      return false;
+    }
+    return true;
   } catch {
     console.error(`[audit] could not record ${input.action}`);
+    return false;
   }
 }

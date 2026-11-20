@@ -25,7 +25,7 @@ const SIDEBAR_TRIGGER = '[data-slot="sidebar-trigger"]';
 const INTRO: Record<ShellNavId, TourStep> = {
   terminal: {
     title: "Welcome to the terminal",
-    body: "This is where you see your broker accounts. Connect your brokers, and every account shows up as one book with its positions, orders and executions. Order entry is off in this release. The tour takes about a minute.",
+    body: "This is where you see your broker accounts. Connect your brokers, and every account shows up as one book with its positions, orders and executions. Order entry works where Nasscord has switched it on for your workspace; the header shows which. The tour takes about a minute.",
   },
   console: {
     title: "Welcome to the console",
@@ -76,8 +76,14 @@ const EXTRA: Record<ShellNavId, TourStep[]> = {
       optional: true,
     },
     {
+      title: "New order",
+      body: "Preview an order and confirm it before it goes to your broker. This button shows where order entry is on for your workspace.",
+      targets: ['[data-tour="new-order"]'],
+      optional: true,
+    },
+    {
       title: "Order ticket",
-      body: "Pick an account, a price and a stop. The ticket sizes the trade so a stop-out costs your risk per trade. Placing orders is off in this release, so place them in your broker's app.",
+      body: "Pick an account, a price and a stop. The ticket suggests a size so a stop-out costs your risk per trade. With order entry on for your workspace, you preview the order and confirm it before it goes to your broker.",
       targets: ["#order-ticket"],
       optional: true,
     },

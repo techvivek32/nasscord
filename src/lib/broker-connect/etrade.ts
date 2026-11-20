@@ -25,7 +25,7 @@ export const ETRADE_CONNECT: ConnectSpec[] = [
       { name: "clientSecret", label: "Consumer secret", secret: true },
     ],
     disclosure:
-      "Nasscord reads your accounts, balances, positions and orders, and places no orders in this release. The key and secret are sent once to Nasscord's broker service and stored there encrypted; they are never shown again. An individual key only works with the account of the person who created it.",
+      "Nasscord reads your accounts, balances, positions and orders. It places an order only when order entry is on for your workspace and you confirm that order. The key and secret are sent once to Nasscord's broker service and stored there encrypted; they are never shown again. An individual key only works with the account of the person who created it.",
     sessionNote: "E*TRADE ends every session at midnight Eastern. Reconnect reuses your stored key and asks only for a new verification code.",
     disconnectNote: "Disconnect revokes Nasscord's E*TRADE token and deletes the stored key and secret.",
     unavailableReason: "E*TRADE connections are not available on this server yet.",

@@ -13,6 +13,7 @@ import {
 import * as api from "@/lib/api";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useWorkspaceId } from "@/components/workspace-scope";
+import { ACTIVE_REQUEST } from "@/lib/order-entry";
 import type { BrokerConnection } from "@/lib/types";
 
 /**
@@ -53,6 +54,10 @@ export const qk = {
   executions: (wid: string) => ["broker", wid, "executions"] as const,
   /** Not under ["broker", wid]: a connection change does not change who may connect what. */
   options: (wid: string) => ["broker-options", wid] as const,
+  /** Order entry: under ["broker", wid], so a connection change or an order refreshes them at once. */
+  orderCapabilities: (wid: string) => ["broker", wid, "order-caps"] as const,
+  orderRequests: (wid: string) => ["broker", wid, "order-requests"] as const,
+  orderRequest: (wid: string, id: string) => ["broker", wid, "order-request", id] as const,
 };
 
 /** Drops every cached query (call on sign-out, before the session cookie goes). */
@@ -193,4 +198,94 @@ export function useStartAggregator() {
 export function useDisconnectConnection() {
   const invalidate = useBrokerInvalidate();
   return useMutation({ mutationFn: (id: string) => api.disconnectConnection(id), onSettled: () => invalidate() });
+}
+
+/* ---------------------------------------------------------------- order entry (docs/real-backend.md section 13) */
+
+/**
+ * Whether order entry is on for the workspace and what each connection may send for this user. Polled every
+ * 60 s so a switch flipped in the console reaches an open terminal within a minute. On an error (the route
+ * answers 503) react-query keeps the last good answer.
+ */
+export function useOrderCapabilities() {
+  const wid = useWorkspaceId();
+  return useQuery({
+    queryKey: qk.orderCapabilities(wid ?? NONE),
+    queryFn: api.fetchOrderCapabilities,
+    enabled: !!wid,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
+/** Rows whose outcome is open (sending, unknown) in the last 24 h and not marked as checked. Shown even when order entry is off. */
+export function useOrderRequests() {
+  const wid = useWorkspaceId();
+  return useQuery({ queryKey: qk.orderRequests(wid ?? NONE), queryFn: api.fetchOrderRequests, enabled: !!wid, refetchInterval: 30_000 });
+}
+
+/** While "checking" after a place, a row the service has not claimed yet (the place may still wait for the connection) is read again too. */
+const NOT_CLAIMED_YET = new Set(["preview", "needs_confirmation"]);
+
+/**
+ * One request; polls every 2 s while `poll` is true and the status is still open (ACTIVE_REQUEST), or not
+ * claimed yet (preview, needs_confirmation), or not read yet. The caller turns `poll` off (the dialog after 60 s).
+ */
+export function useOrderRequest(id: string | null, opts: { poll?: boolean } = {}) {
+  const wid = useWorkspaceId();
+  const poll = opts.poll ?? false;
+  return useQuery({
+    queryKey: qk.orderRequest(wid ?? NONE, id ?? NONE),
+    queryFn: () => api.fetchOrderRequest(id as string),
+    enabled: !!wid && !!id,
+    retry: 0,
+    refetchInterval: (query) => {
+      if (!poll) return false;
+      const status = query.state.data?.request.status;
+      return status === undefined || ACTIVE_REQUEST.has(status) || NOT_CLAIMED_YET.has(status) ? 2_000 : false;
+    },
+  });
+}
+
+/** Asks the broker for a preview. Never retried. */
+export function usePreviewOrder() {
+  return useMutation({ mutationFn: (ticket: Parameters<typeof api.previewOrder>[0]) => api.previewOrder(ticket), retry: 0 });
+}
+
+/** Places a previewed request. Never retried: anything but a JSON 4xx answers { checking: true } (src/lib/api placeOrder). */
+export function usePlaceOrder() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (input: Parameters<typeof api.placeOrder>[0]) => api.placeOrder(input), retry: 0, onSettled: () => invalidate() });
+}
+
+/** Cancels an open order. Never retried. */
+export function useCancelOrder() {
+  const invalidate = useBrokerInvalidate();
+  return useMutation({ mutationFn: (input: Parameters<typeof api.cancelOrder>[0]) => api.cancelOrder(input), retry: 0, onSettled: () => invalidate() });
+}
+
+/** Invalidates the unconfirmed list and one request after "Check again" or "I checked it". */
+function useOrderRequestInvalidate() {
+  const client = useQueryClient();
+  const wid = useWorkspaceId() ?? NONE;
+  return React.useCallback(
+    (id: string) => {
+      void client.invalidateQueries({ queryKey: qk.orderRequests(wid) });
+      void client.invalidateQueries({ queryKey: qk.orderRequest(wid, id) });
+    },
+    [client, wid],
+  );
+}
+
+/** "Check again": asks the broker for an unconfirmed order now. */
+export function useCheckOrderRequest() {
+  const invalidate = useOrderRequestInvalidate();
+  return useMutation({ mutationFn: (id: string) => api.checkOrderRequest(id), retry: 0, onSettled: (_data, _err, id) => invalidate(id) });
+}
+
+/** "I checked it": stops the warnings about an unconfirmed order. */
+export function useResolveOrderRequest() {
+  const invalidate = useOrderRequestInvalidate();
+  return useMutation({ mutationFn: (id: string) => api.resolveOrderRequest(id), retry: 0, onSettled: (_data, _err, id) => invalidate(id) });
 }

@@ -33,7 +33,6 @@ export const PLANS: Plan[] = [
       "Orders and executions across brokers",
       "1 seat",
       "Planned: real-time TradeScope alerts",
-      "Planned: order entry from the terminal",
     ],
     limits: { brokers: "unlimited", seats: 1, alertDelayMin: 0 },
   },

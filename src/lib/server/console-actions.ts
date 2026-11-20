@@ -8,6 +8,7 @@ import { isAdminConfigured, createAdminClient } from "@/lib/supabase/admin";
 import { SUPABASE_NOT_CONFIGURED } from "@/lib/supabase/env";
 import { audit } from "@/lib/server/audit";
 import { PORTAL_TENANT_COOKIE } from "@/lib/server/tenant";
+import { isMissingColumn } from "@/lib/server/rows";
 import { brandingSchema, type BrandingInput } from "@/lib/branding";
 import type { ActionResult } from "@/lib/signup";
 import type { PlanId, Session, TenantApplicationStatus, WorkspaceStatus } from "@/lib/types";
@@ -66,6 +67,31 @@ export async function setWorkspacePlan(workspaceId: string, plan: PlanId): Promi
   if (error) return { ok: false, error: "We could not change the plan. Try again." };
   if (!data) return { ok: false, error: "That workspace no longer exists." };
   await audit({ actorUserId: actor.uid, actorEmail: actor.email, workspaceId: id.data, action: "workspace.plan.update", target: `${data.slug} · ${next.data}` });
+  done("/admin");
+  return { ok: true };
+}
+
+/**
+ * The order entry switch of one workspace (docs/real-backend.md section 13). Off by default; only the super
+ * admin changes it. The broker service and the app read it on every order request, so a change acts at once.
+ */
+export async function setWorkspaceOrderEntry(workspaceId: string, enabled: boolean): Promise<ActionResult> {
+  const action = enabled ? "workspace.order_entry.enable" : "workspace.order_entry.disable";
+  const actor = await superadmin(action, workspaceId);
+  if (!isSession(actor)) return actor;
+  const id = uuid.safeParse(workspaceId);
+  if (!id.success || typeof enabled !== "boolean") return { ok: false, error: "Pick a workspace." };
+  const { data, error } = await createAdminClient()
+    .from("workspaces")
+    .update({ orders_enabled: enabled, orders_updated_at: new Date().toISOString(), orders_updated_by: actor.uid })
+    .eq("id", id.data)
+    .select("slug")
+    .maybeSingle();
+  // An update payload with a column the database does not have is PGRST204 (42703 for a select).
+  if (isMissingColumn(error?.code)) return { ok: false, error: "Run supabase/migrations/20261121120000_order_entry.sql first. Order entry needs it." };
+  if (error) return { ok: false, error: "We could not change order entry. Try again." };
+  if (!data) return { ok: false, error: "That workspace no longer exists." };
+  await audit({ actorUserId: actor.uid, actorEmail: actor.email, workspaceId: id.data, action, target: `${data.slug} · ${enabled ? "on" : "off"}` });
   done("/admin");
   return { ok: true };
 }

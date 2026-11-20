@@ -160,6 +160,18 @@ export const CONNECTION_COLUMNS =
 export const LEGACY_CONNECTION_COLUMNS = "id, workspace_id, user_id, broker_id, method, environment, status, status_detail, session_expires_at, last_ok_at, created_at, updated_at";
 /** Postgres "undefined column": the database is older than the columns asked for. */
 export const UNDEFINED_COLUMN = "42703";
+/**
+ * Before a migration has run, PostgREST answers a table it does not know with PGRST205 ("Could not find
+ * the table ... in the schema cache"; older versions passed Postgres 42P01 through), and a column in an
+ * insert, update or upsert payload with PGRST204. A column in a select or a filter is Postgres 42703.
+ */
+export function isMissingTable(code: string | null | undefined): boolean {
+  return code === "PGRST205" || code === "42P01";
+}
+/** A select, filter or write that names a column the database does not have yet (see isMissingTable). */
+export function isMissingColumn(code: string | null | undefined): boolean {
+  return code === UNDEFINED_COLUMN || code === "PGRST204";
+}
 export const ACCOUNT_COLUMNS = "id, connection_id, workspace_id, broker_id, external_id, display_number, label, type, included, created_at";
 
 /* ---------- mapping ---------- */

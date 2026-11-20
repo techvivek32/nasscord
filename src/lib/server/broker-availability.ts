@@ -2,6 +2,7 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { BROKERS } from "@/lib/brokers";
 import { connectSpecs, optionFor } from "@/lib/broker-connect";
+import { TRADING_BROKERS } from "@/lib/order-entry";
 import { getOptions, isBrokerServiceConfigured, type ServiceActor } from "@/lib/server/broker-service";
 import type { Broker, BrokerOptions, BrokerStatus, ConnectOption, ConnectSpec } from "@/lib/types";
 
@@ -131,7 +132,7 @@ function blurbFor(b: Broker, status: BrokerStatus, open: ConnectSpec[], waiting:
   if (status === b.status) return b.blurb;
   if (status === "soon") return `Not available yet. ${waiting ?? ""}`.trim();
   const summary = open[0]?.summary ?? "";
-  return /read only|read-only/i.test(summary) ? summary : `${summary} Read-only in this release.`.trim();
+  return /read only|read-only/i.test(summary) || TRADING_BROKERS.includes(b.id) ? summary : `${summary} Read only.`.trim();
 }
 
 function group(brokers: PublicBroker[], source: PublicAvailability["source"]): PublicAvailability {

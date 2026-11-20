@@ -27,7 +27,7 @@ export const ALPACA_CONNECT: ConnectSpec[] = [
     ],
     warning: "Regenerating keys stops any bot or other tool that uses the old pair on that account.",
     disclosure:
-      "This key can place trades. Nasscord only reads in this release, blocks every order call in code, stores the key encrypted on its broker service and never shows it again. Alpaca's customer agreement makes access you give a third party your own risk.",
+      "This key can place trades. Nasscord sends an order only when order entry is on for your workspace and you confirm that order, never changes an order, stores the key encrypted on its broker service and never shows it again. Alpaca's customer agreement makes access you give a third party your own risk.",
     sessionNote:
       "Alpaca keys do not expire. If Alpaca stops accepting the key (you regenerated it, or reset a paper account), Reconnect asks you to paste the new key.",
     disconnectNote: "Disconnect deletes the stored key and the accounts from Nasscord. To revoke the key everywhere, regenerate it in Alpaca.",

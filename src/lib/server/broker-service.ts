@@ -9,7 +9,11 @@ import type {
   ConnectionEnvironment,
   ConnectionMethod,
   Execution,
+  CancelResult,
   Order,
+  OrderCapabilities,
+  OrderRequest,
+  OrderTicket,
   Position,
   RenewNext,
   Role,
@@ -36,14 +40,47 @@ const AUDIENCE = "nasscord-broker";
 
 export const BROKER_SERVICE_NOT_CONFIGURED = "Broker connections are not set up on this server yet. Set BROKER_SERVICE_URL and BROKER_SERVICE_SECRET (see docs/SETUP.md).";
 
+/**
+ * How a call to the broker service ended: "answered" (the service sent an error status, or the call was never
+ * made), "timeout" (the app gave up waiting), "unreachable" (no connection), "unreadable" (a body the app could
+ * not parse). Order entry reads it: only a deliberate refusal proves that nothing was sent.
+ */
+export type BrokerServiceErrorKind = "answered" | "timeout" | "unreachable" | "unreadable";
+
 export class BrokerServiceError extends Error {
   /** HTTP status the app's route should answer with. */
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** The service's own `code`, when it sent one. */
+  readonly code?: string;
+  readonly kind: BrokerServiceErrorKind;
+  /** The status the service answered with (absent when the call was never made). */
+  readonly serviceStatus?: number;
+  /** The service's Retry-After, in seconds, when it sent one. */
+  readonly retryAfterSec?: number;
+  constructor(status: number, message: string, extra: { code?: string; kind?: BrokerServiceErrorKind; serviceStatus?: number; retryAfterSec?: number } = {}) {
     super(message);
     this.name = "BrokerServiceError";
     this.status = status;
+    this.kind = extra.kind ?? "answered";
+    if (extra.code !== undefined) this.code = extra.code;
+    if (extra.serviceStatus !== undefined) this.serviceStatus = extra.serviceStatus;
+    if (extra.retryAfterSec !== undefined) this.retryAfterSec = extra.retryAfterSec;
   }
+}
+
+/**
+ * Whether an order step may have reached the broker although the app got no clear answer. False only for a
+ * deliberate refusal: a BrokerServiceError of kind "answered" whose serviceStatus is absent (the call was never
+ * made) or below 500, or whose code is set and is not "error" (the service refused on purpose, for example 503
+ * shutting_down). True for a timeout, an unreachable or unreadable service, a 5xx without a code of its own and
+ * anything that is not a BrokerServiceError.
+ */
+export function orderOutcomeUnknown(err: unknown): boolean {
+  if (!(err instanceof BrokerServiceError)) return true;
+  if (err.kind !== "answered") return true;
+  if (err.serviceStatus === undefined || err.serviceStatus < 500) return false;
+  if (typeof err.code === "string" && err.code && err.code !== "error") return false;
+  return true;
 }
 
 export function isBrokerServiceConfigured(): boolean {
@@ -240,6 +277,18 @@ const STATUS_MESSAGE: Record<number, string> = {
   429: "The broker is limiting requests right now. Wait a few seconds and try again.",
 };
 
+/** The service's `code`, when its error body has one. */
+function serviceCode(body: unknown): string | undefined {
+  const code = body && typeof body === "object" && "code" in body ? (body as { code?: unknown }).code : undefined;
+  return typeof code === "string" && code && code.length <= 64 ? code : undefined;
+}
+
+/** Retry-After in whole seconds (1 to 3600), when the service sent it. */
+function retryAfter(res: Response): number | undefined {
+  const n = Number(res.headers.get("retry-after"));
+  return Number.isInteger(n) && n > 0 && n <= 3600 ? n : undefined;
+}
+
 /** The service's own sentence when it sent one, else a plain one for the status. */
 function readableError(status: number, body: unknown): string {
   const own = body && typeof body === "object" && "error" in body ? (body as { error?: unknown }).error : undefined;
@@ -273,12 +322,22 @@ async function call<T>(actor: ServiceActor | null, method: "GET" | "POST" | "DEL
   } catch (err) {
     const name = err instanceof Error ? err.name : "";
     if (name === "TimeoutError" || name === "AbortError") {
-      throw new BrokerServiceError(504, `The broker service did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again in a moment.`);
+      throw new BrokerServiceError(504, `The broker service did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again in a moment.`, { kind: "timeout" });
     }
-    throw new BrokerServiceError(503, "The broker service cannot be reached right now. Try again in a moment.");
+    throw new BrokerServiceError(503, "The broker service cannot be reached right now. Try again in a moment.", { kind: "unreachable" });
   }
 
-  const text = await res.text().catch(() => "");
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    // The body broke off: a timeout or a dropped socket after the service started answering.
+    const name = err instanceof Error ? err.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new BrokerServiceError(504, `The broker service did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again in a moment.`, { kind: "timeout" });
+    }
+    throw new BrokerServiceError(502, "The broker service sent a reply the app could not read.", { kind: "unreadable" });
+  }
   let json: unknown = null;
   if (text) {
     try {
@@ -287,8 +346,15 @@ async function call<T>(actor: ServiceActor | null, method: "GET" | "POST" | "DEL
       json = null;
     }
   }
-  if (!res.ok) throw new BrokerServiceError(appStatus(res.status), readableError(res.status, json));
-  if (json === null && text) throw new BrokerServiceError(502, "The broker service sent a reply the app could not read.");
+  if (!res.ok) {
+    throw new BrokerServiceError(appStatus(res.status), readableError(res.status, json), {
+      kind: "answered",
+      serviceStatus: res.status,
+      code: serviceCode(json),
+      retryAfterSec: retryAfter(res),
+    });
+  }
+  if (json === null && text) throw new BrokerServiceError(502, "The broker service sent a reply the app could not read.", { kind: "unreadable" });
   return json as T;
 }
 
@@ -458,4 +524,59 @@ export async function getOrders(actor: ServiceActor): Promise<{ orders: Order[];
 export async function getExecutions(actor: ServiceActor): Promise<{ executions: Execution[]; errors: ServicePartialError[] }> {
   const r = await call<unknown>(actor, "GET", "/v1/executions");
   return { executions: listOf<Execution>(r, "executions"), errors: listOf<ServicePartialError>(r, "errors") };
+}
+
+/* ---------------------------------------------------------------- order entry (docs/real-backend.md section 13) */
+
+/*
+ * Each layer gives up after the layer below it: the service answers a preview within about 37 s, a place
+ * within 50 s, a status read within about 27 s and a cancel within about 37 s. None of these calls takes the
+ * browser request's signal: a place the user walked away from still finishes and is stored.
+ */
+export const ORDER_PREVIEW_TIMEOUT_MS = 45_000;
+export const ORDER_PLACE_TIMEOUT_MS = 60_000;
+export const ORDER_STATUS_TIMEOUT_MS = 30_000;
+export const ORDER_CANCEL_TIMEOUT_MS = 45_000;
+export const ORDER_LIST_TIMEOUT_MS = 10_000;
+export const ORDER_RESOLVE_TIMEOUT_MS = 10_000;
+
+/** GET /v1/orders/capabilities: what this user may send through each connection now. */
+export function getOrderCapabilities(actor: ServiceActor): Promise<Omit<OrderCapabilities, "termsAcceptedAt">> {
+  return call(actor, "GET", "/v1/orders/capabilities");
+}
+
+/** POST /v1/orders/preview: the broker's preview, stored as an order request in status preview. */
+export function previewOrder(actor: ServiceActor, ticket: OrderTicket): Promise<{ request: OrderRequest }> {
+  return call(actor, "POST", "/v1/orders/preview", ticket, ORDER_PREVIEW_TIMEOUT_MS);
+}
+
+/** POST /v1/orders/place: sends a previewed request at most once. Never retried. */
+export function placeOrder(actor: ServiceActor, body: { requestId: string; acknowledged: string[]; confirmBrokerMessages?: string[] }): Promise<{ request: OrderRequest }> {
+  return call(actor, "POST", "/v1/orders/place", body, ORDER_PLACE_TIMEOUT_MS);
+}
+
+/** GET /v1/orders/requests/:id (may reconcile an unconfirmed request first). */
+export function getOrderRequest(actor: ServiceActor, id: string): Promise<{ request: OrderRequest }> {
+  return call(actor, "GET", `/v1/orders/requests/${enc(id)}`, undefined, ORDER_STATUS_TIMEOUT_MS);
+}
+
+/** POST /v1/orders/requests/:id/check: "Check again", at any age. */
+export function checkOrderRequest(actor: ServiceActor, id: string): Promise<{ request: OrderRequest }> {
+  return call(actor, "POST", `/v1/orders/requests/${enc(id)}/check`, {}, ORDER_STATUS_TIMEOUT_MS);
+}
+
+/** POST /v1/orders/requests/:id/resolve: "I checked it", stops the warnings about an unconfirmed request. */
+export function resolveOrderRequest(actor: ServiceActor, id: string): Promise<{ request: OrderRequest }> {
+  return call(actor, "POST", `/v1/orders/requests/${enc(id)}/resolve`, {}, ORDER_RESOLVE_TIMEOUT_MS);
+}
+
+/** GET /v1/orders/requests: the workspace's unconfirmed requests of the last 24 hours. */
+export async function listOrderRequests(actor: ServiceActor): Promise<{ requests: OrderRequest[] }> {
+  const r = await call<unknown>(actor, "GET", "/v1/orders/requests", undefined, ORDER_LIST_TIMEOUT_MS);
+  return { requests: listOf<OrderRequest>(r, "requests") };
+}
+
+/** POST /v1/orders/cancel: one cancel of an open order. Never retried. */
+export function cancelOrder(actor: ServiceActor, body: { accountId: string; orderId: string }): Promise<CancelResult> {
+  return call(actor, "POST", "/v1/orders/cancel", body, ORDER_CANCEL_TIMEOUT_MS);
 }

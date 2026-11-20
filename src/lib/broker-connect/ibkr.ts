@@ -20,7 +20,7 @@ export const IBKR_CONNECT: ConnectSpec[] = [
     ],
     warning: "IBKR allows one session per username. If you also use TWS or the IBKR mobile app, close it or use a second IBKR username for Nasscord.",
     disclosure:
-      "Nasscord reads your accounts, balances, positions, orders and executions, and places no orders in this release. It never sees your IBKR password: you log in on IBKR's own page, and the session lives in a gateway Nasscord runs for this connection alone.",
+      "Nasscord reads your accounts, balances, positions, orders and executions. It places an order only when order entry is on for your workspace and you confirm that order. It never sees your IBKR password: you log in on IBKR's own page, and the session lives in a gateway Nasscord runs for this connection alone.",
     sessionNote: "IBKR ends the session about once a day. Reconnect opens the IBKR login again.",
     disconnectNote: "Disconnect stops the IBKR session Nasscord runs for this connection and removes its accounts from Nasscord.",
     unavailableReason: "IBKR connections are not set up on this server yet.",

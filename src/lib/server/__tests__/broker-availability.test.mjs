@@ -117,7 +117,9 @@ test("a broker that turns live gets a blurb from its connect spec, not the stati
   const alpaca = byId(a, "alpaca");
   assert.equal(alpaca.status, "live");
   assert.doesNotMatch(alpaca.blurb, /Not available yet/);
-  assert.match(alpaca.blurb, /read-only|read only/i);
+  // Alpaca's key can trade where order entry is on (design 5.4): its blurb is the connect summary, without "Read only".
+  assert.equal(alpaca.blurb, alpaca.open[0]?.summary);
+  assert.doesNotMatch(alpaca.blurb, /read-only|read only/i);
   assert.equal(alpaca.open[0]?.method, "alpaca_key");
   assert.equal(alpaca.paperToday, true);
   assert.equal(alpaca.waiting, null);

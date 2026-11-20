@@ -4,16 +4,18 @@ import { CONNECT_SPECS } from "@/lib/broker-connect";
 /*
  * The single broker registry. Every page renders brokers from here.
  *
- * This release is read-only. The public pages say what connects from the broker service's own
+ * Nasscord reads every broker it connects; order entry exists for IBKR, E*TRADE and Alpaca (the API key
+ * method) and is switched on per workspace. The public pages say what connects from the broker service's own
  * answer (/v1/options, through src/lib/server/broker-availability.ts). `status` here is only their
  * fallback while the service cannot be asked: IBKR and E*TRADE, which every deployed service
  * connects; every other broker, Alpaca included, shows "soon" there, so the fallback never offers a
  * broker that a service still being deployed may not have built. What the signed-in user can
  * connect right now is the broker service's answer (GET /api/broker/options), joined with `connect`
  * (the specs in src/lib/broker-connect) by connectChoices(). `capabilities` says what Nasscord can do through the
- * connection today: order entry is switched off in this release, so `trading` (and with it options
- * and extended-hours orders) is false for every broker. `paper` is true where the user's own paper
- * account connects (IBKR Paper, Alpaca Paper).
+ * connection: `trading` is true for IBKR, E*TRADE and Alpaca, whose trading methods (ibkr_gateway, etrade_oauth1,
+ * alpaca_key) can place orders where the super admin switches order entry on for a workspace; it stays false for
+ * every other broker. Options and extended-hours orders are false for every broker. `paper` is true where the
+ * user's own paper account connects (IBKR Paper, Alpaca Paper).
  */
 const BASE: Array<Omit<Broker, "connect">> = [
   {
@@ -25,9 +27,9 @@ const BASE: Array<Omit<Broker, "connect">> = [
     color: "#C8102E",
     status: "live",
     mode: "direct",
-    capabilities: { trading: false, options: false, extendedHours: false, paper: true },
+    capabilities: { trading: true, options: false, extendedHours: false, paper: true },
     blurb:
-      "You log in on IBKR's own page, through a gateway session Nasscord runs for your connection alone. Live or paper. Read-only in this release: accounts, balances, positions, orders and executions.",
+      "You log in on IBKR's own page, through a gateway session Nasscord runs for your connection alone. Live or paper: accounts, balances, positions, orders and executions, and order entry where Nasscord switches it on.",
   },
   {
     id: "etrade",
@@ -38,9 +40,9 @@ const BASE: Array<Omit<Broker, "connect">> = [
     color: "#5D2E8C",
     status: "live",
     mode: "direct",
-    capabilities: { trading: false, options: false, extendedHours: false, paper: false },
+    capabilities: { trading: true, options: false, extendedHours: false, paper: false },
     blurb:
-      "You connect with your own E*TRADE developer key and approve Nasscord on E*TRADE's page. Read-only in this release. E*TRADE ends every session at midnight Eastern, so you reconnect once a day.",
+      "You connect with your own E*TRADE developer key and approve Nasscord on E*TRADE's page. Order entry works where Nasscord switches it on. E*TRADE ends every session at midnight Eastern, so you reconnect once a day.",
   },
   {
     id: "alpaca",
@@ -51,9 +53,9 @@ const BASE: Array<Omit<Broker, "connect">> = [
     color: "#B58900",
     status: "soon",
     mode: "direct",
-    capabilities: { trading: false, options: false, extendedHours: false, paper: true },
+    capabilities: { trading: true, options: false, extendedHours: false, paper: true },
     blurb:
-      "Not available yet. Alpaca will connect with an API key of your own Alpaca account: Live, or one of your paper accounts, read-only.",
+      "Not available yet. Alpaca will connect with an API key of your own Alpaca account: Live, or one of your paper accounts.",
   },
   {
     id: "schwab",
@@ -181,7 +183,7 @@ export function getBroker(id: BrokerId): Broker {
  * (a broker that connects through SnapTrade for everyone becomes "sync").
  */
 export const BROKER_STATUS: Record<BrokerStatus, { label: string; description: string }> = {
-  live: { label: "Connect today", description: "Connects today, read-only: accounts, balances, positions, orders and executions." },
+  live: { label: "Connect today", description: "Connects today: accounts, balances, positions, orders and executions." },
   beta: { label: "Beta", description: "Connects with limits that the broker's page states." },
   sync: { label: "Read-only sync", description: "Read only through SnapTrade. Balances and positions refresh on SnapTrade's schedule, not live." },
   soon: { label: "Not available yet", description: "Listed, but Nasscord cannot connect to it in this release." },

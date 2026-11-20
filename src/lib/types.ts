@@ -364,7 +364,7 @@ export interface BrokerConnection {
   /** OAuth scope the broker granted, e.g. "read market". */
   scope?: string;
   accounts: BrokerAccount[];
-  /** What Nasscord may do through the connection. The first release is read-only. */
+  /** What Nasscord may do through the connection. Order entry does not use this field: GET /api/broker/orders/capabilities answers it. */
   permissions: Array<"read" | "trade" | "options">;
   /** Workspace the connection belongs to (console views). */
   workspaceId?: string;
@@ -433,9 +433,11 @@ export interface Position {
 }
 
 export type OrderSide = "BUY" | "SELL";
-export type OrderType = "MKT" | "LMT" | "STP" | "MIT" | "TRAIL";
+/** STP_LMT = stop limit: `price` is its limit and `stopPrice` its trigger. */
+export type OrderType = "MKT" | "LMT" | "STP" | "STP_LMT" | "MIT" | "TRAIL";
 export type Tif = "GTC" | "DAY";
-export type OrderStatus = "submitted" | "verifying" | "working" | "verified" | "filled" | "cancelled" | "rejected";
+/** cancel_requested: a cancel went to the broker and it has not confirmed it; the order can still fill. */
+export type OrderStatus = "submitted" | "verifying" | "working" | "verified" | "cancel_requested" | "filled" | "cancelled" | "rejected";
 
 export interface Order {
   id: string;
@@ -447,6 +449,7 @@ export interface Order {
   side: OrderSide;
   qty: number;
   type: OrderType;
+  /** Limit price of LMT and STP_LMT orders, stop price of STP orders. */
   price?: number;
   trailPct?: number;
   tif: Tif;
@@ -457,6 +460,12 @@ export interface Order {
   parentId?: string;
   outsideRth?: boolean;
   brokerRef?: string;
+  /** Stop trigger of STP and STP_LMT orders. */
+  stopPrice?: number;
+  /** Which leg of a bracket this order is, when the broker says so (Alpaca) or its type shows it (IBKR children). */
+  legRole?: "entry" | "take_profit" | "stop_loss";
+  /** When the broker cancels a GTC order on its own (Alpaca: 90 days after it was placed). */
+  expiresAt?: string;
 }
 
 export interface Execution {
@@ -471,6 +480,182 @@ export interface Execution {
   net: number;
   tradedAt: string;
   provisional?: boolean;
+}
+
+/* ---------- order entry (docs/real-backend.md section 13) ---------- */
+
+/** Order types the ticket can send. */
+export type TicketOrderType = "MKT" | "LMT" | "STP" | "STP_LMT";
+
+/** One order as the ticket sends it to POST /api/broker/orders/preview. Prices in US dollars, whole shares. */
+export interface OrderTicket {
+  /** broker_accounts.id of the account the order goes to. */
+  accountId: string;
+  symbol: string;
+  side: OrderSide;
+  quantity: number;
+  type: TicketOrderType;
+  /** LMT and STP_LMT. */
+  limitPrice?: number;
+  /** STP and STP_LMT. */
+  stopPrice?: number;
+  tif: Tif;
+  /** Entry, stop-loss and take-profit as one order, where the broker takes it. Buy entries only, always GTC. */
+  bracket?: { takeProfit: { limitPrice: number }; stopLoss: { stopPrice: number; limitPrice?: number } };
+  /** close: the whole position of a Positions row, on the opposite side. */
+  intent: "trade" | "close";
+  /** Position.id the ticket was opened from. Required for close; sent by every row action. */
+  positionId?: string;
+  /** close: the signed quantity the user saw; the broker service refuses when the broker now reports another. */
+  expectedPositionQty?: number;
+}
+
+/** expired: a preview (or a question) older than 2 minutes. unknown also covers a send that stalled for 2 minutes. */
+export type OrderRequestStatus = "preview" | "expired" | "sending" | "placed" | "rejected" | "unknown" | "needs_confirmation" | "cancel_requested" | "cancelled";
+
+export interface OrderWarning {
+  code: string;
+  text: string;
+  source: "broker" | "nasscord";
+}
+
+/** A notice the confirm dialog must show; placing echoes its key. */
+export interface OrderNotice {
+  key: string;
+  text: string;
+}
+
+/** What a broker said about an order (IBKR's questions, E*TRADE's messages). */
+export interface BrokerMessage {
+  id: string;
+  text: string;
+}
+
+export interface OrderQuote {
+  bid?: number;
+  ask?: number;
+  last?: number;
+  at?: string;
+  /** Where the quote comes from, in words ("IEX bid and ask (one exchange, not the whole market)"). */
+  source: string;
+}
+
+export interface OrderPreview {
+  quote?: OrderQuote;
+  /** The market price per share Nasscord checked the order against. */
+  referencePrice?: number;
+  /** The broker's own name for the symbol, shown next to the ticker so a typo stands out. */
+  instrument?: { name?: string; exchange?: string };
+  estimate: {
+    notional?: number;
+    commission?: number;
+    total?: number;
+    /** Who made the numbers ("IBKR", "E*TRADE", "Nasscord, from the IEX quote"). */
+    source: string;
+    /** The broker's own strings, shown as they are (IBKR). */
+    brokerText?: { amount?: string; commission?: string; total?: string };
+  };
+  /** Signed shares in the account before the order and after a full fill. */
+  position: { before: number; after: number };
+  buyingPower?: number;
+  /** Whether the regular session is open now (Alpaca's clock, else Nasscord's NYSE calendar). */
+  marketOpen?: boolean;
+  nextOpen?: string;
+  warnings: OrderWarning[];
+  notices: OrderNotice[];
+}
+
+/** One previewed ticket and what became of it (`public.order_requests`, as the broker service answers it). */
+export interface OrderRequest {
+  id: string;
+  status: OrderRequestStatus;
+  /** Nasscord's client order id ("nc" + 18 hex), the order's reference at the broker (except E*TRADE, which never shows it). */
+  clientOrderId: string;
+  accountId: string | null;
+  connectionId: string | null;
+  brokerId: BrokerId;
+  environment: "production" | "paper";
+  /** Masked account number at the time of the order. */
+  accountDisplay: string;
+  ticket: OrderTicket;
+  preview?: OrderPreview;
+  /** A preview or a question is good until then. */
+  expiresAt: string;
+  brokerOrderId?: string;
+  brokerOrderIds?: Array<{ id: string; role?: "entry" | "take_profit" | "stop_loss" }>;
+  brokerMessages: BrokerMessage[];
+  /** Why it was rejected, or why the outcome is not confirmed. */
+  error?: string;
+  /** unknown only: Nasscord still checks it on its own (30 minutes after the send). */
+  autoChecking: boolean;
+  /** A member checked it at the broker and marked it; it no longer warns. */
+  resolvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+  placedAt?: string;
+}
+
+/** What one connection may send from the ticket. */
+export interface TradingCaps {
+  types: TicketOrderType[];
+  tif: Tif[];
+  /** False: Market orders are Day only (E*TRADE). */
+  marketGtc: boolean;
+  bracket: { entryTypes: Array<"MKT" | "LMT">; stopTypes: Array<"STP" | "STP_LMT"> } | null;
+  /** Plain sentences the ticket shows for this connection. */
+  notes: string[];
+}
+
+/** GET /api/broker/orders/capabilities. */
+export interface OrderCapabilities {
+  enabled: boolean;
+  reason: "off" | "suspended" | "paused" | null;
+  /** Why order entry is not available, as a sentence. */
+  message: string | null;
+  limits: { maxQty: number; maxNotional: number };
+  /** Active connections of the workspace this user can place orders through, by connection id. Empty when not enabled. */
+  connections: Record<string, TradingCaps>;
+  /** Connections that could trade but cannot for this user now, by connection id, with the sentence that says why. */
+  blocked: Record<string, string>;
+  /** When this user accepted the order entry notice (added by the app route from user_settings). */
+  termsAcceptedAt: string | null;
+}
+
+export interface CancelResult {
+  status: "cancel_requested" | "cancelled";
+  message: string;
+}
+
+/** The console's view of a workspace's order entry switch. migrated false: the order entry migration has not run. */
+export interface OrderEntryState {
+  enabled: boolean;
+  migrated: boolean;
+  updatedAt?: string;
+  updatedByEmail?: string;
+  /** The latest "Request order entry" from the terminal, from the audit log. */
+  requestedAt?: string;
+  requestedByEmail?: string;
+}
+
+/** One order request as the console lists it on a trader's page. */
+export interface ConsoleOrderRow {
+  id: string;
+  createdAt: string;
+  sentAt?: string;
+  userEmail?: string;
+  brokerId: BrokerId;
+  environment: "production" | "paper";
+  accountDisplay: string;
+  side: OrderSide;
+  quantity: number;
+  symbol: string;
+  orderType: TicketOrderType;
+  bracket: boolean;
+  /** As the terminal shows it: expired and stale sending computed the same way as the broker service does. */
+  status: OrderRequestStatus;
+  brokerOrderId?: string;
+  resolvedAt?: string;
 }
 
 export interface Ticker {
