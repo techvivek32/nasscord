@@ -496,10 +496,11 @@ export function createLoginProxy(opts) {
       return;
     }
     const method = req.method ?? "GET";
-    if (attempt === 0 && /^\/sso\/Dispatcher(?:[/?]|$)/.test(path)) {
+    if (attempt === 0 && path.startsWith("/sso/")) {
       // The gateway opens the session with the XYZAB cookies that IBKR's login script sets in the
-      // browser and sends on this request. Names only, never values: enough to see they arrived.
-      log.info("ibkr login dispatch", { port, cookies: cookieNames(req.headers.cookie) });
+      // browser and sends on /sso/Dispatcher. Names only, never values: enough to see when they
+      // arrive. The key is not "cookies": the logger redacts every key with that word.
+      log.info("ibkr login step", { port, method, step: path.split("?")[0], names: cookieNames(req.headers.cookie) });
     }
     const proxyReq = http.request({
       host: "127.0.0.1",
