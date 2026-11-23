@@ -49,16 +49,34 @@ export function gatewayLoginOutcome(text) {
   return null;
 }
 
+/** Where a gateway log ended at some moment (GatewayManager.logMark). @typedef {{ name: string | null, size: number }} LogMark */
+
 /**
- * The last `bytes` of a file as UTF-8.
- * @param {string} file
- * @param {number} bytes
+ * The newest gw.<date>.log of a slot, or null.
+ * @param {{ dir: string } | undefined} slot
  */
-async function readTail(file, bytes) {
+async function newestGatewayLog(slot) {
+  if (!slot) return null;
+  const dir = path.join(slot.dir, "logs");
+  const names = (await fsp.readdir(dir).catch(() => /** @type {string[]} */ ([])))
+    .filter((n) => /^gw\.\d{4}-\d{2}-\d{2}\.log$/.test(n))
+    .sort();
+  const newest = names.at(-1);
+  return newest ? path.join(dir, newest) : null;
+}
+
+/**
+ * A file from byte `from` to its end as UTF-8, at most the last `max` bytes of that.
+ * @param {string} file
+ * @param {number} from
+ * @param {number} max
+ */
+async function readFrom(file, from, max) {
   const fh = await fsp.open(file, "r");
   try {
     const { size } = await fh.stat();
-    const start = Math.max(0, size - bytes);
+    const start = Math.max(from, size - max, 0);
+    if (start >= size) return "";
     const buf = Buffer.alloc(size - start);
     await fh.read(buf, 0, buf.length, start);
     return buf.toString("utf8");
@@ -596,21 +614,30 @@ export function createGatewayManager(opts) {
     portFor: (connectionId) => byConnection.get(connectionId) ?? null,
 
     /**
-     * What the gateway's own log says about the last browser login (gatewayLoginOutcome). Reads only
-     * the tail of the newest gw.<date>.log of the connection's slot; null when there is none.
+     * Where the connection's gateway log ends now: pass it to loginOutcome so that only what the
+     * gateway writes afterwards counts (a reused gateway's log still holds earlier logins).
      * @param {string} connectionId
+     * @returns {Promise<LogMark>}
+     */
+    async logMark(connectionId) {
+      const file = await newestGatewayLog(slotOf(connectionId));
+      if (!file) return { name: null, size: 0 };
+      const size = await fsp.stat(file).then((s) => s.size).catch(() => 0);
+      return { name: path.basename(file), size };
+    },
+
+    /**
+     * What the gateway's own log says about a browser login (gatewayLoginOutcome), counting only
+     * what was written after `since` (logMark). Reads at most the last LOG_TAIL_BYTES.
+     * @param {string} connectionId
+     * @param {LogMark} since
      * @returns {Promise<"ok" | "refused" | null>}
      */
-    async loginOutcome(connectionId) {
-      const slot = slotOf(connectionId);
-      if (!slot) return null;
-      const dir = path.join(slot.dir, "logs");
-      const names = (await fsp.readdir(dir).catch(() => /** @type {string[]} */ ([])))
-        .filter((n) => /^gw\.\d{4}-\d{2}-\d{2}\.log$/.test(n))
-        .sort();
-      const newest = names.at(-1);
-      if (!newest) return null;
-      const text = await readTail(path.join(dir, newest), LOG_TAIL_BYTES).catch(() => "");
+    async loginOutcome(connectionId, since) {
+      const file = await newestGatewayLog(slotOf(connectionId));
+      if (!file) return null;
+      const from = path.basename(file) === since.name ? since.size : 0;
+      const text = await readFrom(file, from, LOG_TAIL_BYTES).catch(() => "");
       return gatewayLoginOutcome(text);
     },
 
