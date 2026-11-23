@@ -28,6 +28,45 @@ import { unavailable } from "../errors.mjs";
 export const GATEWAY_JAR = path.join("dist", "ibgroup.web.core.iblink.router.clientportal.gw.jar");
 export const GATEWAY_MAIN = "ibgroup.web.core.clientportal.gw.GatewayStart";
 
+/** How much of the end of a gateway log loginOutcome reads. */
+const LOG_TAIL_BYTES = 256 * 1024;
+
+/**
+ * The outcome of the last browser login, from the gateway's own log (logs/gw.<date>.log), which is
+ * the only place it is told: after IBKR's page answers "Client login succeeds" the gateway checks
+ * the session with IBKR (sso/validate) and logs "authenticated to cp", or, when IBKR keeps answering
+ * Access Denied, "authentication to cp failed, retry N" and finally "giving up". Its HTTP API answers
+ * 401 both before a login and after such a refusal, so it cannot tell the two apart.
+ * @param {string} text the log, oldest line first (a tail is enough)
+ * @returns {"ok" | "refused" | null} null: no login yet, or still being checked
+ */
+export function gatewayLoginOutcome(text) {
+  const at = text.lastIndexOf("Client login succeeds");
+  if (at < 0) return null;
+  const after = text.slice(at);
+  if (after.includes("authenticated to cp")) return "ok";
+  if (after.includes("giving up")) return "refused";
+  return null;
+}
+
+/**
+ * The last `bytes` of a file as UTF-8.
+ * @param {string} file
+ * @param {number} bytes
+ */
+async function readTail(file, bytes) {
+  const fh = await fsp.open(file, "r");
+  try {
+    const { size } = await fh.stat();
+    const start = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(size - start);
+    await fh.read(buf, 0, buf.length, start);
+    return buf.toString("utf8");
+  } finally {
+    await fh.close();
+  }
+}
+
 /**
  * Renders a slot's conf.yaml from the bundle template.
  * @param {string} template contents of <bundle>/root/conf.yaml
@@ -555,6 +594,25 @@ export function createGatewayManager(opts) {
 
     /** @param {string} connectionId */
     portFor: (connectionId) => byConnection.get(connectionId) ?? null,
+
+    /**
+     * What the gateway's own log says about the last browser login (gatewayLoginOutcome). Reads only
+     * the tail of the newest gw.<date>.log of the connection's slot; null when there is none.
+     * @param {string} connectionId
+     * @returns {Promise<"ok" | "refused" | null>}
+     */
+    async loginOutcome(connectionId) {
+      const slot = slotOf(connectionId);
+      if (!slot) return null;
+      const dir = path.join(slot.dir, "logs");
+      const names = (await fsp.readdir(dir).catch(() => /** @type {string[]} */ ([])))
+        .filter((n) => /^gw\.\d{4}-\d{2}-\d{2}\.log$/.test(n))
+        .sort();
+      const newest = names.at(-1);
+      if (!newest) return null;
+      const text = await readTail(path.join(dir, newest), LOG_TAIL_BYTES).catch(() => "");
+      return gatewayLoginOutcome(text);
+    },
 
     /** @param {string} connectionId */
     isReady(connectionId) {

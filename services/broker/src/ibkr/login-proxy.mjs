@@ -237,6 +237,17 @@ const FORWARDING = new Set([
 ]);
 
 /**
+ * The names in a Cookie header, in order, without values (a name sent twice appears twice).
+ * @param {string | undefined} header
+ */
+export function cookieNames(header) {
+  return String(header ?? "")
+    .split(";")
+    .map((c) => c.trim().split("=")[0])
+    .filter(Boolean);
+}
+
+/**
  * Headers sent on to the gateway.
  * @param {import("node:http").IncomingHttpHeaders} headers
  * @param {number} port
@@ -478,6 +489,11 @@ export function createLoginProxy(opts) {
       return;
     }
     const method = req.method ?? "GET";
+    if (attempt === 0 && /^\/sso\/Dispatcher(?:[/?]|$)/.test(path)) {
+      // The gateway opens the session with the XYZAB cookies that IBKR's login script sets in the
+      // browser and sends on this request. Names only, never values: enough to see they arrived.
+      log.info("ibkr login dispatch", { port, cookies: cookieNames(req.headers.cookie) });
+    }
     const proxyReq = http.request({
       host: "127.0.0.1",
       port,
@@ -486,6 +502,9 @@ export function createLoginProxy(opts) {
       headers: gatewayRequestHeaders(req.headers, port),
       agent,
       timeout: timeoutMs,
+      // The gateway sends bytes after `Connection: close` that Node's strict parser rejects
+      // (HPE_CLOSED_CONNECTION), which broke the login page's scripts and styles. Loopback only.
+      insecureHTTPParser: true,
     });
     proxyReq.on("response", (pres) => {
       res.writeHead(pres.statusCode ?? 502, browserResponseHeaders(pres.headers, cookieSecure));

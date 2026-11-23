@@ -12,7 +12,7 @@ import { createMemoryDb } from "./helpers/memory-db.mjs";
 /**
  * The keepalive on its own, against a gateway manager stand-in whose gateway stops answering.
  */
-function setup() {
+function setup({ refusedLogin = false } = {}) {
   const db = createMemoryDb();
   const store = createStore(db);
   const cid = randomUUID();
@@ -38,6 +38,8 @@ function setup() {
     },
     /** @param {string} id @param {number | null} at */
     markExpired: (id, at) => expired.push([id, at]),
+    /** What the gateway log says about the last login (gatewayLoginOutcome). */
+    loginOutcome: async () => (refusedLogin ? "refused" : null),
   };
   const gw = {
     /** @param {string} _c @param {number} port */
@@ -107,4 +109,24 @@ test("a Reconnect pressed while the keepalive gives up keeps its login: the new 
   assert.deepEqual(s.sessions.watchedIds(), [s.cid]);
   s.manager.events.emit("exit", { connectionId: s.cid, port: 7301, code: 1, signal: null, expected: false });
   assert.deepEqual(s.sessions.watchedIds(), [], "an exit of the gateway it watches does");
+});
+
+test("IBKR refusing the session after its page said the login succeeded ends the wait with a sentence", async () => {
+  const s = setup({ refusedLogin: true });
+  // The gateway of this test answers on 7301 only: move the connection there first.
+  await s.manager.restart(s.cid);
+  s.sessions.watch(s.cid);
+  await s.sessions.tick(s.cid);
+  assert.equal(s.row()?.status, "error");
+  assert.equal(s.row()?.status_detail, IBKR_DETAIL.refused);
+  assert.deepEqual(s.sessions.watchedIds(), [], "nothing left to wait for: the user logs in again with Reconnect");
+});
+
+test("a pending login whose gateway log says nothing yet keeps waiting", async () => {
+  const s = setup();
+  await s.manager.restart(s.cid);
+  s.sessions.watch(s.cid);
+  await s.sessions.tick(s.cid);
+  assert.equal(s.row()?.status, "pending");
+  assert.deepEqual(s.sessions.watchedIds(), [s.cid]);
 });
