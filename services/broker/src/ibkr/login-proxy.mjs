@@ -222,6 +222,13 @@ const HOP_BY_HOP = new Set([
   "proxy-authorization",
   "proxy-authenticate",
 ]);
+/**
+ * Conditional request headers are not passed to the gateway. Asked "has it changed?", the gateway
+ * answers 304 Not Modified with Transfer-Encoding: chunked and a chunk terminator, a body a 304 may
+ * not have. Node rejects those bytes, which cut the login page's scripts and styles on every visit
+ * after the first (the browser had them cached). Without these headers it always answers 200.
+ */
+const CONDITIONAL = new Set(["if-modified-since", "if-none-match", "if-match", "if-unmodified-since", "if-range"]);
 const FORWARDING = new Set([
   "x-forwarded-for",
   "x-real-ip",
@@ -258,7 +265,7 @@ export function gatewayRequestHeaders(headers, port) {
   for (const [k, v] of Object.entries(headers)) {
     if (v === undefined) continue;
     const key = k.toLowerCase();
-    if (HOP_BY_HOP.has(key) || FORWARDING.has(key) || key === "host" || key === "cookie") continue;
+    if (HOP_BY_HOP.has(key) || FORWARDING.has(key) || CONDITIONAL.has(key) || key === "host" || key === "cookie") continue;
     out[key] = v;
   }
   out.host = `localhost:${port}`;
@@ -507,12 +514,22 @@ export function createLoginProxy(opts) {
       insecureHTTPParser: true,
     });
     proxyReq.on("response", (pres) => {
-      res.writeHead(pres.statusCode ?? 502, browserResponseHeaders(pres.headers, cookieSecure));
+      const status = pres.statusCode ?? 502;
+      res.writeHead(status, browserResponseHeaders(pres.headers, cookieSecure));
+      if (method === "HEAD" || status === 204 || status === 304) {
+        // No body by definition. The gateway still sends a chunk terminator after these (see
+        // CONDITIONAL), which Node reports as a parse error: the answer is complete, so end it here.
+        res.end();
+        pres.resume();
+        return;
+      }
       pres.pipe(res);
       pres.on("error", () => res.destroy());
     });
     proxyReq.on("timeout", () => proxyReq.destroy(new Error("gateway timeout")));
     proxyReq.on("error", (err) => {
+      // Stray bytes after an answer that already reached the browser whole: nothing to repair.
+      if (res.writableEnded) return;
       if ((method === "GET" || method === "HEAD") && attempt === 0 && isParseError(err) && !res.headersSent) {
         log.info("login proxy retry after parse error", { path });
         forward(req, res, port, path, 1);
