@@ -194,6 +194,20 @@ before(async () => {
         res.writeHead(200, { "content-type": "text/css" });
         return res.end("body{}");
       }
+      if (req.url === "/css/cached.css") {
+        if (req.headers["if-modified-since"] || req.headers["if-none-match"]) {
+          // The real gateway's 304: chunked, with a chunk terminator a 304 may not carry.
+          res.socket?.end("HTTP/1.1 304 Not Modified\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/css", "last-modified": "Tue, 27 Oct 2026 13:35:32 GMT" });
+        return res.end("body{color:red}");
+      }
+      if (req.url === "/portal.proxy/v1/gstat/bulletins") {
+        // The real gateway's 204, with the same stray terminator.
+        res.socket?.end("HTTP/1.1 204 No Content\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n");
+        return;
+      }
       if (req.url === "/v1/api/iserver/auth/status") {
         res.writeHead(401, { "content-type": "text/plain" });
         return res.end();
@@ -438,4 +452,39 @@ test("cookieNames lists the names of a Cookie header without values", () => {
   assert.deepEqual(cookieNames("XYZAB=secret; nsibkr=abc.1.sig; XYZAB_AM.LOGIN=x=y; XYZAB=again"), ["XYZAB", "nsibkr", "XYZAB_AM.LOGIN", "XYZAB"]);
   assert.deepEqual(cookieNames(undefined), []);
   assert.deepEqual(cookieNames(""), []);
+});
+
+test("conditional headers never reach the gateway, so a cached login page still loads", async () => {
+  const h = gatewayRequestHeaders(
+    {
+      "if-modified-since": "Tue, 27 Oct 2026 13:35:32 GMT",
+      "if-none-match": '"abc"',
+      "if-match": "*",
+      "if-unmodified-since": "Tue, 27 Oct 2026 13:35:32 GMT",
+      "if-range": '"abc"',
+      accept: "text/css",
+    },
+    7200,
+  );
+  assert.deepEqual(h, { accept: "text/css", host: "localhost:7200" });
+
+  const cookie = await loginCookie();
+  seen.length = 0;
+  const r = await raw("GET", "/css/cached.css", {
+    cookie,
+    headers: { "if-modified-since": "Tue, 27 Oct 2026 13:35:32 GMT", "if-none-match": '"abc"' },
+  });
+  assert.equal(r.status, 200, "a full answer, not the gateway's broken 304");
+  assert.equal(r.body, "body{color:red}");
+  assert.equal(seen.at(-1)?.headers["if-modified-since"], undefined);
+  assert.equal(seen.at(-1)?.headers["if-none-match"], undefined);
+});
+
+test("a 204 with the gateway's stray chunk terminator reaches the browser whole", async () => {
+  const cookie = await loginCookie();
+  for (let i = 0; i < 5; i++) {
+    const r = await raw("POST", "/portal.proxy/v1/gstat/bulletins", { cookie, body: "{}", headers: { "content-type": "application/json" } });
+    assert.equal(r.status, 204);
+    assert.equal(r.body, "");
+  }
 });
