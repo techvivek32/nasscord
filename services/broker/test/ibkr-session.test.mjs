@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import { createStore } from "../src/db.mjs";
+import { gatewayLoginOutcome } from "../src/ibkr/gateway-manager.mjs";
 import { IBKR_DETAIL, createIbkrSessions } from "../src/ibkr/session.mjs";
 import { createLocks } from "../src/locks.mjs";
 import { silentLogger } from "../src/log.mjs";
@@ -12,7 +13,11 @@ import { createMemoryDb } from "./helpers/memory-db.mjs";
 /**
  * The keepalive on its own, against a gateway manager stand-in whose gateway stops answering.
  */
-function setup({ refusedLogin = false } = {}) {
+function setup({ gatewayLog = "" } = {}) {
+  let clock = 1_000_000;
+  /** The gateway's own log (logs/gw.<date>.log); tests append to it. */
+  const gwLog = { text: gatewayLog };
+  let stops = 0;
   const db = createMemoryDb();
   const store = createStore(db);
   const cid = randomUUID();
@@ -38,8 +43,13 @@ function setup({ refusedLogin = false } = {}) {
     },
     /** @param {string} id @param {number | null} at */
     markExpired: (id, at) => expired.push([id, at]),
-    /** What the gateway log says about the last login (gatewayLoginOutcome). */
-    loginOutcome: async () => (refusedLogin ? "refused" : null),
+    /** Where the gateway log ends now. */
+    logMark: async () => ({ name: "gw.2026-11-23.log", size: gwLog.text.length }),
+    /** @param {string} _id @param {{ size: number }} since */
+    loginOutcome: async (_id, since) => gatewayLoginOutcome(gwLog.text.slice(since.size)),
+    stop: async () => {
+      stops++;
+    },
   };
   const gw = {
     /** @param {string} _c @param {number} port */
@@ -56,11 +66,12 @@ function setup({ refusedLogin = false } = {}) {
     store,
     log: silentLogger,
     locks,
+    now: () => clock,
     setTimer: () => /** @type {any} */ ({ unref() {} }),
     clearTimer: () => {},
   });
   const row = () => (db.tables.get("broker_connections") ?? [])[0];
-  return { cid, sessions, locks, manager, row, expired, restarts: () => restarts };
+  return { cid, sessions, locks, manager, row, expired, gwLog, restarts: () => restarts, stops: () => stops, advance: (/** @type {number} */ ms) => (clock += ms) };
 }
 
 test("a gateway that stops answering is replaced; the connection says so", async () => {
@@ -111,21 +122,48 @@ test("a Reconnect pressed while the keepalive gives up keeps its login: the new 
   assert.deepEqual(s.sessions.watchedIds(), [], "an exit of the gateway it watches does");
 });
 
+const REFUSED = [
+  "07:23:46.116 INFO  GatewayHttpProxy : Client login succeeds",
+  "07:23:46.268 ERROR GatewayHttpProxy : authentication to cp failed, retry 1",
+  "07:23:58.931 ERROR GatewayHttpProxy : authentication to cp failed, retry 5",
+  "07:23:58.932 ERROR GatewayHttpProxy : giving up ...",
+  "",
+].join("\n");
+
 test("IBKR refusing the session after its page said the login succeeded ends the wait with a sentence", async () => {
-  const s = setup({ refusedLogin: true });
+  const s = setup();
   // The gateway of this test answers on 7301 only: move the connection there first.
   await s.manager.restart(s.cid);
   s.sessions.watch(s.cid);
+  await s.sessions.tick(s.cid); // notes where the gateway log ends
+  s.gwLog.text += REFUSED; // the user logs in; IBKR refuses the session
+  s.advance(7_000);
   await s.sessions.tick(s.cid);
   assert.equal(s.row()?.status, "error");
   assert.equal(s.row()?.status_detail, IBKR_DETAIL.refused);
   assert.deepEqual(s.sessions.watchedIds(), [], "nothing left to wait for: the user logs in again with Reconnect");
+  assert.equal(s.stops(), 1, "the gateway that gave up is stopped, so Reconnect starts a fresh one");
+});
+
+test("an earlier refused login in a reused gateway's log does not end a new login", async () => {
+  const s = setup({ gatewayLog: REFUSED });
+  await s.manager.restart(s.cid);
+  s.sessions.watch(s.cid);
+  for (let i = 0; i < 4; i++) {
+    await s.sessions.tick(s.cid);
+    s.advance(7_000);
+  }
+  assert.equal(s.row()?.status, "pending", "still waiting for this login");
+  assert.deepEqual(s.sessions.watchedIds(), [s.cid]);
+  assert.equal(s.stops(), 0);
 });
 
 test("a pending login whose gateway log says nothing yet keeps waiting", async () => {
   const s = setup();
   await s.manager.restart(s.cid);
   s.sessions.watch(s.cid);
+  await s.sessions.tick(s.cid);
+  s.advance(7_000);
   await s.sessions.tick(s.cid);
   assert.equal(s.row()?.status, "pending");
   assert.deepEqual(s.sessions.watchedIds(), [s.cid]);

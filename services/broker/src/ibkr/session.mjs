@@ -65,6 +65,7 @@ const OUTCOME_EVERY_MS = 6_000;
  *   unauthSince: number | null,
  *   lastInitAt: number,
  *   lastOutcomeAt: number,
+ *   logMark: import("./gateway-manager.mjs").LogMark | null,
  *   failures: number,
  *   lastDetail: string | null | undefined,
  *   lastOkWrite: number,
@@ -126,6 +127,7 @@ export function createIbkrSessions(deps) {
       unauthSince: null,
       lastInitAt: 0,
       lastOutcomeAt: 0,
+      logMark: null,
       failures: 0,
       lastDetail: undefined,
       lastOkWrite: 0,
@@ -337,10 +339,16 @@ export function createIbkrSessions(deps) {
         // No session at all. If IBKR's page said the login succeeded but IBKR refused the session
         // (the gateway gives up after its own retries), say so instead of waiting for a login
         // that already happened.
+        // Only what the gateway logs after this watch began counts: a gateway reused by Reconnect
+        // still has the earlier login in its log, and that answer is not this login's.
         st.lastOutcomeAt = now();
-        if ((await manager.loginOutcome(cid)) === "refused") {
+        if (!st.logMark) {
+          st.logMark = await manager.logMark(cid);
+        } else if ((await manager.loginOutcome(cid, st.logMark)) === "refused") {
           log.warn("ibkr refused the session after a successful login", { connectionId: cid });
           await endSession(st, "error", IBKR_DETAIL.refused);
+          // That gateway gave up on the login; Reconnect starts a fresh one.
+          await manager.stop(cid).catch(() => {});
           return;
         }
       }
