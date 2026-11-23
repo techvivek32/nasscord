@@ -32,6 +32,8 @@ export const IBKR_DETAIL = Object.freeze({
   gatewayStopped: "The IBKR connection stopped unexpectedly. Log in again to continue.",
   gatewayRestarted: "The IBKR connection was restarted. Log in again to continue.",
   serviceRestarted: "The broker service restarted. Log in to IBKR again to continue.",
+  refused:
+    "IBKR accepted the login but did not open a session for Nasscord. This happens when the same IBKR username is logged in to another gateway or app, or when IBKR wants a security check. Log in once at interactivebrokers.com, close other IBKR sessions of this username (or use a second username for Nasscord), then press Reconnect.",
 });
 
 const FAST_POLL_MS = 3_000;
@@ -42,6 +44,8 @@ const INIT_NUDGE_EVERY_MS = 30_000;
 const BROKERAGE_DOWN_AFTER_MS = 5 * 60_000;
 /** this many failed cycles in a row (gateway not answering): restart = session loss */
 const MAX_FAILED_CYCLES = 3;
+/** while a login is pending, how often the gateway's own log is read for a refused session */
+const OUTCOME_EVERY_MS = 6_000;
 
 /**
  * @typedef {{
@@ -60,6 +64,7 @@ const MAX_FAILED_CYCLES = 3;
  *   lastCheckAt: number,
  *   unauthSince: number | null,
  *   lastInitAt: number,
+ *   lastOutcomeAt: number,
  *   failures: number,
  *   lastDetail: string | null | undefined,
  *   lastOkWrite: number,
@@ -120,6 +125,7 @@ export function createIbkrSessions(deps) {
       lastCheckAt: 0,
       unauthSince: null,
       lastInitAt: 0,
+      lastOutcomeAt: 0,
       failures: 0,
       lastDetail: undefined,
       lastOkWrite: 0,
@@ -327,6 +333,16 @@ export function createIbkrSessions(deps) {
         st.unauthSince = st.unauthSince ?? now();
         if (st.competing) await setDetail(st, IBKR_DETAIL.competing);
         else if (now() - st.unauthSince >= INIT_NUDGE_AFTER_MS) await nudgeInit(st, port);
+      } else if (now() - st.lastOutcomeAt >= OUTCOME_EVERY_MS) {
+        // No session at all. If IBKR's page said the login succeeded but IBKR refused the session
+        // (the gateway gives up after its own retries), say so instead of waiting for a login
+        // that already happened.
+        st.lastOutcomeAt = now();
+        if ((await manager.loginOutcome(cid)) === "refused") {
+          log.warn("ibkr refused the session after a successful login", { connectionId: cid });
+          await endSession(st, "error", IBKR_DETAIL.refused);
+          return;
+        }
       }
       if (wasAuthenticated !== st.authenticated) log.debug("ibkr auth changed", { connectionId: cid, authenticated: st.authenticated });
     } catch (e) {

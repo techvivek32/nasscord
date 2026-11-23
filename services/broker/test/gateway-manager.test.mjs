@@ -336,3 +336,25 @@ test("a gateway JVM gets no secret from the service's environment", () => {
   });
   assert.deepEqual(env, { PATH: "/usr/bin", HOME: "/opt/nasscord-broker", JAVA_HOME: "/usr/lib/jvm/java-17" });
 });
+
+test("gatewayLoginOutcome reads the gateway log after the last browser login", async () => {
+  const { gatewayLoginOutcome } = await import("../src/ibkr/gateway-manager.mjs");
+  const ok = "10:00 INFO GatewayHttpProxy : Client login succeeds\n10:00 INFO GatewayHttpProxy : authenticated to cp\n";
+  const refused = [
+    "10:00 INFO GatewayHttpProxy : Client login succeeds",
+    "10:00 ERROR GatewayHttpProxy : authentication to cp failed, retry 1",
+    "10:00 ERROR GatewayHttpProxy : authentication to cp failed, retry 5",
+    "10:00 INFO GatewayHttpProxy : giving up ...",
+  ].join("\n");
+  assert.equal(gatewayLoginOutcome(""), null, "no login yet");
+  assert.equal(gatewayLoginOutcome("10:00 INFO BaseServiceProxy : -> GET /sso/Login,200"), null);
+  assert.equal(gatewayLoginOutcome(ok), "ok");
+  assert.equal(gatewayLoginOutcome(refused), "refused");
+  assert.equal(
+    gatewayLoginOutcome("10:00 INFO GatewayHttpProxy : Client login succeeds\n10:00 ERROR GatewayHttpProxy : authentication to cp failed, retry 1\n"),
+    null,
+    "still retrying",
+  );
+  assert.equal(gatewayLoginOutcome(`${refused}\n${ok}`), "ok", "a later login that worked wins");
+  assert.equal(gatewayLoginOutcome(`${ok}${refused}`), "refused", "a later login that was refused wins");
+});

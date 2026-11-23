@@ -60,7 +60,8 @@ export function createGatewayHttp({ isSlotPort, limiter, timeoutMs = 15_000 }) {
         headers["content-length"] = payload.length;
       }
       const req = http.request(
-        { host: "127.0.0.1", port, method, path: `/v1/api${path}`, headers, agent: gatewayAgent, timeout: timeoutMs },
+        // insecureHTTPParser: the gateway sends bytes after `Connection: close` (loopback only).
+        { host: "127.0.0.1", port, method, path: `/v1/api${path}`, headers, agent: gatewayAgent, timeout: timeoutMs, insecureHTTPParser: true },
         (res) => {
           /** @type {Buffer[]} */
           const chunks = [];

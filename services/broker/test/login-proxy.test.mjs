@@ -4,6 +4,7 @@ import http from "node:http";
 import { after, before, test } from "node:test";
 import {
   browserResponseHeaders,
+  cookieNames,
   createLoginProxy,
   createLoginTokens,
   gatewayRequestHeaders,
@@ -431,4 +432,10 @@ test("after the login, / goes to the done page; websockets are refused", async (
   }
   const ws = await raw("GET", "/v1/api/ws", { cookie, headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==" } }).catch((e) => e);
   assert.ok(ws instanceof Error || ws.status === 403);
+});
+
+test("cookieNames lists the names of a Cookie header without values", () => {
+  assert.deepEqual(cookieNames("XYZAB=secret; nsibkr=abc.1.sig; XYZAB_AM.LOGIN=x=y; XYZAB=again"), ["XYZAB", "nsibkr", "XYZAB_AM.LOGIN", "XYZAB"]);
+  assert.deepEqual(cookieNames(undefined), []);
+  assert.deepEqual(cookieNames(""), []);
 });
