@@ -1343,3 +1343,25 @@ test("a disconnect keeps the duplicate checks, reconcile and cancel on the broke
     await h.close();
   }
 });
+
+test("before the order_entry migration the unconfirmed list is empty, not an error", async () => {
+  const { DbError } = await import("../src/db.mjs");
+  for (const [table, code] of [
+    ["workspaces", "42703"],
+    ["order_requests", "PGRST205"],
+  ]) {
+    const { h } = await setup();
+    try {
+      const select = h.db.select.bind(h.db);
+      h.db.select = async (/** @type {string} */ t, /** @type {any} */ opts) => {
+        if (t === table) throw new DbError("missing", { status: 400, code });
+        return select(t, opts);
+      };
+      const r = await h.req("/v1/orders/requests");
+      assert.equal(r.status, 200, `${table}: ${JSON.stringify(r.json)}`);
+      assert.deepEqual(r.json.requests, []);
+    } finally {
+      await h.close();
+    }
+  }
+});

@@ -82,6 +82,9 @@ const TIF_LABEL = /** @type {Record<string, string>} */ ({ DAY: "Day", GTC: "Goo
 const ROLES = ["superadmin", "trader", "tenant_user"];
 const OPEN_STATUSES = /** @type {const} */ (["sending", "placed", "unknown", "needs_confirmation"]);
 const NOT_PLACED = "Nothing was placed.";
+/** PostgREST and Postgres codes for a missing table or column: the order_entry migration has not run. */
+const MISSING_SCHEMA = new Set(["PGRST205", "PGRST204", "42P01", "42703"]);
+const NOT_SET_UP = "order_entry_not_set_up";
 
 // ─────────────────────────────────────────────────────────────── sentences
 
@@ -652,6 +655,7 @@ export function createOrderService(deps) {
       try {
         rows = await store.orderGate(wid, claims.sub);
       } catch (e) {
+        if (MISSING_SCHEMA.has(/** @type {any} */ (e)?.code)) throw fail(503, NOT_SET_UP, "Order entry is not set up on this server yet.");
         log.warn("order gate unreadable", { code: /** @type {any} */ (e)?.code ?? null });
         throw fail(503, "unavailable", "Nasscord could not check your workspace right now. Try again in a moment.");
       }
@@ -1547,14 +1551,31 @@ export function createOrderService(deps) {
     return { request: viewOf(saved, now()) };
   }
 
-  /** @param {Claims} claims */
+  /**
+   * The unconfirmed orders of the workspace. Before the order_entry migration (no orders_enabled
+   * column, no order_requests table) no order can have been placed, so the list is empty rather than
+   * an error that every terminal page would show.
+   * @param {Claims} claims
+   */
   async function requests(claims) {
-    await readGate(claims);
+    try {
+      await readGate(claims);
+    } catch (e) {
+      if (e instanceof HttpError && e.code === NOT_SET_UP) return { requests: [] };
+      throw e;
+    }
     const t = now();
-    const rows = await store.listOrderRequests(
-      { workspace_id: /** @type {string} */ (claims.wid), status: ["in", ["sending", "unknown"]], resolved_at: ["is", null], created_at: ["gte", isoOf(t - UNKNOWN_WINDOW_MS)] },
-      { limit: 20 },
-    );
+    /** @type {OrderRequestRow[]} */
+    let rows;
+    try {
+      rows = await store.listOrderRequests(
+        { workspace_id: /** @type {string} */ (claims.wid), status: ["in", ["sending", "unknown"]], resolved_at: ["is", null], created_at: ["gte", isoOf(t - UNKNOWN_WINDOW_MS)] },
+        { limit: 20 },
+      );
+    } catch (e) {
+      if (MISSING_SCHEMA.has(/** @type {any} */ (e)?.code)) return { requests: [] };
+      throw e;
+    }
     const due = rows
       .filter((r) => eligible(r, t, false))
       .sort((a, b) => (timeOf(a.reconciled_at) ?? 0) - (timeOf(b.reconciled_at) ?? 0))
