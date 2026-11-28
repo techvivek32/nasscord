@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { COMMISSION_PCT, getPlan } from "@/lib/plans";
 import { andList, brokerNames, publicBrokers, type PublicAvailability, type PublicBroker } from "@/lib/server/broker-availability";
 import { Button } from "@/components/ui/button";
 import { Container, Eyebrow, Section, SectionHead, Statement } from "@/components/marketing/container";
@@ -13,7 +12,6 @@ import { FaqList, type FaqItem } from "@/components/marketing/faq";
 import { Audiences, FeaturesGrid, Principles } from "@/components/marketing/features-grid";
 import { delay, reveal } from "@/components/marketing/motion";
 import { PlatformSetup } from "@/components/marketing/platform-setup";
-import { PricingPlans } from "@/components/marketing/pricing-plans";
 import { CountUp } from "@/components/marketing/reveal";
 import { RiskCalculator } from "@/components/marketing/risk-calculator";
 import { SecurityControlList, SOFTWARE_DISCLAIMER } from "@/components/marketing/security-controls";
@@ -100,7 +98,6 @@ function paperAnswer(a: PublicAvailability): string {
 }
 
 function buildFaq(a: PublicAvailability): FaqItem[] {
-  const starter = getPlan("starter");
   return [
     {
       q: "Which brokers can I connect?",
@@ -129,10 +126,6 @@ function buildFaq(a: PublicAvailability): FaqItem[] {
     {
       q: "Can I connect a paper account?",
       a: paperAnswer(a),
-    },
-    {
-      q: "Is there a free plan?",
-      a: `Yes. ${starter.name} is $${starter.monthly}. Billing is not switched on in this release, so no plan is charged, no card is asked for and plan limits are not enforced yet.`,
     },
     {
       q: "What about TradeScope alerts and the scanner?",
@@ -191,7 +184,7 @@ export default async function HomePage() {
             </p>
             <div className="flex animate-site-rise flex-wrap items-center gap-x-8 gap-y-4" style={delay(420)}>
               <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/signup" />}>
-                Start free
+                Sign up
                 <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-1" />
               </Button>
               <Link href="#features" className="site-link text-base">
@@ -328,27 +321,15 @@ export default async function HomePage() {
         </Container>
       </Section>
 
-      {/* 08 Pricing */}
-      <Section id="pricing">
-        <Container className="grid gap-12">
-          <SectionHead index={8} eyebrow="Pricing" title={<>Simple plans. Your broker bills the <em>commissions</em>.</>} lede="Starter is free. Billing is not switched on in this release, so no plan is charged and no card is asked for." className="mb-0 sm:mb-0" />
-          <PricingPlans />
-          <Link href="/pricing" className="site-link w-fit">
-            Compare every plan feature
-            <ArrowRight aria-hidden="true" className="size-4" />
-          </Link>
-        </Container>
-      </Section>
-
-      {/* 09 Tenants */}
-      <Section id="tenants" tone="band">
+      {/* 08 Tenants */}
+      <Section id="tenants">
         <Container>
           <div className="mb-14 grid gap-8 lg:grid-cols-2 lg:items-end">
-            <SectionHead index={9} eyebrow="Tenants" title={<>Bring traders. Earn on <em>every one</em>.</>} className="mb-0 sm:mb-0" />
+            <SectionHead index={8} eyebrow="Tenants" title={<>Bring your traders to one <em>terminal</em>.</>} className="mb-0 sm:mb-0" />
             <div className="grid gap-6 lg:justify-self-end" {...reveal(120)}>
               <p className="max-w-[30rem] text-lg leading-relaxed text-muted-foreground">
-                Newsletters, educators, communities and advisory firms give traders their own code. Once billing is on, they earn {COMMISSION_PCT}% of those traders&apos; subscriptions for as
-                long as they stay. White-label is the add-on.
+                Newsletters, educators, communities and advisory firms give traders their own code. The traders who sign up with it join the tenant and show up in its
+                portal. White-label is the add-on.
               </p>
               <div className="flex flex-wrap items-center gap-x-7 gap-y-3">
                 <Button size="lg" className="group/cta h-12 rounded-[2px] px-6 text-base" render={<Link href="/tenants#apply" />}>
@@ -366,10 +347,10 @@ export default async function HomePage() {
         </Container>
       </Section>
 
-      {/* 10 Security */}
-      <Section id="security">
+      {/* 09 Security */}
+      <Section id="security" tone="band">
         <Container className="grid gap-12">
-          <SectionHead index={10} eyebrow="Security" title={<>Built like <em>infrastructure</em>.</>} lede="Plain statements about how the system behaves. No badges, no vague promises." className="mb-0 sm:mb-0" />
+          <SectionHead index={9} eyebrow="Security" title={<>Built like <em>infrastructure</em>.</>} lede="Plain statements about how the system behaves. No badges, no vague promises." className="mb-0 sm:mb-0" />
           <SecurityControlList />
           <div className="flex flex-wrap items-center justify-between gap-4" {...reveal()}>
             <p className="max-w-xl font-medium">{SOFTWARE_DISCLAIMER}</p>
@@ -381,10 +362,10 @@ export default async function HomePage() {
         </Container>
       </Section>
 
-      {/* 11 Questions */}
+      {/* 10 Questions */}
       <Section id="faq">
         <Container className="grid gap-12 lg:grid-cols-[minmax(0,24rem)_1fr] lg:gap-20">
-          <SectionHead index={11} eyebrow="Questions" title={<>The things traders ask <em>first</em>.</>} lede="If something is still unclear, the brokers, pricing and security pages go a level deeper." className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
+          <SectionHead index={10} eyebrow="Questions" title={<>The things traders ask <em>first</em>.</>} lede="If something is still unclear, the brokers, tenants and security pages go a level deeper." className="mb-0 h-fit sm:mb-0 lg:sticky lg:top-28" />
           <div {...reveal(100)}>
             <FaqList items={faq} />
           </div>

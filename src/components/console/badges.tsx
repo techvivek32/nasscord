@@ -1,9 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { TONE_BADGE } from "@/components/status-dot";
-import { PLAN_LABEL } from "@/lib/plans";
-import type { ConnectionStatus, PlanId, Role, TenantApplicationStatus, TenantStatus, WorkspaceStatus } from "@/lib/types";
+import type { ConnectionStatus, Role, TenantApplicationStatus, TenantStatus, WorkspaceStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { APPLICATION_STATUS, CONNECTION_STATUS, PLAN_TONE, ROLE_LABEL, TENANT_STATUS, WORKSPACE_STATUS, type Tone } from "./lib";
+import { APPLICATION_STATUS, CONNECTION_STATUS, ROLE_LABEL, TENANT_STATUS, WORKSPACE_STATUS, type Tone } from "./lib";
 
 export function ToneBadge({ tone, children, className }: { tone: Tone; children: React.ReactNode; className?: string }) {
   return (
@@ -49,14 +48,6 @@ export function WhiteLabelBadge({ on, compact = false, className }: { on: boolea
   return (
     <ToneBadge tone={on ? "brand" : "neutral"} className={className}>
       {compact ? (on ? "On" : "Off") : on ? "White-label" : "No white-label"}
-    </ToneBadge>
-  );
-}
-
-export function PlanBadge({ plan, className }: { plan: PlanId; className?: string }) {
-  return (
-    <ToneBadge tone={PLAN_TONE[plan]} className={className}>
-      {PLAN_LABEL[plan]}
     </ToneBadge>
   );
 }

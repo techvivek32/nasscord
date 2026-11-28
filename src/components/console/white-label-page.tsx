@@ -204,7 +204,7 @@ function BrandingDialog({ tenant, mode, fallbackHost, onClose }: { tenant: Tenan
         <DialogHeader>
           <DialogTitle>{grant ? `Grant white-label to ${tenant.name}` : `Edit ${tenant.name}'s branding`}</DialogTitle>
           <DialogDescription>
-            {grant ? `Saves this brand and turns white-label on. Commission stays at ${tenant.commissionPct}%.` : "Saved to the tenant. Their traders see it on their next page load."}
+            {grant ? "Saves this brand and turns white-label on." : "Saved to the tenant. Their traders see it on their next page load."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 md:grid-cols-2">
@@ -311,7 +311,7 @@ function RevokeDialog({ tenant, appDomain, onClose }: { tenant: Tenant | undefin
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Revoke white-label for {tenant?.name}?</DialogTitle>
-          <DialogDescription>Their traders go back to the Nasscord brand. Their commission does not change.</DialogDescription>
+          <DialogDescription>Their traders go back to the Nasscord brand. Their referral code and their traders do not change.</DialogDescription>
         </DialogHeader>
         <ul className="grid gap-1.5 text-xs text-muted-foreground">
           {domain ? <li>{domain} stops serving their brand; traders sign in on their {appDomain} subdomains.</li> : null}

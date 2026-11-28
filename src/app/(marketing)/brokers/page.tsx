@@ -256,7 +256,7 @@ export default async function BrokersPage() {
         </Container>
       </Section>
 
-      <CtaBand title={<>Connect your first <em>broker</em>.</>} lede={`Starter is free and no card is asked for. ${ctaNames}`} />
+      <CtaBand title={<>Connect your first <em>broker</em>.</>} lede={`No card is asked for. ${ctaNames}`} />
     </>
   );
 }

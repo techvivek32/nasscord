@@ -8,10 +8,9 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import type { BrokerServiceStatus } from "@/lib/server/console";
 import { BROKERS } from "@/lib/brokers";
 import { fmtNum } from "@/lib/format";
-import { PLANS } from "@/lib/plans";
 import { ROLES } from "@/lib/roles";
 import type { PlatformCounts, Workspace } from "@/lib/types";
-import { PlanBadge, ToneBadge } from "./badges";
+import { ToneBadge, WorkspaceStatusBadge } from "./badges";
 import { CONNECTION_STATUS, CONNECTION_STATUSES, fmtDay, ROLE_LABEL, WORKSPACE_STATUS, WORKSPACE_STATUSES } from "./lib";
 import { KV } from "./primitives";
 import { ServiceFacts } from "./service-status";
@@ -33,7 +32,7 @@ export function Overview({ counts, service, recent, checkedAt }: { counts: Platf
         <StatCard label="Broker requests" value={fmtNum(counts.brokerRequests)} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Traders by status</CardTitle>
@@ -46,15 +45,6 @@ export function Overview({ counts, service, recent, checkedAt }: { counts: Platf
           </CardHeader>
           <CardContent>
             <KV items={WORKSPACE_STATUSES.map((s) => ({ label: WORKSPACE_STATUS[s].label, value: fmtNum(counts.workspacesByStatus[s]) }))} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Traders by plan</CardTitle>
-            <CardDescription>The plan stored on each workspace. Billing is not connected.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <KV items={PLANS.map((p) => ({ label: p.name, value: fmtNum(counts.workspacesByPlan[p.id]) }))} />
           </CardContent>
         </Card>
         <Card>
@@ -126,47 +116,36 @@ export function Overview({ counts, service, recent, checkedAt }: { counts: Platf
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Newest traders</CardTitle>
-            <CardDescription>The last workspaces created.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {recent.length === 0 ? (
-              <EmptyState title="No traders yet" description="Workspaces appear here when someone finishes signup." />
-            ) : (
-              <ul className="divide-y divide-border">
-                {recent.map((w) => (
-                  <li key={w.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <Link href={`/admin/traders/${w.id}`} className="block truncate text-sm font-medium hover:underline">
-                        {w.name}
-                      </Link>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {w.owner.email || "No owner on file"} · {fmtDay(w.createdAt)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <BrokerMarks ids={w.brokers} max={3} />
-                      <PlanBadge plan={w.plan} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue</CardTitle>
-            <CardDescription>MRR, churn and payouts.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EmptyState title="Billing is not connected" description="Stripe is not connected yet, so there is no revenue, MRR or churn to show." />
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Newest traders</CardTitle>
+          <CardDescription>The last workspaces created.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recent.length === 0 ? (
+            <EmptyState title="No traders yet" description="Workspaces appear here when someone finishes signup." />
+          ) : (
+            <ul className="divide-y divide-border">
+              {recent.map((w) => (
+                <li key={w.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="min-w-0">
+                    <Link href={`/admin/traders/${w.id}`} className="block truncate text-sm font-medium hover:underline">
+                      {w.name}
+                    </Link>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {w.owner.email || "No owner on file"} · {fmtDay(w.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <BrokerMarks ids={w.brokers} max={3} />
+                    <WorkspaceStatusBadge status={w.status} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

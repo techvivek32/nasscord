@@ -7,7 +7,7 @@ import { BrokerMarks } from "@/components/brokers/broker-mark";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { User, Workspace } from "@/lib/types";
-import { fmtDay, PlanBadge, WorkspaceStatusBadge } from "./primitives";
+import { fmtDay, WorkspaceStatusBadge } from "./primitives";
 
 /** A tenant workspace with the host its traders sign in on, resolved on the server. */
 export type TenantTraderRow = Workspace & { host: string };
@@ -37,7 +37,6 @@ const WORKSPACE_COLUMNS: ColumnDef<TenantTraderRow>[] = [
       </div>
     ),
   },
-  { accessorKey: "plan", header: "Plan", cell: ({ row }) => <PlanBadge plan={row.original.plan} /> },
   {
     id: "brokers",
     accessorFn: (w) => w.brokers.join(" "),

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { PlanId } from "@/lib/types";
 
 /* ------------------------------------------------------------------
    Account, workspace and settings rules shared by the signup wizard,
@@ -61,10 +60,6 @@ export type TimezoneId = (typeof TIMEZONES)[number]["value"];
 export const TIMEZONE_IDS = TIMEZONES.map((t) => t.value) as [TimezoneId, ...TimezoneId[]];
 export const DEFAULT_TIMEZONE: TimezoneId = "America/New_York";
 
-/** Plans offered during self-serve signup. Enterprise goes through the tenant program (white-label). */
-export const SIGNUP_PLAN_IDS = ["starter", "pro", "desk"] as const satisfies ReadonlyArray<PlanId>;
-export type SignupPlanId = (typeof SIGNUP_PLAN_IDS)[number];
-
 /** Subdomains the platform keeps for itself. "partner" and "partners" stay reserved: they were route names before the tenant rename. */
 export const RESERVED_SLUGS = new Set([
   "www", "app", "api", "admin", "auth", "tenant", "tenants", "traders", "partner", "partners", "login", "signup",
@@ -82,7 +77,6 @@ export const workspaceSchema = z.object({
   name: z.string().trim().min(2, "Give your workspace a name").max(48, "Keep it under 48 characters"),
   slug: slugSchema,
   timezone: z.enum(TIMEZONE_IDS),
-  plan: z.enum(SIGNUP_PLAN_IDS),
 });
 export type WorkspaceValues = z.infer<typeof workspaceSchema>;
 

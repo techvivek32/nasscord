@@ -7,7 +7,6 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { LoaderCircleIcon, MailIcon } from "lucide-react";
-import { EmptyState } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,15 +25,15 @@ export type EditableSettings = Omit<SettingsValues, "defaultAccountId">;
 
 export interface SettingsProps {
   user: { name: string; email: string };
-  workspace: { name: string; planLabel: string; timezone: string };
+  workspace: { name: string; timezone: string };
   settings: EditableSettings;
 }
 
-type Tab = "profile" | "notifications" | "risk" | "security" | "billing";
+type Tab = "profile" | "notifications" | "risk" | "security";
 
 /**
  * /app/settings. Profile shows who is signed in; Notifications and Risk save to user_settings through
- * saveUserSettings; Security sends a password reset email; Billing has no source yet.
+ * saveUserSettings; Security sends a password reset email.
  */
 export function SettingsTabs({ user, workspace, settings }: SettingsProps) {
   const [tab, setTab] = React.useState<Tab>("profile");
@@ -48,7 +47,6 @@ export function SettingsTabs({ user, workspace, settings }: SettingsProps) {
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="risk">Risk</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
       </div>
       <TabsContent value="profile">
@@ -62,9 +60,6 @@ export function SettingsTabs({ user, workspace, settings }: SettingsProps) {
       </TabsContent>
       <TabsContent value="security">
         <SecurityPanel email={user.email} />
-      </TabsContent>
-      <TabsContent value="billing">
-        <EmptyState className="max-w-2xl" title="Billing is not connected yet" description={`Your workspace is on the ${workspace.planLabel} plan. Invoices, payment methods and plan changes appear here once billing is connected.`} />
       </TabsContent>
     </Tabs>
   );

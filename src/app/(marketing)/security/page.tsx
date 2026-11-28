@@ -69,7 +69,7 @@ const ACCESS = [
 
 const STORE = [
   "Your name, email and role; your password is held as a hash by the sign-in provider (Supabase Auth)",
-  "Your workspace, its plan and your settings",
+  "Your workspace and your settings",
   "For tenants: the tenant's name, referral code and branding",
   "Your broker connections: broker, environment, status and when the session ends",
   "Your broker accounts as the broker labels them, with the masked account number shown on screen and whether each one counts in your book",
@@ -86,7 +86,7 @@ const NEVER = [
   "Broker passwords or second-factor codes",
   "Positions, balances, executions, or orders you place in your broker's own app: they are read from the broker when you open a page and kept in the broker service's memory for a short time (seconds to minutes for most brokers; through SnapTrade up to 30 minutes, and past executions up to a day)",
   "Bank details, Social Security numbers or tax documents",
-  "Card numbers: billing is not switched on in this release",
+  "Card numbers: Nasscord does not ask for a card",
 ];
 
 const ACCOUNT = [
@@ -308,7 +308,7 @@ export default async function SecurityPage() {
                   Orders you confirm in Nasscord go to your broker as you confirmed them. Nasscord does not guarantee that a broker receives or fills an order;
                   check your broker when Nasscord says an outcome is unconfirmed.
                 </li>
-                <li>Billing is not switched on in this release. Once it is, subscriptions bill monthly or yearly in USD and can be cancelled at any time.</li>
+                <li>Pricing is coming soon. Nasscord does not ask for a card or bill you in this release.</li>
                 <li>You may not use the service to violate a broker&apos;s terms, to trade on behalf of others without authority, or to attack the platform.</li>
                 <li>Either party can end the agreement; we give 30 days notice for material changes to these terms.</li>
               </ul>

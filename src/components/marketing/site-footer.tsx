@@ -15,7 +15,7 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; href: string
   {
     title: "Tenants",
     links: [
-      { label: "Commission", href: "/tenants#commission" },
+      { label: "Referrals", href: "/tenants#referrals" },
       { label: "White-label", href: "/tenants#white-label" },
       { label: "Tenant portal", href: "/tenant" },
     ],

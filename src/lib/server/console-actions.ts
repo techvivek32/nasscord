@@ -11,7 +11,7 @@ import { PORTAL_TENANT_COOKIE } from "@/lib/server/tenant";
 import { isMissingColumn } from "@/lib/server/rows";
 import { brandingSchema, type BrandingInput } from "@/lib/branding";
 import type { ActionResult } from "@/lib/signup";
-import type { PlanId, Session, TenantApplicationStatus, WorkspaceStatus } from "@/lib/types";
+import type { Session, TenantApplicationStatus, WorkspaceStatus } from "@/lib/types";
 
 /*
  * Super admin writes for the console. Each action checks the caller's members row again (role
@@ -41,7 +41,6 @@ function done(path: string) {
 }
 
 const workspaceStatus = z.enum(["active", "trial", "past_due", "suspended"]);
-const planId = z.enum(["starter", "pro", "desk", "enterprise"]);
 
 export async function setWorkspaceStatus(workspaceId: string, status: WorkspaceStatus): Promise<ActionResult> {
   const actor = await superadmin("workspace.status.update", workspaceId);
@@ -53,20 +52,6 @@ export async function setWorkspaceStatus(workspaceId: string, status: WorkspaceS
   if (error) return { ok: false, error: "We could not change the status. Try again." };
   if (!data) return { ok: false, error: "That workspace no longer exists." };
   await audit({ actorUserId: actor.uid, actorEmail: actor.email, workspaceId: id.data, action: "workspace.status.update", target: `${data.slug} · ${next.data}` });
-  done("/admin");
-  return { ok: true };
-}
-
-export async function setWorkspacePlan(workspaceId: string, plan: PlanId): Promise<ActionResult> {
-  const actor = await superadmin("workspace.plan.update", workspaceId);
-  if (!isSession(actor)) return actor;
-  const id = uuid.safeParse(workspaceId);
-  const next = planId.safeParse(plan);
-  if (!id.success || !next.success) return { ok: false, error: "Pick a workspace and a valid plan." };
-  const { data, error } = await createAdminClient().from("workspaces").update({ plan: next.data }).eq("id", id.data).select("slug").maybeSingle();
-  if (error) return { ok: false, error: "We could not change the plan. Try again." };
-  if (!data) return { ok: false, error: "That workspace no longer exists." };
-  await audit({ actorUserId: actor.uid, actorEmail: actor.email, workspaceId: id.data, action: "workspace.plan.update", target: `${data.slug} · ${next.data}` });
   done("/admin");
   return { ok: true };
 }
@@ -179,7 +164,6 @@ const createTenantSchema = z.object({
     .regex(/^[A-Z0-9-]{3,24}$/, "Codes are 3 to 24 letters, numbers or hyphens")
     .optional()
     .or(z.literal("").transform(() => undefined)),
-  commissionPct: z.number().min(0, "Commission is 0% or more").max(100, "Commission is at most 100%").optional(),
   whiteLabel: z.boolean().optional(),
   /** An existing member who becomes the tenant's login (role "tenant"). They must have signed up already. */
   ownerEmail: z.email("Enter a valid owner email").optional().or(z.literal("").transform(() => undefined)),
@@ -237,7 +221,6 @@ export async function createTenant(input: CreateTenantInput): Promise<ActionResu
       name: v.name,
       slug: v.slug,
       status: "active",
-      ...(v.commissionPct !== undefined ? { commission_pct: v.commissionPct } : {}),
       white_label: v.whiteLabel ?? false,
       referral_code: v.referralCode ?? null,
       owner_id: owner?.user_id ?? null,

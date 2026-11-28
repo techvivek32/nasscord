@@ -15,7 +15,7 @@ export default async function TradersPage() {
   });
   return (
     <>
-      <PageHeader title="Traders" description="Every trading workspace, organic or through a tenant. Open one to see its members and broker connections, or to change its plan, its status or order entry." />
+      <PageHeader title="Traders" description="Every trading workspace, organic or through a tenant. Open one to see its members and broker connections, or to change its status or order entry." />
       <TradersTable rows={rows} orderFlags={orderFlags} />
     </>
   );

@@ -5,7 +5,6 @@ import type {
   ConnectionEnvironment,
   ConnectionMethod,
   ConnectionStatus,
-  PlanId,
   Tenant,
   TenantApplicationStatus,
   TenantStatus,
@@ -60,13 +59,6 @@ export const ENVIRONMENT_LABEL: Record<ConnectionEnvironment, string> = {
 };
 
 export { ROLE_LABEL } from "@/lib/roles";
-
-export const PLAN_TONE: Record<PlanId, Tone> = {
-  starter: "neutral",
-  pro: "brand",
-  desk: "good",
-  enterprise: "warn",
-};
 
 /** Where a workspace's terminal lives: its white-label tenant's domain, else its own subdomain. */
 export function workspaceHostFor(workspace: Pick<Workspace, "slug">, tenant: Tenant | null | undefined) {

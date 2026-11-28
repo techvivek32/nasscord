@@ -5,7 +5,6 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CheckCircle2, CircleAlert } from "lucide-react";
-import { WHITE_LABEL_FEE } from "@/lib/plans";
 import { submitTenantApplication, type TenantApplicationInput } from "@/lib/server/public-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +24,7 @@ const schema = z.object({
     (v) => (v === "" || v === null || v === undefined ? undefined : v),
     z.coerce.number({ error: "Enter a number." }).int("Whole numbers only.").min(1, "At least 1 trader.").max(100_000, "Talk to us directly for more than 100,000 traders.").optional(),
   ),
-  /** Commission comes with every tenant; white-label is asked for here and decided by Nasscord. */
+  /** Referrals come with every tenant; white-label is asked for here and decided by Nasscord. */
   wantsWhiteLabel: z.boolean(),
   notes: z.string().trim().max(1000, "Keep notes under 1,000 characters.").optional(),
 });
@@ -152,7 +151,7 @@ export function TenantApplyForm({ defaultWhiteLabel = false, className }: { defa
                 <span className="grid gap-0.5">
                   <span className="text-sm font-medium">Also apply for white-label</span>
                   <span className="text-xs leading-relaxed text-muted-foreground">
-                    Your name, accent colors and domain on the terminal, from ${WHITE_LABEL_FEE}/mo plus per-seat once billing is switched on. Nasscord reviews it separately.
+                    Your name, accent colors and domain on the terminal. Nasscord reviews it separately.
                   </span>
                 </span>
               </Label>

@@ -1,5 +1,4 @@
 import { reconnectWarnHours } from "@/lib/broker-connect";
-import { getPlan } from "@/lib/plans";
 import type {
   AccountType,
   AuditEvent,
@@ -10,7 +9,6 @@ import type {
   ConnectionEnvironment,
   ConnectionMethod,
   ConnectionStatus,
-  PlanId,
   Role,
   Tenant,
   TenantApplication,
@@ -27,7 +25,8 @@ import type {
 /*
  * Row shapes of supabase/migrations/20261103120000_init.sql (and 20261116120000_more_brokers.sql for
  * the broker tables) and their mapping to the domain types in src/lib/types.ts. Pure functions: server
- * modules and route handlers share them.
+ * modules and route handlers share them. The app does not read workspaces.plan or tenants.commission_pct:
+ * the columns keep their database defaults and nothing shows them.
  */
 
 if (typeof window !== "undefined") throw new Error("src/lib/server is server only.");
@@ -37,7 +36,6 @@ export interface TenantRow {
   slug: string;
   name: string;
   status: TenantStatus;
-  commission_pct: number | string;
   white_label: boolean;
   branding: Partial<TenantBranding> | null;
   referral_code: string | null;
@@ -49,7 +47,6 @@ export interface WorkspaceRow {
   id: string;
   slug: string;
   name: string;
-  plan: PlanId;
   status: WorkspaceStatus;
   tenant_id: string | null;
   timezone: string;
@@ -146,8 +143,8 @@ export interface AuditEventRow {
 }
 
 /** Columns for the select lists, kept next to the row shapes. */
-export const TENANT_COLUMNS = "id, slug, name, status, commission_pct, white_label, branding, referral_code, owner_id, created_at";
-export const WORKSPACE_COLUMNS = "id, slug, name, plan, status, tenant_id, timezone, owner_id, created_at";
+export const TENANT_COLUMNS = "id, slug, name, status, white_label, branding, referral_code, owner_id, created_at";
+export const WORKSPACE_COLUMNS = "id, slug, name, status, tenant_id, timezone, owner_id, created_at";
 export const MEMBER_COLUMNS = "user_id, role, workspace_id, tenant_id, full_name, email, created_at";
 /**
  * broker_connections columns the app reads. external_ref (the broker-side identity) is never read by
@@ -197,7 +194,6 @@ export function toTenant(row: TenantRow, extra: { workspaces?: number; contact?:
     ...(extra.contact ? { contact: extra.contact } : {}),
     ...(row.owner_id ? { ownerId: row.owner_id } : {}),
     workspaces: extra.workspaces ?? 0,
-    commissionPct: Number(row.commission_pct),
     status: row.status,
     ...(row.referral_code ? { referralCode: row.referral_code } : {}),
     createdAt: row.created_at,
@@ -207,16 +203,13 @@ export function toTenant(row: TenantRow, extra: { workspaces?: number; contact?:
 }
 
 export function toWorkspace(row: WorkspaceRow, extra: { owner?: { name: string; email: string }; seats?: number; brokers?: BrokerId[] } = {}): Workspace {
-  const seats = getPlan(row.plan).limits.seats;
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    plan: row.plan,
     status: row.status,
     createdAt: row.created_at,
     seats: extra.seats ?? 0,
-    ...(typeof seats === "number" ? { seatLimit: seats } : {}),
     brokers: extra.brokers ?? [],
     ...(row.tenant_id ? { tenantId: row.tenant_id } : {}),
     owner: extra.owner ?? { name: "", email: "" },

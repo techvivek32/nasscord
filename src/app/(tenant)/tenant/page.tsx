@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Overview · Tenant portal" };
 
 export default async function TenantOverviewPage() {
   const { session, tenant } = await loadPortal();
-  const header = <PageHeader title="Overview" description="The traders who came through your code, your commission rate and your referral link." />;
+  const header = <PageHeader title="Overview" description="The traders who came through your code and your referral link." />;
   if (!tenant) {
     return (
       <>

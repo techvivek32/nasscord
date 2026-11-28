@@ -4,13 +4,30 @@ import { TenantTheme } from "@/components/tenant-theme";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/**
+ * The two parts of the tenant program, in the order the public pages show them. "commission" is the database's id
+ * of the part every tenant gets (tenant_applications.offer); on screen it is Referrals.
+ */
+export const TENANT_PROGRAM: Array<{ id: TenantOfferId; name: string; summary: string }> = [
+  {
+    id: "commission",
+    name: "Referrals",
+    summary: "Bring traders to Nasscord with a code and a link of your own. The traders who sign up with them join your tenant.",
+  },
+  {
+    id: "white_label",
+    name: "White-label",
+    summary: "Your brand on the terminal your traders use. Nasscord runs the broker connections and the infrastructure.",
+  },
+];
+
 /** Section anchors on /tenants. Shared so the home blocks and the footer link to the same ids. */
 export const TENANT_ANCHOR: Record<TenantOfferId, string> = {
-  commission: "commission",
+  commission: "referrals",
   white_label: "white-label",
 };
 
-/** Short label for who gets each offer: commission comes with every tenant, white-label is granted on top. */
+/** Short label for who gets each part: referrals come with every tenant, white-label is granted on top. */
 export const TENANT_OFFER_BADGE: Record<TenantOfferId, string> = {
   commission: "Every tenant",
   white_label: "Add-on",

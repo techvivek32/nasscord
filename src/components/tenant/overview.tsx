@@ -7,58 +7,45 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { fmtNum } from "@/lib/format";
 import type { Tenant, User, Workspace } from "@/lib/types";
 import { CopyField } from "./copy-field";
-import { fmtDay, PlanBadge } from "./primitives";
+import { fmtDay, WorkspaceStatusBadge } from "./primitives";
 
-/** The tenant's own numbers: traders that came through its code, tenant users, commission rate, the referral link. */
+/** The tenant's own numbers: traders that came through its code, tenant users, white-label, the referral link. */
 export function TenantOverview({ tenant, workspaces, members, link }: { tenant: Tenant; workspaces: Workspace[]; members: User[]; link: string | null }) {
   const tenantUsers = members.filter((m) => m.role === "tenant_user").length;
   const recent = workspaces.slice(0, 5);
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Traders" value={fmtNum(workspaces.length)} hint={<span className="text-[11px] text-muted-foreground">workspaces</span>} />
         <StatCard label="Tenant users" value={fmtNum(tenantUsers)} hint={<span className="text-[11px] text-muted-foreground">can sign in</span>} />
-        <StatCard label="Commission" value={`${tenant.commissionPct}%`} hint={<span className="text-[11px] text-muted-foreground">of subscriptions</span>} />
         <StatCard label="White-label" value={tenant.whiteLabel ? "On" : "Off"} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Your referral link</CardTitle>
-            <CardDescription>While your tenant is active, a trader who signs up with your code joins your tenant and counts as yours.</CardDescription>
-            <CardAction>
-              <Button variant="ghost" size="sm" render={<Link href="/tenant/referrals" />}>
-                Referrals
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {tenant.referralCode && link ? (
-              <>
-                <CopyField id="overview-code" label="Code" value={tenant.referralCode} />
-                <CopyField id="overview-link" label="Link" value={link} />
-                {tenant.status !== "active" ? (
-                  <p className="text-sm text-warn-foreground">Your tenant is not active, so signup does not accept this code right now. Write to Nasscord&apos;s super admin.</p>
-                ) : null}
-              </>
-            ) : (
-              <EmptyState title="No referral code yet" description="Your tenant has no referral code. Write to Nasscord's super admin to have one added." />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Payouts</CardTitle>
-            <CardDescription>Commission on your traders&apos; subscriptions.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EmptyState title="Payouts are not connected yet" description="Billing is not connected, so no commission has been earned or paid." />
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Your referral link</CardTitle>
+          <CardDescription>While your tenant is active, a trader who signs up with your code joins your tenant and counts as yours.</CardDescription>
+          <CardAction>
+            <Button variant="ghost" size="sm" render={<Link href="/tenant/referrals" />}>
+              Referrals
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {tenant.referralCode && link ? (
+            <>
+              <CopyField id="overview-code" label="Code" value={tenant.referralCode} />
+              <CopyField id="overview-link" label="Link" value={link} />
+              {tenant.status !== "active" ? (
+                <p className="text-sm text-warn-foreground">Your tenant is not active, so signup does not accept this code right now. Write to Nasscord&apos;s super admin.</p>
+              ) : null}
+            </>
+          ) : (
+            <EmptyState title="No referral code yet" description="Your tenant has no referral code. Write to Nasscord's super admin to have one added." />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -85,7 +72,7 @@ export function TenantOverview({ tenant, workspaces, members, link }: { tenant: 
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <BrokerMarks ids={w.brokers} max={3} />
-                    <PlanBadge plan={w.plan} />
+                    <WorkspaceStatusBadge status={w.status} />
                   </div>
                 </li>
               ))}

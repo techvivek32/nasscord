@@ -5,46 +5,33 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckIcon, LoaderCircleIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { checkSlugAvailable, createWorkspace, signOut } from "@/lib/auth-actions";
 import { APP_DOMAIN } from "@/lib/branding";
 import { maskEmail, slugify } from "@/lib/format";
-import { PLANS } from "@/lib/plans";
-import type { Plan } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { RESERVED_SLUGS, SIGNUP_PLAN_IDS, TIMEZONES, type SignupPlanId, type TimezoneId } from "@/components/onboarding/data";
+import { RESERVED_SLUGS, TIMEZONES, type TimezoneId } from "@/components/onboarding/data";
 import { workspaceSchema, type WorkspaceValues } from "@/components/onboarding/schemas";
 import { FieldError, FieldHint, StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { useSignupStore } from "@/components/onboarding/store";
 
 const TIMEZONE_ITEMS = TIMEZONES.map((t) => ({ value: t.value, label: t.label }));
-const SIGNUP_PLANS = SIGNUP_PLAN_IDS.map((id) => PLANS.find((p) => p.id === id)).filter((p): p is Plan => p !== undefined);
 
 /** What a trader types in the subdomain field, normalised while typing (trailing hyphens allowed mid-edit). */
 function normaliseSlugInput(v: string) {
   return v.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-{2,}/g, "-").slice(0, 32);
 }
 
-/** List price only: billing is not switched on in this release, so nothing is charged and there is no trial clock. */
-function priceLine(plan: Plan) {
-  if (plan.monthly === 0) return "$0, no card required";
-  return `$${plan.monthly}/mo list price, not charged`;
-}
-
 type SlugCheck = { state: "idle" | "checking" | "available" | "taken" | "error"; slug: string; message?: string };
 
 /**
- * Step 2: workspace name, subdomain, timezone and plan. The subdomain is checked against the database
+ * Step 2: workspace name, subdomain and timezone. The subdomain is checked against the database
  * while typing; "Create workspace" creates it (createWorkspace) and makes the user its owner.
- * `brandActive`: joining a white-label tenant, which sets the pricing.
  */
-export function StepWorkspace({ tenantName, brandActive }: { tenantName: string | null; brandActive: boolean }) {
+export function StepWorkspace() {
   const workspace = useSignupStore((s) => s.workspace);
   const tenantCode = useSignupStore((s) => s.account.tenantCode);
   const email = useSignupStore((s) => s.account.email);
@@ -58,7 +45,7 @@ export function StepWorkspace({ tenantName, brandActive }: { tenantName: string 
   const form = useForm<WorkspaceValues>({
     resolver: zodResolver(workspaceSchema),
     mode: "onTouched",
-    defaultValues: { name: workspace.name, slug: workspace.slug, timezone: workspace.timezone, plan: workspace.plan },
+    defaultValues: { name: workspace.name, slug: workspace.slug, timezone: workspace.timezone },
   });
   const { register, handleSubmit, control, setValue, setError, formState } = form;
   const { errors, isSubmitting } = formState;
@@ -66,12 +53,11 @@ export function StepWorkspace({ tenantName, brandActive }: { tenantName: string 
   const name = useWatch({ control, name: "name" }) ?? "";
   const slug = useWatch({ control, name: "slug" }) ?? "";
   const timezone = useWatch({ control, name: "timezone" });
-  const plan = useWatch({ control, name: "plan" });
 
   // Keep the rail summary live.
   React.useEffect(() => {
-    setWorkspace({ name, slug, timezone, plan });
-  }, [name, slug, timezone, plan, setWorkspace]);
+    setWorkspace({ name, slug, timezone });
+  }, [name, slug, timezone, setWorkspace]);
 
   useFocusOnMount("signup-workspace-name", navigated);
 
@@ -123,7 +109,7 @@ export function StepWorkspace({ tenantName, brandActive }: { tenantName: string 
     }
     const res = await createWorkspace({ ...values, tenantCode: tenantCode.trim() || undefined });
     if (!res.ok) {
-      if (res.field === "slug" || res.field === "name" || res.field === "timezone" || res.field === "plan") {
+      if (res.field === "slug" || res.field === "name" || res.field === "timezone") {
         setError(res.field, { type: "server", message: res.error });
         if (res.field === "slug") setCheck({ state: "taken", slug: values.slug, message: res.error });
       } else {
@@ -213,40 +199,6 @@ export function StepWorkspace({ tenantName, brandActive }: { tenantName: string 
           </Select>
           <FieldHint id="signup-timezone-hint">Saved with your workspace. Times in the terminal are shown in Eastern time, the market&apos;s clock, for now.</FieldHint>
         </div>
-
-        <fieldset className="grid gap-3">
-          <legend className="text-sm font-medium">Plan</legend>
-          {brandActive && tenantName ? (
-            <FieldHint>List prices shown for reference. {tenantName} sets your pricing.</FieldHint>
-          ) : (
-            <FieldHint>Nothing is charged and plan limits are not enforced in this release. The plan is recorded on your workspace; the platform owner can change it for you.</FieldHint>
-          )}
-          <RadioGroup value={plan} onValueChange={(v) => setValue("plan", v as SignupPlanId, { shouldDirty: true })} aria-label="Plan" className="grid gap-2 sm:grid-cols-3">
-            {SIGNUP_PLANS.map((p) => {
-              const selected = plan === p.id;
-              const id = `signup-plan-${p.id}`;
-              return (
-                <label
-                  key={p.id}
-                  htmlFor={id}
-                  className={cn("flex cursor-pointer flex-col gap-2 rounded-xl border border-border bg-card p-3 transition-colors hover:border-input", selected && "border-primary ring-1 ring-primary")}
-                >
-                  <span className="flex items-start justify-between gap-2">
-                    <span className="grid gap-0.5">
-                      <span className="flex items-center gap-2 text-sm font-semibold">
-                        {p.name}
-                        {p.featured ? <Badge className="h-4 px-1.5 text-[10px]">Recommended</Badge> : null}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{p.tagline}</span>
-                    </span>
-                    <RadioGroupItem id={id} value={p.id} aria-label={`${p.name}, ${priceLine(p)}`} className="mt-0.5" />
-                  </span>
-                  <span className="text-sm font-medium tabular">{priceLine(p)}</span>
-                </label>
-              );
-            })}
-          </RadioGroup>
-        </fieldset>
       </form>
     </StepShell>
   );

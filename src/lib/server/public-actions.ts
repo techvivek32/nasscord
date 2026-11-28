@@ -24,7 +24,8 @@ const applicationSchema = z.object({
   name: z.string().trim().min(2, "Enter your name.").max(80, "Keep it under 80 characters."),
   company: z.string().trim().min(2, "Enter your company or brand.").max(80, "Keep it under 80 characters."),
   email: z.email("Enter a valid work email."),
-  offer: z.enum(["commission", "white_label"], { error: "Choose commission or white-label." }),
+  // "commission" is the database's name for the base tenant program (tenant_applications.offer).
+  offer: z.enum(["commission", "white_label"], { error: "Choose whether you also want white-label." }),
   expectedTraders: z.number().int("Whole numbers only.").min(1, "At least 1 trader.").max(100_000, "Talk to us directly for more than 100,000 traders.").optional(),
   notes: z.string().trim().max(1000, "Keep notes under 1,000 characters.").optional(),
 });

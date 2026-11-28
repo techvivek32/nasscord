@@ -135,7 +135,7 @@ Then open `/signup`: it copies the role from your member row into your session a
 Tenants are distributors. A trader who types a tenant's code at signup joins that tenant.
 
 1. If the tenant should have its own portal login, that person signs up first at `/signup` with their own email, confirms it, and finishes the workspace step. (Signup always creates a trading workspace.)
-2. In the console, open **Tenants** and press **Create tenant**. Enter the name, slug, referral code and commission, and the person's email as **Owner email** (leave it empty for a tenant without a login).
+2. In the console, open **Tenants** and press **Create tenant**. Enter the name, slug and referral code, and the person's email as **Owner email** (leave it empty for a tenant without a login).
 3. Their login becomes the tenant's: role `tenant`, the tenant portal only. They leave the trading workspace they made at signup, which stays in the console's Traders list without members. Creating the tenant is refused while that workspace still has a broker connected: they disconnect every broker on their Brokers page first, so no connection or stored E*TRADE key is left behind.
 
 Codes are 3 to 24 upper case letters, numbers or hyphens. Applications from the public Tenants page appear on the same console page; approving one only records the decision, then **Create tenant** next to it opens the same form.
@@ -143,8 +143,8 @@ Codes are 3 to 24 upper case letters, numbers or hyphens. Applications from the 
 Fallback without the console (no owner login), in **SQL Editor**:
 
 ```sql
-insert into public.tenants (slug, name, referral_code, commission_pct)
-values ('acme-capital', 'Acme Capital', 'ACME', 25);
+insert into public.tenants (slug, name, referral_code)
+values ('acme-capital', 'Acme Capital', 'ACME');
 ```
 
 To support a tenant, the super admin presses **View portal** next to it on the console's Tenants page.

@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import { slugify } from "@/lib/format";
 import type { Role, TenantBranding } from "@/lib/types";
-import { DEFAULT_TIMEZONE, SIGNUP_DRAFT_KEY, defaultWorkspaceName, type SignupPlanId, type TimezoneId, type WizardStep } from "@/components/onboarding/data";
+import { DEFAULT_TIMEZONE, SIGNUP_DRAFT_KEY, defaultWorkspaceName, type TimezoneId, type WizardStep } from "@/components/onboarding/data";
 import type { PreferencesValues } from "@/components/onboarding/schemas";
 
 /* ------------------------------------------------------------------
@@ -32,7 +32,6 @@ export interface WorkspaceDraft {
   /** True once the trader typed a subdomain; stops auto-slugging from the name. */
   slugEdited: boolean;
   timezone: TimezoneId;
-  plan: SignupPlanId;
 }
 
 /** The tenant a code resolved to, for the "Applied" badge and the white-label preview. */
@@ -98,7 +97,7 @@ const initialData: SignupData = {
   account: { fullName: "", email: "", tenantCode: "" },
   awaitingEmail: null,
   tenant: null,
-  workspace: { name: "", nameEdited: false, slug: "", slugEdited: false, timezone: DEFAULT_TIMEZONE, plan: "pro" },
+  workspace: { name: "", nameEdited: false, slug: "", slugEdited: false, timezone: DEFAULT_TIMEZONE },
   created: null,
   prefs: { riskPct: 1, emailAlerts: true, pushAlerts: true, smsAlerts: false, extendedHours: false, paperMode: true },
 };

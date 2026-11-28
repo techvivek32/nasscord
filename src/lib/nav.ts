@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Activity, BarChart3, Bell, BookOpen, Briefcase, Building2, ChartCandlestick, ClipboardList, CreditCard, Gauge, Handshake,
-  History, Layers, LineChart, ListOrdered, Palette, PlugZap, Radar, ScrollText, Settings, ShieldCheck, Users, Wallet,
+  Activity, Bell, BookOpen, Briefcase, Building2, ChartCandlestick, Gauge, Handshake, History, Layers, LineChart, ListOrdered,
+  Palette, PlugZap, Radar, ScrollText, Settings, ShieldCheck, Users,
 } from "lucide-react";
 import { ALERTS_ROLES, type AreaId } from "@/lib/roles";
 import type { Role } from "@/lib/types";
@@ -59,7 +59,7 @@ export const CONSOLE_NAV: NavGroup[] = [
   {
     label: "Customers",
     items: [
-      { title: "Traders", href: "/admin/traders", icon: Building2, description: "Every trading workspace, organic or through a tenant. Open one to change its plan or status." },
+      { title: "Traders", href: "/admin/traders", icon: Building2, description: "Every trading workspace, organic or through a tenant. Open one to change its status or order entry." },
       { title: "Tenants", href: "/admin/tenants", icon: Handshake, description: "Distributors who bring traders: applications, new tenants and their referral codes." },
       { title: "Users", href: "/admin/users", icon: Users, description: "Everyone who can sign in, with their role and workspace or tenant." },
     ],
@@ -74,8 +74,6 @@ export const CONSOLE_NAV: NavGroup[] = [
     label: "Platform",
     items: [
       { title: "Brokers", href: "/admin/brokers", icon: PlugZap, description: "Connections per broker and the health of the broker service." },
-      { title: "Plans & Billing", href: "/admin/billing", icon: CreditCard, description: "The plan list. Billing is not connected yet." },
-      { title: "Revenue", href: "/admin/revenue", icon: BarChart3, description: "Revenue reporting. Not connected yet." },
       { title: "Alert Engine", href: "/admin/engine", icon: Radar, description: "TradeScope scan settings, read only. Live scan status is not connected yet." },
     ],
   },
@@ -89,7 +87,7 @@ export const CONSOLE_NAV: NavGroup[] = [
   },
 ];
 
-/** Tenant portal: commission for every tenant, white-label pages for the ones the super admin granted it. */
+/** Tenant portal: referrals and traders for every tenant, white-label pages for the ones the super admin granted it. */
 export const TENANT_NAV: NavGroup[] = [
   {
     items: [{ title: "Overview", href: "/tenant", icon: Gauge, description: "The traders you brought and your referral link." }],
@@ -99,19 +97,17 @@ export const TENANT_NAV: NavGroup[] = [
     items: [
       { title: "Referrals", href: "/tenant/referrals", icon: Handshake, description: "Your referral code and link. Funnel tracking comes later." },
       { title: "Traders", href: "/tenant/traders", icon: Building2, description: "The workspaces created with your code and the people who sign in to them." },
-      { title: "Payouts", href: "/tenant/payouts", icon: Wallet, description: "Commission payouts. Not connected yet." },
     ],
   },
   {
     label: "White-label",
     items: [
       { title: "Branding", href: "/tenant/branding", icon: Layers, description: "Your name, accent color, domain and emails on the terminal. Needs white-label." },
-      { title: "Plans", href: "/tenant/plans", icon: ClipboardList, description: "Your own plans and prices for your traders. Not connected yet." },
     ],
   },
   {
     label: "Account",
-    items: [{ title: "Settings", href: "/tenant/settings", icon: ShieldCheck, description: "Your tenant's name, code, status and commission rate." }],
+    items: [{ title: "Settings", href: "/tenant/settings", icon: ShieldCheck, description: "Your tenant's name, code and status." }],
   },
 ];
 
@@ -142,7 +138,7 @@ export function navFor(id: ShellNavId, role?: Role): NavGroup[] {
 export const SHELL_AREAS: Record<ShellNavId, { title: string; description: string; href: string; icon: LucideIcon }> = {
   terminal: { title: "Terminal", description: "Your accounts, positions and orders", href: "/app", icon: ChartCandlestick },
   console: { title: "Console", description: "Run the platform: traders, tenants, health", href: "/admin", icon: Gauge },
-  tenant: { title: "Tenant portal", description: "Referrals, commission and white-label", href: "/tenant", icon: Handshake },
+  tenant: { title: "Tenant portal", description: "Referrals, traders and white-label", href: "/tenant", icon: Handshake },
 };
 
 export const MARKETING_NAV: Array<{ title: string; href: string }> = [

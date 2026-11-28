@@ -26,7 +26,7 @@ export async function referralLink(tenant: Pick<Tenant, "referralCode">): Promis
   return `${await emailLinkBase()}/signup?code=${encodeURIComponent(tenant.referralCode)}`;
 }
 
-/** "White-label tenant" or "Commission tenant": how the header and the sidebar name this tenant. */
+/** "White-label tenant" or "Tenant": how the header and the sidebar name this tenant. */
 export function tenantKindLabel(tenant: Pick<Tenant, "whiteLabel">) {
-  return tenant.whiteLabel ? "White-label tenant" : "Commission tenant";
+  return tenant.whiteLabel ? "White-label tenant" : "Tenant";
 }

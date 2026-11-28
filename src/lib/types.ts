@@ -165,30 +165,12 @@ export type RenewNext =
   /** OAuth, SnapTrade: open `url` (the canonical hop) for a new login at the broker. */
   | { kind: "redirect"; url?: string };
 
-export type PlanId = "starter" | "pro" | "desk" | "enterprise";
-
-export interface Plan {
-  id: PlanId;
-  name: string;
-  tagline: string;
-  monthly: number | null; // null = custom
-  yearly: number | null; // per month, billed yearly
-  featured?: boolean;
-  cta: string;
-  features: string[];
-  limits: { brokers: number | "unlimited"; seats: number | "unlimited"; alertDelayMin: number };
-}
-
-/** What a tenant gets. Every tenant earns commission; white-label is an add-on the super admin grants. */
+/**
+ * The two parts of the tenant program, as `tenant_applications.offer` stores them: "commission" is the
+ * database's name for the base program every tenant gets (a referral code and the tenant portal, shown
+ * as "Referrals"); "white_label" is the add-on the super admin grants.
+ */
 export type TenantOfferId = "commission" | "white_label";
-
-export interface TenantOffer {
-  id: TenantOfferId;
-  name: string;
-  summary: string;
-  pricing: string;
-  bullets: string[];
-}
 
 export type WorkspaceStatus = "active" | "trial" | "past_due" | "suspended";
 
@@ -217,15 +199,10 @@ export interface Workspace {
   id: string;
   slug: string;
   name: string;
-  plan: PlanId;
   status: WorkspaceStatus;
   createdAt: string;
   /** Members whose workspace this is. */
   seats: number;
-  /** Seats the plan allows. Absent = unlimited. */
-  seatLimit?: number;
-  /** Monthly recurring revenue. No billing source yet, so absent. */
-  mrr?: number;
   /** Brokers with a connection in this workspace. */
   brokers: BrokerId[];
   /** The tenant this workspace came through; its users are tenant users. Absent = organic traders. */
@@ -237,7 +214,7 @@ export interface Workspace {
 }
 
 /** superadmin = the platform owner: console, tenant portal and their own terminal ·
- *  tenant = a distributor who earns commission on the traders they bring (white-label when the super admin grants it) ·
+ *  tenant = a distributor who brings traders with a referral code (white-label when the super admin grants it) ·
  *  trader = an organic user who signed up directly · tenant_user = a trader who belongs to a tenant */
 export type Role = "superadmin" | "tenant" | "trader" | "tenant_user";
 
@@ -664,22 +641,10 @@ export interface Ticker {
   changePct: number;
 }
 
-export type InvoiceStatus = "paid" | "open" | "past_due" | "void";
-
-export interface Invoice {
-  id: string;
-  workspaceId: string;
-  workspaceName: string;
-  amount: number;
-  status: InvoiceStatus;
-  issuedAt: string;
-  dueAt: string;
-}
-
 /** Matches `tenants.status`. */
 export type TenantStatus = "active" | "pending" | "suspended";
 
-/** A distributor (`public.tenants`). Brings traders to the platform and earns commission on their subscriptions. */
+/** A distributor (`public.tenants`). Brings traders to the platform with a referral code. */
 export interface Tenant {
   id: string;
   slug: string;
@@ -689,11 +654,6 @@ export interface Tenant {
   ownerId?: string;
   /** Workspaces that signed up through this tenant. */
   workspaces: number;
-  /** Commission on the subscription revenue of this tenant's traders, percent. */
-  commissionPct: number;
-  /** No billing source yet, so absent. */
-  mtdRevenue?: number;
-  mtdPayout?: number;
   status: TenantStatus;
   /** Code a trader types at signup to join this tenant. Upper case. */
   referralCode?: string;
@@ -715,7 +675,7 @@ export interface TenantApplication {
   /** Same as `email`: the address to reply to. */
   contact: string;
   offer: TenantOfferId;
-  /** Asked for white-label on top of commission. The super admin decides. */
+  /** Asked for white-label on top of the tenant program. The super admin decides. */
   wantsWhiteLabel: boolean;
   expectedTraders?: number;
   /** "120 expected traders", when the applicant said. */
@@ -731,15 +691,6 @@ export interface BrokerRequest {
   brokerName: string;
   email: string;
   createdAt: string;
-}
-
-export interface Payout {
-  id: string;
-  tenantId: string;
-  period: string;
-  amount: number;
-  status: "scheduled" | "paid" | "on_hold";
-  paidAt?: string;
 }
 
 export type HealthStatus = "healthy" | "degraded" | "down";
@@ -785,7 +736,6 @@ export interface AuditEvent {
 export interface PlatformCounts {
   workspaces: number;
   workspacesByStatus: Record<WorkspaceStatus, number>;
-  workspacesByPlan: Record<PlanId, number>;
   tenants: number;
   membersByRole: Record<Role, number>;
   connections: number;

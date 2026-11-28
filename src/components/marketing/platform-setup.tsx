@@ -27,7 +27,7 @@ function connectBody(a: PublicAvailability): string {
 
 function steps(a: PublicAvailability) {
   return [
-    { title: "Create your account", body: "Email and a password. Confirm your address from the email we send, then name your workspace. Starter is free and needs no card." },
+    { title: "Create your account", body: "Email and a password. Confirm your address from the email we send, then name your workspace. No card is asked for." },
     { title: "Connect a broker", body: connectBody(a) },
     { title: "See it in one place", body: "Accounts, balances, positions, orders and executions from every connection, in one terminal." },
   ];

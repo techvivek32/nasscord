@@ -388,8 +388,8 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Acti
     .insert({
       slug: values.slug,
       name: values.name,
-      plan: values.plan,
-      status: values.plan === "starter" ? "active" : "trial",
+      // No plan is sent: the column keeps its database default, and nothing reads or shows it.
+      status: "active",
       tenant_id: tenant?.id ?? null,
       timezone: values.timezone,
       owner_id: user.id,
@@ -427,7 +427,7 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Acti
     workspaceId,
     action: "workspace.create",
     target: values.slug,
-    meta: { plan: values.plan, role, ...(tenant ? { tenant_id: tenant.id } : {}) },
+    meta: { role, ...(tenant ? { tenant_id: tenant.id } : {}) },
   });
 
   // Role into app_metadata, then a new JWT in the cookies, so the proxy lets the user into their area.

@@ -9,10 +9,8 @@ import { EmptyState } from "@/components/page-header";
 import { BrokerMarks } from "@/components/brokers/broker-mark";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { PLANS } from "@/lib/plans";
-import type { PlanId, Workspace, WorkspaceStatus } from "@/lib/types";
-import { PlanBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
+import type { Workspace, WorkspaceStatus } from "@/lib/types";
+import { WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
 import { fmtDay, WORKSPACE_STATUS, WORKSPACE_STATUSES } from "./lib";
 
 /** A workspace with the tenant it came through and the host its terminal lives on, resolved on the server. */
@@ -24,7 +22,6 @@ export type OrderFlags = Record<string, "on" | "requested">;
 /** A row as the table shows it, with its order entry flag. */
 type Row = TraderRow & { orderFlag?: "on" | "requested" };
 
-type PlanFilter = "all" | PlanId;
 type StatusFilter = "all" | WorkspaceStatus;
 
 const STATUS_ITEMS = [{ value: "all", label: "All statuses" }, ...WORKSPACE_STATUSES.map((s) => ({ value: s, label: WORKSPACE_STATUS[s].label }))];
@@ -72,7 +69,6 @@ const COLUMNS: ColumnDef<Row>[] = [
         <span className="text-muted-foreground">Organic</span>
       ),
   },
-  { accessorKey: "plan", header: "Plan", cell: ({ row }) => <PlanBadge plan={row.original.plan} /> },
   {
     id: "brokers",
     accessorFn: (w) => w.brokers.join(" "),
@@ -80,18 +76,7 @@ const COLUMNS: ColumnDef<Row>[] = [
     enableSorting: false,
     cell: ({ row }) => (row.original.brokers.length ? <BrokerMarks ids={row.original.brokers} /> : <span className="text-xs text-muted-foreground">None</span>),
   },
-  {
-    id: "seats",
-    accessorFn: (w) => w.seats,
-    header: "Members",
-    meta: { align: "right" },
-    cell: ({ row }) => (
-      <span className="tabular">
-        {row.original.seats}
-        {row.original.seatLimit !== undefined ? <span className="text-muted-foreground"> / {row.original.seatLimit}</span> : null}
-      </span>
-    ),
-  },
+  { id: "seats", accessorFn: (w) => w.seats, header: "Members", meta: { align: "right" }, cell: ({ row }) => <span className="tabular">{row.original.seats}</span> },
   { accessorKey: "status", header: "Status", cell: ({ row }) => <WorkspaceStatusBadge status={row.original.status} /> },
   {
     id: "orders",
@@ -111,10 +96,9 @@ const COLUMNS: ColumnDef<Row>[] = [
 
 export function TradersTable({ rows: base, orderFlags = {} }: { rows: TraderRow[]; orderFlags?: OrderFlags }) {
   const router = useRouter();
-  const [plan, setPlan] = React.useState<PlanFilter>("all");
   const [status, setStatus] = React.useState<StatusFilter>("all");
   const all = React.useMemo<Row[]>(() => base.map((w) => (orderFlags[w.id] ? { ...w, orderFlag: orderFlags[w.id] } : w)), [base, orderFlags]);
-  const rows = React.useMemo(() => all.filter((w) => (plan === "all" || w.plan === plan) && (status === "all" || w.status === status)), [all, plan, status]);
+  const rows = React.useMemo(() => all.filter((w) => status === "all" || w.status === status), [all, status]);
 
   if (all.length === 0) return <EmptyState title="No traders yet" description="Workspaces appear here when someone finishes signup." />;
 
@@ -128,26 +112,6 @@ export function TradersTable({ rows: base, orderFlags = {} }: { rows: TraderRow[
       emptyMessage="No traders match these filters."
       toolbar={
         <div className="flex flex-wrap items-center gap-2">
-          <ToggleGroup
-            variant="outline"
-            spacing={0}
-            value={[plan]}
-            onValueChange={(next) => {
-              const v = next[0] as PlanFilter | undefined;
-              if (v) setPlan(v);
-            }}
-            aria-label="Filter by plan"
-            className="overflow-x-auto"
-          >
-            <ToggleGroupItem value="all" size="sm" className="px-3 data-pressed:bg-muted aria-pressed:bg-muted">
-              All
-            </ToggleGroupItem>
-            {PLANS.map((p) => (
-              <ToggleGroupItem key={p.id} value={p.id} size="sm" className="px-3 data-pressed:bg-muted aria-pressed:bg-muted">
-                {p.name}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
           <Select items={STATUS_ITEMS} value={status} onValueChange={(v) => v && setStatus(v as StatusFilter)}>
             <SelectTrigger aria-label="Filter by status" className="w-40">
               <SelectValue />

@@ -8,7 +8,7 @@ import type { Role } from "@/lib/types";
    The four roles:
      superadmin  the platform owner. Console (including White-label),
                  the tenant portal (to support a tenant) and their own terminal.
-     tenant      a distributor. Earns commission on the traders they bring;
+     tenant      a distributor. Brings traders with a referral code;
                  gets white-label when the super admin grants it. Tenant portal only.
      trader      an organic user who signed up directly. Terminal only.
      tenant_user a trader who belongs to a tenant. Terminal only, in the
@@ -29,7 +29,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 /** One plain sentence per role, for the login page and the console's Users page. */
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   superadmin: "Owns the platform. Runs the console, grants white-label and trades from their own desk.",
-  tenant: "A distributor. Earns commission on the traders they bring, with white-label when it is granted.",
+  tenant: "A distributor. Brings traders with a referral code, with white-label when it is granted.",
   trader: "Signed up directly. Trades from the terminal.",
   tenant_user: "Belongs to a tenant. Trades from the terminal in that tenant's brand.",
 };

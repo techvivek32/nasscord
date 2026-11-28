@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { ArrowRight, BookOpenCheck, Eye, Handshake, Landmark, LineChart, Scale, Store } from "lucide-react";
 import { ENGINE_DEFAULTS } from "@/lib/engine";
-import { COMMISSION_PCT } from "@/lib/plans";
 import { brokerNames, publicBrokers, type PublicAvailability, type PublicBroker } from "@/lib/server/broker-availability";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
@@ -174,14 +173,14 @@ const AUDIENCES: Audience[] = [
     icon: LineChart,
     label: "Traders",
     title: <>See every account on <em>one</em> screen.</>,
-    body: "Sign up, connect the brokers you hold, and see your accounts, balances, positions, orders and executions in one place. Starter is free.",
-    link: { label: "Start free", href: "/signup" },
+    body: "Sign up, connect the brokers you hold, and see your accounts, balances, positions, orders and executions in one place.",
+    link: { label: "Sign up", href: "/signup" },
   },
   {
     icon: Handshake,
     label: "Tenants",
-    title: <>Bring traders, earn <em>{COMMISSION_PCT}%</em> for life.</>,
-    body: `Newsletters, educators, communities and advisory firms give traders their own code. Once billing is on, they earn ${COMMISSION_PCT}% of those traders' subscriptions for as long as they stay, and can apply for white-label on top.`,
+    title: <>Bring traders with your own <em>code</em>.</>,
+    body: "Newsletters, educators, communities and advisory firms give traders their own code. The traders who sign up with it join their tenant and show up in the tenant portal. Tenants can apply for white-label on top.",
     link: { label: "The tenant program", href: "/tenants" },
   },
   {

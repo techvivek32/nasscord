@@ -48,7 +48,7 @@ const GROUPS: Record<ShellNavId, Array<{ title: string; body: string }>> = {
     { title: "Overview", body: "Start here. The health of the whole business on one page." },
     { title: "Customers", body: "Who uses the platform: traders, the tenants who bring them, and every login." },
     { title: "White-label", body: "Give a tenant their own brand and domain on the terminal. Only you can turn it on." },
-    { title: "Platform", body: "What the platform offers and what it earns." },
+    { title: "Platform", body: "What the platform offers: the brokers it connects and the alert engine." },
     { title: "Operations", body: "Keeping it running, and the record of every change." },
   ],
   tenant: [

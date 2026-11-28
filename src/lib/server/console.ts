@@ -48,7 +48,6 @@ import type {
   OrderEntryState,
   OrderRequestStatus,
   OrderSide,
-  PlanId,
   TicketOrderType,
   PlatformCounts,
   Role,
@@ -331,7 +330,6 @@ export async function platformCounts(): Promise<PlatformCounts> {
     return r.count ?? 0;
   };
   const WS_STATUSES = ["active", "trial", "past_due", "suspended"] as const satisfies readonly WorkspaceStatus[];
-  const PLANS = ["starter", "pro", "desk", "enterprise"] as const satisfies readonly PlanId[];
   const ROLE_LIST = ["superadmin", "tenant", "trader", "tenant_user"] as const satisfies readonly Role[];
   // Every broker in the registry, so a new broker's connections are counted the day it ships.
   const BROKERS: BrokerId[] = REGISTRY.map((b) => b.id);
@@ -352,10 +350,9 @@ export async function platformCounts(): Promise<PlatformCounts> {
       ),
     ).then((parts) => parts.reduce((a, b) => a + b, 0));
 
-  const [workspaces, byStatus, byPlan, tenants, byRole, connections, byBroker, byDbStatus, active, expiring, pendingApplications, brokerRequests] = await Promise.all([
+  const [workspaces, byStatus, tenants, byRole, connections, byBroker, byDbStatus, active, expiring, pendingApplications, brokerRequests] = await Promise.all([
     count("workspaces", head("workspaces")),
     Promise.all(WS_STATUSES.map((v) => count("workspaces", head("workspaces").eq("status", v)))),
-    Promise.all(PLANS.map((v) => count("workspaces", head("workspaces").eq("plan", v)))),
     count("tenants", head("tenants")),
     Promise.all(ROLE_LIST.map((v) => count("members", head("members").eq("role", v)))),
     count("broker_connections", head("broker_connections")),
@@ -369,8 +366,6 @@ export async function platformCounts(): Promise<PlatformCounts> {
 
   const workspacesByStatus = zeroes<WorkspaceStatus>(WS_STATUSES);
   WS_STATUSES.forEach((v, i) => (workspacesByStatus[v] = byStatus[i]));
-  const workspacesByPlan = zeroes<PlanId>(PLANS);
-  PLANS.forEach((v, i) => (workspacesByPlan[v] = byPlan[i]));
   const membersByRole = zeroes<Role>(ROLE_LIST);
   ROLE_LIST.forEach((v, i) => (membersByRole[v] = byRole[i]));
 
@@ -389,7 +384,6 @@ export async function platformCounts(): Promise<PlatformCounts> {
   return {
     workspaces,
     workspacesByStatus,
-    workspacesByPlan,
     tenants,
     membersByRole,
     connections,

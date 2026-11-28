@@ -50,7 +50,7 @@ function StillCord({ brokers }: { brokers: PublicBroker[] }) {
 
 /**
  * Closing call to action: a centered card on the dot-grid band, with the still cord, a serif headline, one line of
- * copy, the actions and a short note. Actions default to Start free / Become a tenant. The brokers on the cord and in
+ * copy, the actions and a short note. Actions default to Sign up / Become a tenant. The brokers on the cord and in
  * the default line are the ones that connect for everyone today (the broker service's answer, see publicBrokers).
  */
 export async function CtaBand({
@@ -60,9 +60,9 @@ export async function CtaBand({
     </>
   ),
   lede,
-  primary = { label: "Start free", href: "/signup" },
+  primary = { label: "Sign up", href: "/signup" },
   secondary = { label: "Become a tenant", href: "/tenants" },
-  note = "Starter is free · No card required · Nothing is charged in this release",
+  note = "No card required · Custody stays at your broker",
 }: {
   title?: React.ReactNode;
   lede?: string;

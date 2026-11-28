@@ -109,13 +109,13 @@ export function SignupWizard({
   ) : step === 1 ? (
     <StepAccount />
   ) : step === 2 ? (
-    <StepWorkspace tenantName={activeTenant?.name ?? null} brandActive={branding !== null} />
+    <StepWorkspace />
   ) : step === 3 ? (
     <StepBrokers />
   ) : step === 4 ? (
     <StepPreferences />
   ) : (
-    <StepReady tenantName={activeTenant?.name ?? null} brandActive={branding !== null} />
+    <StepReady tenantName={activeTenant?.name ?? null} />
   );
 
   return (

@@ -3,8 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TONE_BADGE } from "@/components/status-dot";
 import { fmtDate } from "@/lib/format";
-import { PLAN_LABEL } from "@/lib/plans";
-import type { PlanId, TenantStatus, WorkspaceStatus } from "@/lib/types";
+import type { TenantStatus, WorkspaceStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* The tenant portal's small building blocks. Pure: safe for server and client components. */
@@ -24,21 +23,11 @@ export function ToneBadge({ tone, children, className }: { tone: Tone; children:
   );
 }
 
-/** Every tenant earns commission; "White-label" marks the ones the super admin granted it to. */
+/** "White-label" marks the tenants the super admin granted it to. */
 export function WhiteLabelBadge({ on, className }: { on: boolean; className?: string }) {
   return (
     <ToneBadge tone={on ? "brand" : "neutral"} className={className}>
-      {on ? "White-label" : "Commission"}
-    </ToneBadge>
-  );
-}
-
-const PLAN_TONE: Record<PlanId, Tone> = { starter: "neutral", pro: "brand", desk: "good", enterprise: "warn" };
-
-export function PlanBadge({ plan, className }: { plan: PlanId; className?: string }) {
-  return (
-    <ToneBadge tone={PLAN_TONE[plan]} className={className}>
-      {PLAN_LABEL[plan]}
+      {on ? "White-label" : "No white-label"}
     </ToneBadge>
   );
 }

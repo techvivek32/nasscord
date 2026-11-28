@@ -42,7 +42,7 @@ export function MobileMenu({ items }: { items: Array<{ title: string; href: stri
             Sign in
           </Button>
           <Button size="lg" className="h-12 rounded-[2px]" render={<Link href="/signup" onClick={close} />}>
-            Start free
+            Sign up
             <ArrowRight data-icon="inline-end" />
           </Button>
         </div>

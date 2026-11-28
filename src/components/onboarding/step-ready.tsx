@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 import { ArrowRightIcon, CircleCheckIcon, LoaderCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { APP_DOMAIN } from "@/lib/branding";
-import { getPlan } from "@/lib/plans";
 import { ROLE_LABEL, terminalHomeForRole } from "@/lib/roles";
 import { MAX_REPORTED_SETUP_MS, formatElapsed } from "@/components/onboarding/data";
 import { StepShell, useFocusOnMount } from "@/components/onboarding/step-shell";
 import { useSignupStore } from "@/components/onboarding/store";
 
 /** Step 5: what was set up, then "Open your terminal" (Positions for traders, terminalHomeForRole). */
-export function StepReady({ tenantName, brandActive }: { tenantName: string | null; brandActive: boolean }) {
+export function StepReady({ tenantName }: { tenantName: string | null }) {
   const router = useRouter();
   const workspace = useSignupStore((s) => s.workspace);
   const created = useSignupStore((s) => s.created);
@@ -25,7 +24,6 @@ export function StepReady({ tenantName, brandActive }: { tenantName: string | nu
 
   useFocusOnMount("signup-open-terminal", navigated);
 
-  const plan = getPlan(workspace.plan);
   const slug = created?.slug ?? workspace.slug;
   const role = created?.role ?? "trader";
   const elapsed = startedAt && completedAt && completedAt > startedAt ? completedAt - startedAt : null;
@@ -54,7 +52,6 @@ export function StepReady({ tenantName, brandActive }: { tenantName: string | nu
         <Row label="Your role">
           {role === "tenant_user" && tenantName ? `${ROLE_LABEL.tenant_user} through ${tenantName}` : ROLE_LABEL[role]}
         </Row>
-        <Row label="Plan">{brandActive && tenantName ? `${plan.name} · priced by ${tenantName}` : plan.name}</Row>
         <Row label="Brokers">
           <span className="text-muted-foreground">Connect from the Brokers page</span>
         </Row>

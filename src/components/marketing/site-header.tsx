@@ -21,7 +21,7 @@ export function SiteHeader() {
             Sign in
           </Button>
           <Button className="group/cta hidden h-10 rounded-[2px] px-4 text-[0.95rem] sm:inline-flex" render={<Link href="/signup" />}>
-            Start free
+            Sign up
             <ArrowRight data-icon="inline-end" className="transition-transform group-hover/cta:translate-x-0.5" />
           </Button>
           <MobileMenu items={MARKETING_NAV} />

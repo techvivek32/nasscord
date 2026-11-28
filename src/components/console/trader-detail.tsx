@@ -10,7 +10,7 @@ import { getBroker } from "@/lib/brokers";
 import { whiteLabelBranding } from "@/lib/branding";
 import { fmtDateTime } from "@/lib/format";
 import type { AuditEvent, BrokerConnection, ConsoleOrderRow, OrderEntryState, Tenant, User, Workspace } from "@/lib/types";
-import { ConnectionStatusBadge, PlanBadge, ResultBadge, RoleBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
+import { ConnectionStatusBadge, ResultBadge, RoleBadge, WhiteLabelBadge, WorkspaceStatusBadge } from "./badges";
 import { fmtDay, lastSignInLabel, workspaceHostFor } from "./lib";
 import { KV, TH } from "./primitives";
 import { NasscordOrdersCard, OrderEntrySwitch, WorkspaceControls } from "./trader-sections";
@@ -54,7 +54,6 @@ export function TraderDetail({
           <span className="flex flex-wrap items-center gap-2">
             {workspace.name}
             <WorkspaceStatusBadge status={workspace.status} />
-            <PlanBadge plan={workspace.plan} />
           </span>
         }
         description={<span className="font-mono text-xs break-all">{host}</span>}
@@ -96,7 +95,7 @@ export function TraderDetail({
                     <span className="text-muted-foreground">Nasscord</span>
                   ),
                 },
-                { label: "Members", value: workspace.seatLimit !== undefined ? `${workspace.seats} of ${workspace.seatLimit}` : `${workspace.seats}, no limit` },
+                { label: "Members", value: String(workspace.seats) },
                 { label: "Timezone", value: workspace.timezone },
                 { label: "Created", value: fmtDay(workspace.createdAt) },
                 { label: "Slug", value: <span className="font-mono text-xs">{workspace.slug}</span> },
@@ -108,8 +107,8 @@ export function TraderDetail({
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Plan and status</CardTitle>
-            <CardDescription>Each change asks first, is saved to the workspace and is written to the audit log under your login.</CardDescription>
+            <CardTitle>Status</CardTitle>
+            <CardDescription>A change asks first, is saved to the workspace and is written to the audit log under your login.</CardDescription>
           </CardHeader>
           <CardContent>
             <WorkspaceControls workspace={workspace} />

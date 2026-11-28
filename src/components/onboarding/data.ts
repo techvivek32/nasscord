@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------
    Static data for the signup wizard: the step list and small helpers.
-   Field rules, timezones, plans and reserved subdomains live in
+   Field rules, timezones and reserved subdomains live in
    src/lib/signup.ts so the server actions validate with the same rules.
    ------------------------------------------------------------------ */
 
@@ -8,11 +8,9 @@ export {
   DEFAULT_TIMEZONE,
   RESERVED_SLUGS,
   RISK_OPTIONS,
-  SIGNUP_PLAN_IDS,
   TIMEZONE_IDS,
   TIMEZONES,
   type RiskPct,
-  type SignupPlanId,
   type TimezoneId,
 } from "@/lib/signup";
 
@@ -23,7 +21,7 @@ export type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 export const STEPS: ReadonlyArray<{ id: WizardStep; title: string; description: string }> = [
   { id: 1, title: "Account", description: "Who you are" },
-  { id: 2, title: "Workspace", description: "Name, URL and plan" },
+  { id: 2, title: "Workspace", description: "Name, URL and timezone" },
   { id: 3, title: "Brokers", description: "Connect your broker" },
   { id: 4, title: "Preferences", description: "Risk and alerts" },
   { id: 5, title: "Ready", description: "Open the terminal" },

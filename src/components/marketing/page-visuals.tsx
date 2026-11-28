@@ -1,5 +1,5 @@
+import { APP_DOMAIN } from "@/lib/branding";
 import { PaperCard } from "@/components/marketing/container";
-import { CountUp } from "@/components/marketing/reveal";
 import { cn } from "@/lib/utils";
 
 /* Cards for the inner-page heroes, shown on a dot-grid panel. Each page states the same facts in text. */
@@ -13,17 +13,15 @@ function CardHead({ left, right }: { left: string; right: string }) {
   );
 }
 
-/** The commission share as one large figure, with the terms underneath. */
-export function CommissionCard({ pct, notes, className }: { pct: number; notes: string[]; className?: string }) {
+/** A made-up referral code as one large figure, the signup link it makes, and the program terms underneath. */
+export function ReferralCard({ code, notes, className }: { code: string; notes: string[]; className?: string }) {
   return (
     <PaperCard className={cn("px-5 pt-4 pb-2", className)}>
-      <CardHead left="Tenant commission" right="Program terms" />
-      <div className="flex items-end justify-between gap-4 border-b border-border py-5">
-        <CountUp value={pct} suffix="%" className="text-8xl leading-[0.8] tracking-[-0.05em] tabular" />
-        <span className="pb-1 text-right font-serif text-2xl leading-tight italic">
-          of every
-          <br />
-          subscription
+      <CardHead left="Tenant program" right="Example code" />
+      <div className="grid gap-3 border-b border-border py-5">
+        <span className="font-mono text-5xl leading-none tracking-tight break-all sm:text-6xl">{code}</span>
+        <span className="font-mono text-xs break-all text-muted-foreground">
+          {APP_DOMAIN}/signup?code={code}
         </span>
       </div>
       <ul>

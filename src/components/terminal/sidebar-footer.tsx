@@ -7,7 +7,6 @@ import type { TerminalUser } from "@/components/terminal/terminal-header";
 
 export interface TerminalWorkspace {
   name: string;
-  planLabel: string;
   host: string;
 }
 
@@ -27,9 +26,7 @@ export function TerminalSidebarFooter({ workspace, user }: { workspace: Terminal
         <UserMenu user={user} settingsHref="/app/settings" />
         <div className="min-w-0 group-data-[collapsible=icon]:hidden">
           <p className="truncate text-sm font-medium">{workspace.name}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {workspace.planLabel} · {workspace.host}
-          </p>
+          <p className="truncate text-xs text-muted-foreground">{workspace.host}</p>
         </div>
       </div>
     </div>

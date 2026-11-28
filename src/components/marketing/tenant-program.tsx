@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { COMMISSION_PCT, WHITE_LABEL_FEE } from "@/lib/plans";
 import { EXAMPLE_BRANDING, TENANT_ANCHOR, TENANT_OFFER_BADGE, WhiteLabelPreview } from "@/components/marketing/tenant-offers";
 import { reveal } from "@/components/marketing/motion";
 import { cn } from "@/lib/utils";
 
 /*
- * The tenant program on the home page: the two offers as term sheets, commission for every tenant and white-label as
- * the add-on. Server component. Terms say plainly what works in this release; billing and payouts are not on yet.
+ * The tenant program on the home page: its two parts as term sheets, referrals for every tenant and white-label as
+ * the add-on. Server component. Terms say plainly what works in this release.
  */
 
 interface TermSheet {
@@ -21,16 +20,14 @@ interface TermSheet {
 const SHEETS: TermSheet[] = [
   {
     id: "commission",
-    title: "Commission",
-    summary: "Every tenant gets it, from the first trader who signs up with their code.",
+    title: "Referrals",
+    summary: "Every tenant gets a referral code and a link of their own. The traders who sign up with them join the tenant.",
     terms: [
-      ["Share", `${COMMISSION_PCT}% of subscription revenue`],
-      ["For how long", "As long as the trader stays"],
       ["How traders join", "Your code at signup, or your link"],
+      ["Their terminal", "The same one every trader uses"],
       ["In the portal", "Your code, your link and the traders who joined"],
-      ["Today", "Billing is not on yet, so nothing is earned or paid out"],
     ],
-    link: "Read about commission",
+    link: "Read about referrals",
   },
   {
     id: "white_label",
@@ -39,8 +36,6 @@ const SHEETS: TermSheet[] = [
     terms: [
       ["Your brand", "Your name and accent colors on the terminal, and your own domain"],
       ["Approval", "Turned on by Nasscord after review"],
-      ["Platform fee", `From $${WHITE_LABEL_FEE}/mo plus per-seat, once billing is on`],
-      ["Planned", "Your own plans and prices for your traders"],
     ],
     link: "Read about white-label",
   },

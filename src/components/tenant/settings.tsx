@@ -18,7 +18,6 @@ export function TenantSettings({ tenant, session }: { tenant: Tenant; session: S
               { label: "Name", value: tenant.name },
               { label: "Slug", value: <span className="font-mono text-xs">{tenant.slug}</span> },
               { label: "Status", value: <TenantStatusBadge status={tenant.status} /> },
-              { label: "Commission", value: `${tenant.commissionPct}% of your traders' subscriptions` },
               { label: "Referral code", value: tenant.referralCode ? <span className="font-mono text-xs">{tenant.referralCode}</span> : <span className="text-muted-foreground">Not set</span> },
               { label: "White-label", value: <WhiteLabelBadge on={tenant.whiteLabel} /> },
               { label: "Owner", value: tenant.contact ?? <span className="text-muted-foreground">Not set</span> },

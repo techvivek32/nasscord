@@ -6,7 +6,6 @@ import { TerminalHeader } from "@/components/terminal/terminal-header";
 import { TerminalSidebarFooter } from "@/components/terminal/sidebar-footer";
 import { WorkspaceScopeProvider } from "@/components/workspace-scope";
 import { requireRole } from "@/lib/auth";
-import { PLAN_LABEL } from "@/lib/plans";
 import { ROLE_LABEL, TERMINAL_ROLES, areasForRole, terminalHomeForRole } from "@/lib/roles";
 import { getCurrentBranding, getCurrentWorkspace, getMySettings, workspaceHost } from "@/lib/server/workspace";
 
@@ -49,7 +48,7 @@ export default async function TerminalLayout({ children }: { children: React.Rea
             brandHref={terminalHomeForRole(session.role)}
             areas={areasForRole(session.role)}
             header={<TerminalHeader user={user} />}
-            sidebarFooter={<TerminalSidebarFooter user={user} workspace={{ name: workspace.name, planLabel: PLAN_LABEL[workspace.plan], host }} />}
+            sidebarFooter={<TerminalSidebarFooter user={user} workspace={{ name: workspace.name, host }} />}
           >
             {children}
           </AppShell>

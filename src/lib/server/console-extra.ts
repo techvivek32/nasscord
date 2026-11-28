@@ -10,7 +10,7 @@ import { audit } from "@/lib/server/audit";
 import { hydrateWorkspaces } from "@/lib/server/directory";
 import { memberName, WORKSPACE_COLUMNS, type WorkspaceRow } from "@/lib/server/rows";
 import type { ActionResult } from "@/lib/signup";
-import type { PlanId, Role, Session, Workspace, WorkspaceStatus } from "@/lib/types";
+import type { Role, Session, Workspace, WorkspaceStatus } from "@/lib/types";
 
 /*
  * Console extras that src/lib/server/console.ts and console-actions.ts do not cover: the Ctrl K
@@ -26,7 +26,6 @@ export interface WorkspaceHit {
   id: string;
   name: string;
   slug: string;
-  plan: PlanId;
   status: WorkspaceStatus;
   ownerEmail: string;
 }
@@ -103,9 +102,9 @@ export async function searchConsole(query: string): Promise<ActionResult<{ works
   // Workspaces whose name or slug matches, plus the ones owned by a matching member.
   const ownedBy = [...new Set(memberRows.map((m) => m.user_id))];
   const wsFilter = [`name.ilike.${like}`, `slug.ilike.${like}`, ...(ownedBy.length ? [`owner_id.in.(${ownedBy.join(",")})`] : [])].join(",");
-  const workspaces = await admin.from("workspaces").select("id, slug, name, plan, status, owner_id").or(wsFilter).order("created_at", { ascending: false }).limit(8);
+  const workspaces = await admin.from("workspaces").select("id, slug, name, status, owner_id").or(wsFilter).order("created_at", { ascending: false }).limit(8);
   if (workspaces.error) return { ok: false, error: "Search did not answer. Try again in a moment." };
-  const wsRows = (workspaces.data ?? []) as { id: string; slug: string; name: string; plan: PlanId; status: WorkspaceStatus; owner_id: string }[];
+  const wsRows = (workspaces.data ?? []) as { id: string; slug: string; name: string; status: WorkspaceStatus; owner_id: string }[];
 
   // Names for the places members belong to, and owner emails for the workspaces.
   const wsIds = [...new Set(memberRows.map((m) => m.workspace_id).filter((v): v is string => Boolean(v)))];
@@ -122,7 +121,7 @@ export async function searchConsole(query: string): Promise<ActionResult<{ works
 
   return {
     ok: true,
-    workspaces: wsRows.map((w) => ({ id: w.id, name: w.name, slug: w.slug, plan: w.plan, status: w.status, ownerEmail: ownerEmail.get(w.owner_id) ?? "" })),
+    workspaces: wsRows.map((w) => ({ id: w.id, name: w.name, slug: w.slug, status: w.status, ownerEmail: ownerEmail.get(w.owner_id) ?? "" })),
     members: memberRows.map((m) => ({
       id: m.user_id,
       name: memberName(m),

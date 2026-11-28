@@ -21,7 +21,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { createTenant, decideTenantApplication, viewTenantPortal } from "@/lib/server/console-actions";
 import { setTenantReferralCode } from "@/lib/server/console-extra";
 import { fmtNum, slugify } from "@/lib/format";
-import { COMMISSION_PCT } from "@/lib/plans";
 import type { Tenant, TenantApplication, TenantApplicationStatus } from "@/lib/types";
 import { ApplicationStatusBadge, TenantStatusBadge, ToneBadge, WhiteLabelBadge } from "./badges";
 import { attempt, fmtDay } from "./lib";
@@ -47,7 +46,6 @@ function tenantColumns(onEditCode: (t: Tenant) => void, onView: (t: Tenant) => v
       ),
     },
     { accessorKey: "workspaces", header: "Traders", meta: { align: "right" }, cell: ({ row }) => <span className="tabular">{fmtNum(row.original.workspaces)}</span> },
-    { accessorKey: "commissionPct", header: "Commission", meta: { align: "right" }, cell: ({ row }) => <span className="tabular">{row.original.commissionPct}%</span> },
     {
       id: "whiteLabel",
       accessorFn: (t) => (t.whiteLabel ? "white-label" : ""),
@@ -162,7 +160,7 @@ export function TenantsPage({ tenants, applications }: { tenants: Tenant[]; appl
         id: "offer",
         accessorFn: (a) => a.offer,
         header: "Asked for",
-        cell: ({ row }) => (row.original.wantsWhiteLabel ? <ToneBadge tone="brand">White-label</ToneBadge> : <ToneBadge tone="neutral">Commission</ToneBadge>),
+        cell: ({ row }) => (row.original.wantsWhiteLabel ? <ToneBadge tone="brand">White-label</ToneBadge> : <ToneBadge tone="neutral">Referrals</ToneBadge>),
       },
       {
         id: "expected",
@@ -320,16 +318,6 @@ export function TenantsPage({ tenants, applications }: { tenants: Tenant[]; appl
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Payouts</CardTitle>
-          <CardDescription>Commission owed to tenants on their traders&apos; subscriptions.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <EmptyState title="Payouts are not connected yet" description="There is no billing source, so no commission has been earned or paid." />
-        </CardContent>
-      </Card>
-
       <Dialog open={decision !== null} onOpenChange={(o) => !o && !deciding && setDecision(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -375,10 +363,6 @@ const createSchema = z.object({
     .trim()
     .toUpperCase()
     .refine((v) => v === "" || /^[A-Z0-9-]{3,24}$/.test(v), "Codes are 3 to 24 letters, numbers or hyphens"),
-  commissionPct: z
-    .string()
-    .trim()
-    .refine((v) => v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100, "Commission is a number from 0 to 100"),
   ownerEmail: z.string().trim().refine((v) => v === "" || z.email().safeParse(v).success, "Enter a valid owner email, or leave it empty"),
   whiteLabel: z.boolean(),
 });
@@ -386,7 +370,7 @@ type CreateInput = z.input<typeof createSchema>;
 type CreateValues = z.output<typeof createSchema>;
 type CreateField = keyof CreateValues;
 
-const CREATE_FIELDS: CreateField[] = ["name", "slug", "referralCode", "commissionPct", "ownerEmail", "whiteLabel"];
+const CREATE_FIELDS: CreateField[] = ["name", "slug", "referralCode", "ownerEmail", "whiteLabel"];
 
 /** A tenant slug suggested from a name: never ends on a hyphen after truncation. */
 function slugFrom(name: string) {
@@ -408,7 +392,6 @@ function CreateTenantDialog({ defaults, onClose }: { defaults: Partial<CreateVal
       name: defaults.name ?? "",
       slug: defaults.slug ?? "",
       referralCode: defaults.referralCode ?? (defaults.name ? codeFrom(defaults.name) : ""),
-      commissionPct: defaults.commissionPct ?? String(COMMISSION_PCT),
       ownerEmail: defaults.ownerEmail ?? "",
       whiteLabel: defaults.whiteLabel ?? false,
     },
@@ -421,7 +404,7 @@ function CreateTenantDialog({ defaults, onClose }: { defaults: Partial<CreateVal
   };
 
   async function onSubmit(v: CreateValues) {
-    const input = { name: v.name, slug: v.slug, referralCode: v.referralCode, commissionPct: Number(v.commissionPct), ownerEmail: v.ownerEmail, whiteLabel: v.whiteLabel };
+    const input = { name: v.name, slug: v.slug, referralCode: v.referralCode, ownerEmail: v.ownerEmail, whiteLabel: v.whiteLabel };
     const r = await attempt(() => createTenant(input));
     if (!r.ok) {
       const field = CREATE_FIELDS.find((f) => f === r.field);
@@ -465,14 +448,9 @@ function CreateTenantDialog({ defaults, onClose }: { defaults: Partial<CreateVal
               <Input id="tenant-code" autoComplete="off" spellCheck={false} maxLength={24} className="font-mono uppercase" aria-invalid={!!errors.referralCode} {...form.register("referralCode")} />
             </Field>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="tenant-owner" label="Owner email" error={errors.ownerEmail?.message} help="Optional. An existing account.">
-              <Input id="tenant-owner" type="email" autoComplete="off" placeholder="owner@company.com" aria-invalid={!!errors.ownerEmail} {...form.register("ownerEmail")} />
-            </Field>
-            <Field id="tenant-commission" label="Commission, %" error={errors.commissionPct?.message} help={`Standard is ${COMMISSION_PCT}%.`}>
-              <Input id="tenant-commission" inputMode="decimal" className="font-mono tabular" aria-invalid={!!errors.commissionPct} {...form.register("commissionPct")} />
-            </Field>
-          </div>
+          <Field id="tenant-owner" label="Owner email" error={errors.ownerEmail?.message} help="Optional. An existing account.">
+            <Input id="tenant-owner" type="email" autoComplete="off" placeholder="owner@company.com" aria-invalid={!!errors.ownerEmail} {...form.register("ownerEmail")} />
+          </Field>
           <div className="flex items-start justify-between gap-4 rounded-lg border px-3 py-2.5">
             <label htmlFor="tenant-wl" className="grid cursor-pointer gap-0.5">
               <span className="text-sm font-medium">White-label</span>

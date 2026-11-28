@@ -9,7 +9,7 @@ import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, Comma
 import { UserMenu, type ShellUser } from "@/components/layout/user-menu";
 import { searchConsole, type MemberHit, type WorkspaceHit } from "@/lib/server/console-extra";
 import { ROLE_LABEL } from "./lib";
-import { PlanBadge, WorkspaceStatusBadge } from "./badges";
+import { WorkspaceStatusBadge } from "./badges";
 
 /** Console header: global search (Ctrl K), the deployment this is, account menu. */
 export function ConsoleHeader({ user, environment }: { user: ShellUser; environment: string }) {
@@ -113,7 +113,6 @@ function GlobalSearch({ onClose }: { onClose: () => void }) {
                       {w.ownerEmail ? ` · ${w.ownerEmail}` : ""}
                     </span>
                   </span>
-                  <PlanBadge plan={w.plan} className="hidden sm:inline-flex" />
                   <WorkspaceStatusBadge status={w.status} />
                 </CommandItem>
               ))}

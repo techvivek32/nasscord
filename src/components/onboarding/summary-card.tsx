@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { APP_DOMAIN } from "@/lib/branding";
-import { getPlan } from "@/lib/plans";
 import { ROLE_LABEL } from "@/lib/roles";
 import { useSignupStore } from "@/components/onboarding/store";
 
@@ -13,7 +12,6 @@ export function SummaryCard() {
   const tenant = useSignupStore((s) => s.tenant);
   const tenantCode = useSignupStore((s) => s.account.tenantCode);
   const created = useSignupStore((s) => s.created);
-  const plan = getPlan(workspace.plan);
   const joinedTenant = tenant && tenant.code === tenantCode.trim().toUpperCase() ? tenant : null;
 
   const joiningAs = created
@@ -41,7 +39,6 @@ export function SummaryCard() {
             )}
           </Row>
           <Row label="Joining as">{joiningAs}</Row>
-          <Row label="Plan">{joinedTenant?.branding ? `${plan.name} · ${joinedTenant.name} pricing` : plan.name}</Row>
           <Row label="Brokers">
             <span className="text-muted-foreground">Connected in step 3</span>
           </Row>
